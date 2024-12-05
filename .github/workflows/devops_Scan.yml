@@ -1,0 +1,30 @@
+name: Block DevOps Center Commit on Severity 3
+ 
+on:
+  push:
+    branches:
+      - '**'
+ 
+jobs:
+  block_commit:
+    runs-on: ubuntu-latest
+ 
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+ 
+    - name: Install SFDX Scanner
+      run: |
+        npm install -g sfdx-cli
+        sfdx plugins:install @salesforce/sfdx-scanner
+ 
+    - name: Run SFDX Scanner
+      run: |
+        sf scanner:run --target force-app --format json --outfile scanner-report.json
+    - name: Block Commit if Severity 3 Issues Found
+      run: |
+        severity_fail_count=$(grep -oP '"severity":\s*(3)' scanner-report.json | wc -l)
+        if [ "$severity_fail_count" -gt 0 ]; then
+          echo "Blocking commit due to severity 3 vulnerabilities."
+          exit 1
+        fi
