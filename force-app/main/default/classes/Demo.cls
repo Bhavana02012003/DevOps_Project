@@ -3,7 +3,7 @@ public with sharing class Demo {
           for (Account acc : accList) {
             if (Schema.sObjectType.Account.fields.Description.isUpdateable()) {
               System.debug('Debug');
-              acc.Description = 'Happy Welcome';
+              acc.Description = 'Happy Welcome to';
               acc.Rating = 'Hotter';
               acc.Industry = 'Agriculture';
             }
