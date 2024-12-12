@@ -1,4 +1,5 @@
 public with sharing class Demo {
+
     @AuraEnabled
    public static Account createAccount(Account acc){
        System.debug('Hello');
@@ -10,4 +11,5 @@ public with sharing class Demo {
         throw new AuraHandledException(e.getMessage());
     }
 }
+
 }
