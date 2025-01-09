@@ -90,6 +90,10 @@ jobs:
             echo "Running SFDX Scanner on file: $file"
             sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" --ruleset "force-app/main/default/Custom_apex_ruleset.xml" || { echo "Scanner run failed for $file, continuing with other files."; }
           done
+
+      - name: Display Custom Ruleset
+        run: cat force-app/main/default/Custom_apex_ruleset.xml
+
  
       - name: Block PR merge if severity violations are found
         id: block-check
