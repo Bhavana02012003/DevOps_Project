@@ -18,16 +18,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 20.x
-
-      - name: Check and Install npm
-        run: |
-          if ! command -v npm &> /dev/null; then
-            echo "npm not found. Installing npm..."
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-            sudo apt-get install -y nodejs
-          else
-            echo "npm is already installed. Version: $(npm --version)"
-          fi
  
       - name: Install Salesforce CLI
         run: npm install @salesforce/cli --global
@@ -130,8 +120,8 @@ jobs:
  
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
-    # needs: quality-gate-code-check
-    # if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}
+    needs: quality-gate-code-check
+    if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -161,10 +151,9 @@ jobs:
           done
           if [ ${#BLOCKED_FILES[@]} -gt 0 ]; then
             echo "Critical permissions found in the following files:"
-            for PERMISSION_INFO in "${CRITICAL_FOUND[@]}"; do
-              echo "$PERMISSION_INFO"
+            for FILE in "${BLOCKED_FILES[@]}"; do
+              echo "$FILE"
             done
-            echo "Blocking job due to critical permissions being assigned."
             exit 1
           else
             echo "No critical permissions assigned to non-System Administrator profiles or permission sets."
