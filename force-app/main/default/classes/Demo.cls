@@ -1,41 +1,35 @@
 /**
- * @description This class handles Account insertion while ensuring proper security checks.
- * @author [Your Name]
- * @date [Current Date]
+ * @description This class handles operations related to Account records.
+ * @author Your Name
  */
 public with sharing class Demo {
 
-    /**
-     * @description Inserts a list of Accounts after validating field-level security (FLS) and CRUD permissions.
-     * @param accList List of Account records to insert.
-     */
-    public static void insertAccount(List<Account> accList) {
-        if (accList == null || accList.isEmpty()) {
-            return; // Avoid unnecessary processing
-        }
+  /**
+   * @description Inserts a list of Account records after validating field permissions.
+   * @param accList List of Account records to be inserted.
+   */
+  public static void insertAccount(List<Account> accList) {
+      if (accList == null || accList.isEmpty()) {
+          return; // Avoid unnecessary operations
+      }
 
-        // Check if the user has permission to create Account records
-        if (!Schema.sObjectType.Account.isCreateable()) {
-            throw new SecurityException('Insufficient permissions to create Account records.');
-        }
+      // Check field update permissions before modifying records
+      for (Account acc : accList) {
+          if (Schema.sObjectType.Account.fields.Description.isUpdateable() &&
+              Schema.sObjectType.Account.fields.Rating.isUpdateable() &&
+              Schema.sObjectType.Account.fields.Industry.isUpdateable()) {
 
-        // Check Field-Level Security (FLS) before modifying fields
-        Boolean canUpdateFields = Schema.sObjectType.Account.fields.Description.isUpdateable() &&
-                                  Schema.sObjectType.Account.fields.Rating.isUpdateable() &&
-                                  Schema.sObjectType.Account.fields.Industry.isUpdateable();
+              acc.Description = 'Happy Welcome to';
+              acc.Rating = 'Hotter';
+              acc.Industry = 'Agriculture';
+          }
+      }
 
-        if (canUpdateFields) {
-            for (Account acc : accList) {
-                acc.Description = 'Welcome to Our Organization';
-                acc.Rating = 'Hot';  // Consider using Custom Metadata instead of hardcoding
-                acc.Industry = 'Agriculture';
-            }
-        }
-
-        try {
-            insert accList;
-        } catch (DmlException e) {
-            System.debug(LoggingLevel.ERROR, 'Error inserting accounts: ' + e.getMessage()); // Using LoggingLevel
-        }
-    }
+      // Validate insert permissions before performing DML
+      if (Schema.sObjectType.Account.isInsertable()) {
+          insert accList;
+      } else {
+          System.debug(LoggingLevel.WARN, 'User does not have insert permission on Account object.');
+      }
+  }
 }
