@@ -13,7 +13,13 @@ public with sharing class Demo {
             return; // Avoid unnecessary operations
         }
 
-        // Check field update permissions before modifying records
+        // Validate insert permissions before performing DML
+        if (!Schema.sObjectType.Account.isInsertable()) {
+            throw new SecurityException('User does not have insert permission on Account object.');
+        }
+
+        List<Account> validAccounts = new List<Account>();
+
         for (Account acc : accList) {
             if (Schema.sObjectType.Account.fields.Description.isUpdateable() &&
                 Schema.sObjectType.Account.fields.Rating.isUpdateable() &&
@@ -22,17 +28,34 @@ public with sharing class Demo {
                 acc.Description = 'Happy Welcome to';
                 acc.Rating = 'Hotter';
                 acc.Industry = 'Agriculture';
+                validAccounts.add(acc); // Add only valid accounts
             }
         }
 
-        // Validate insert permissions before performing DML
-        if (Schema.sObjectType.Account.isInsertable()) {
+        if (!validAccounts.isEmpty()) {
             try {
-                insert accList;
-            } catch (Exception e) {
-                // Log error for debugging without impacting performance
-                System.debug(LoggingLevel.ERROR, 'Error inserting Accounts: ' + e.getMessage());
+                insert validAccounts;
+            } catch (DmlException e) {
+                // Log error safely without impacting performance
+                System.enqueueJob(new AsyncLogger(LoggingLevel.ERROR, 'Error inserting Accounts: ' + e.getMessage()));
             }
         }
+    }
+}
+
+/**
+ * @description Asynchronous Logger to handle logging without performance impact.
+ */
+public class AsyncLogger implements Queueable {
+    private LoggingLevel logLevel;
+    private String message;
+
+    public AsyncLogger(LoggingLevel logLevel, String message) {
+        this.logLevel = logLevel;
+        this.message = message;
+    }
+
+    public void execute(QueueableContext context) {
+        System.debug(logLevel, message);
     }
 }
