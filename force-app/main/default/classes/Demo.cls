@@ -56,6 +56,6 @@ public class AsyncLogger implements Queueable {
     }
 
     public void execute(QueueableContext context) {
-        System.debug(logLevel, message);
+        System.debug(logLevel, message)
     }
 }
