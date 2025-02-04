@@ -124,7 +124,7 @@ jobs:
     if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
  
       - name: Download Scanner Report
         uses: actions/download-artifact@v4
