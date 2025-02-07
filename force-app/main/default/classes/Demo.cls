@@ -1,14 +1,11 @@
 public with sharing class Demo {
-    public static void insertAccount(List<Account> accList) {
-          for (Account acc : accList) {
-            if (Schema.sObjectType.Account.fields.Description.isUpdateable()) {
-              System.debug('Debug');
-              acc.Description = 'Happy Welcome to';
-              acc.Rating = 'Hotter';
-              acc.Industry = 'Agriculture';
-            }
-          }
-          insert accList;
+    
+    @FakeAnnotation
+    public void someMethod() {
+        // Hardcoded ID - This violates the AvoidHardcodingId rule
+        String accountId = '001ABC123456789';
         
-      }
+        Account acc = [SELECT Id, Name FROM Account WHERE Id = :accountId LIMIT 1];
+        System.debug('Account Name: ' + acc.Name);
+    }
 }
