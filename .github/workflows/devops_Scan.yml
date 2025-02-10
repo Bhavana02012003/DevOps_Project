@@ -5,7 +5,7 @@ on:
 
 jobs:
   quality-gate-code-check:
-    runs-on: self-hosted
+    runs-on: ubuntu
     outputs:
       scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}
       block-pr: ${{ steps.block-check.outputs.block-status }}
@@ -119,7 +119,7 @@ jobs:
           path: scanner-report.csv
  
   quality-gate-critical-permissions-check:
-    runs-on: self-hosted
+     runs-on: ubuntu
     needs: quality-gate-code-check
     if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}
     steps:
