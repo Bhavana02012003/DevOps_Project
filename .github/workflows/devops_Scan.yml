@@ -2,7 +2,7 @@ on:
   push:
     branches:
       - "**"
- 
+
 jobs:
   quality-gate-code-check:
     runs-on: self-hosted
