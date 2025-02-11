@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}
-      block-pr: ${{ steps.block-check.outputs.block-status }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -63,27 +62,6 @@ jobs:
           SF_AUTOUPDATE_DISABLE: 'true'
           SF_DISABLE_AUTOUPDATE: 'true'
 
-      - name: Block PR merge if severity violations are found
-        id: block-check
-        continue-on-error: true  # ✅ Allow other steps to run even if commit is blocked
-        run: |
-            if [ -f scanner-report.csv ]; then
-              severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
-              echo "Severity 3 issues count: $severity_fail_count"
-              
-              if [ "$severity_fail_count" -gt 0 ]; then
-                echo "Blocking commit due to severity 3 vulnerabilities found."
-                echo "block-status=true" >> $GITHUB_ENV
-                exit 1  # ✅ Fails this step but allows other steps to continue
-              else
-                echo "No severity 3 vulnerabilities found. Proceeding with Approval."
-                echo "block-status=false" >> $GITHUB_ENV
-              fi
-            else
-              echo "No scanner report found."
-              exit 1
-            fi
-        
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
@@ -143,6 +121,26 @@ jobs:
         with:
           name: SFDX_Code_Scan_Report
           path: scanner-report.csv
+
+      # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
+      - name: Block PR merge if severity violations are found
+        id: block-check
+        run: |
+          if [ -f scanner-report.csv ]; then
+            severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
+            echo "Severity 3 issues count: $severity_fail_count"
+            
+            if [ "$severity_fail_count" -gt 0 ]; then
+              echo "Blocking commit due to severity 3 vulnerabilities found."
+              exit 1  # ✅ Now workflow fails only at the last step
+            else
+              echo "No severity 3 vulnerabilities found. Proceeding with Approval."
+            fi
+          else
+            echo "No scanner report found."
+            exit 1
+          fi
+
 
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
