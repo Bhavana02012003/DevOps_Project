@@ -88,7 +88,7 @@ jobs:
           fi
           for file in $files; do
             echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" --ruleset "/force-app/main/default/Custom_apex_ruleset.xml" || { echo "Scanner run failed for $file, continuing with other files."; }
+            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" || { echo "Scanner run failed for $file, continuing with other files."; }
           done
  
       - name: Block PR merge if severity violations are found
