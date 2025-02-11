@@ -63,26 +63,27 @@ jobs:
           SF_AUTOUPDATE_DISABLE: 'true'
           SF_DISABLE_AUTOUPDATE: 'true'
 
-      # ✅ BLOCK COMMIT IF SEVERITY 3 ISSUES ARE FOUND
       - name: Block PR merge if severity violations are found
         id: block-check
+        continue-on-error: true  # ✅ Allow other steps to run even if commit is blocked
         run: |
-          if [ -f scanner-report.csv ]; then
-            severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
-            echo "Severity 3 issues count: $severity_fail_count"
-            if [ "$severity_fail_count" -gt 0 ]; then
-              echo "Blocking commit due to severity 3 vulnerabilities found."
-              echo "block-status=true" >> $GITHUB_ENV
-              exit 1
+            if [ -f scanner-report.csv ]; then
+              severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
+              echo "Severity 3 issues count: $severity_fail_count"
+              
+              if [ "$severity_fail_count" -gt 0 ]; then
+                echo "Blocking commit due to severity 3 vulnerabilities found."
+                echo "block-status=true" >> $GITHUB_ENV
+                exit 1  # ✅ Fails this step but allows other steps to continue
+              else
+                echo "No severity 3 vulnerabilities found. Proceeding with Approval."
+                echo "block-status=false" >> $GITHUB_ENV
+              fi
             else
-              echo "No severity 3 vulnerabilities found. Proceeding with Approval."
-              echo "block-status=false" >> $GITHUB_ENV
+              echo "No scanner report found."
+              exit 1
             fi
-          else
-            echo "No scanner report found."
-            exit 1
-          fi
-
+        
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
