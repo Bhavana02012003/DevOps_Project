@@ -90,6 +90,21 @@ jobs:
             echo "Running SFDX Scanner on file: $file"
             sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || { echo "Scanner run failed for $file, continuing with other files."; }
           done
+        env:
+          SF_LAZY_LOAD_MODULES: 'true'
+          SF_AUTOUPDATE_DISABLE: 'true'
+          SF_DISABLE_AUTOUPDATE: 'true'
+
+      - name: Encode CSV file to Base64
+        if: success()
+        id: encode_file
+        run: |
+          if [ -f scanner-report.csv ]; then
+            base64 scanner-report.csv | tr -d '\n' > encoded_report.txt
+          else
+            echo "Scanner report CSV file not found."
+            exit 1
+          fi
  
       - name: Block PR merge if severity violations are found
         id: block-check
@@ -109,6 +124,53 @@ jobs:
             echo "No scanner report found."
             exit 1
           fi
+
+      - name: Get Repository and Branch Info
+        id: get-info
+        run: |
+          REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d'/' -f2)
+          BRANCH_NAME=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
+          COMMIT_LABEL=$(git log -1 --pretty=format:'%s')
+          FILE_TITLE="Code Scanner Delta Report_${REPO_NAME}_${BRANCH_NAME}_${COMMIT_LABEL}"
+          echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
+  
+      - name: Upload CSV Report to Salesforce
+        if: success()
+        run: |
+            if [ -s encoded_report.txt ]; then
+              contentDocumentResponse=$(curl -X POST https://sprintparkllc4-dev-ed.develop.my.salesforce.com/services/data/v61.0/sobjects/ContentVersion/ \
+                -H "Authorization: Bearer ${{ secrets.SF_ACCESS_TOKEN }}" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "Title": "'"${{ env.FILE_TITLE }}"'",
+                  "PathOnClient": "scanner-report.csv",
+                  "VersionData": "'"$(cat encoded_report.txt)"'"
+                }')
+              echo "Response: $contentDocumentResponse"
+              
+              contentVersionId=$(echo $contentDocumentResponse | jq -r '.id // empty')
+              if [ -z "$contentVersionId" ]; then
+                echo "Error: Failed to upload file. No ContentVersionId found."
+                exit 1
+              fi
+              echo "ContentVersionId: $contentVersionId"
+              
+              contentDocumentResponse=$(curl -X GET https://sprintparkllc4-dev-ed.develop.my.salesforce.com/services/data/v61.0/sobjects/ContentVersion/$contentVersionId \
+                -H "Authorization: Bearer ${{ secrets.SF_ACCESS_TOKEN }}")
+              echo "ContentDocument Response: $contentDocumentResponse"
+              
+              contentDocumentId=$(echo $contentDocumentResponse | jq -r '.ContentDocumentId // empty')
+              if [ -z "$contentDocumentId" ]; then
+                echo "Error: Failed to retrieve ContentDocumentId. No ContentDocumentId found."
+                exit 1
+              fi
+              echo "ContentDocumentId: $contentDocumentId"
+            else
+              echo "No scanner report generated, skipping upload."
+            fi
+        env:
+          SF_ACCESS_TOKEN: ${{ secrets.SF_ACCESS_TOKEN }}
+        shell: bash
  
       - name: Upload Scanner Report
         id: upload-report
