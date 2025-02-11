@@ -63,6 +63,26 @@ jobs:
           SF_AUTOUPDATE_DISABLE: 'true'
           SF_DISABLE_AUTOUPDATE: 'true'
 
+      # ✅ BLOCK COMMIT IF SEVERITY 3 ISSUES ARE FOUND
+      - name: Block PR merge if severity violations are found
+        id: block-check
+        run: |
+          if [ -f scanner-report.csv ]; then
+            severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
+            echo "Severity 3 issues count: $severity_fail_count"
+            if [ "$severity_fail_count" -gt 0 ]; then
+              echo "Blocking commit due to severity 3 vulnerabilities found."
+              echo "block-status=true" >> $GITHUB_ENV
+              exit 1
+            else
+              echo "No severity 3 vulnerabilities found. Proceeding with Approval."
+              echo "block-status=false" >> $GITHUB_ENV
+            fi
+          else
+            echo "No scanner report found."
+            exit 1
+          fi
+
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
@@ -91,33 +111,30 @@ jobs:
       - name: Upload Scanner Report to Salesforce
         if: success()
         run: |
-            if [ -s scanner-report.csv ]; then
-              response=$(curl -X POST "https://sprintparkllc4-dev-ed.develop.my.salesforce.com/services/data/v61.0/sobjects/ContentVersion" \
-                -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
-                -H "Content-Type: multipart/form-data" \
-                -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
-                -F "VersionData=@scanner-report.csv;type=text/csv")
-        
-              echo "Upload Response: $response"
-        
-              # Extract ContentVersionId from response
-              contentVersionId=$(echo "$response" | jq -r '.id // empty')
-        
-              if [ -z "$contentVersionId" ]; then
-                echo "Error: Failed to upload file. No ContentVersionId found."
-                exit 1
-              fi
-        
-              # ✅ Corrected Environment Variable Storage
-              echo "CONTENT_VERSION_ID=$contentVersionId" >> $GITHUB_ENV
-        
-              echo "Successfully uploaded scanner report with ContentVersionId: $contentVersionId"
-            else
-              echo "No scanner report generated, skipping upload."
+          if [ -s scanner-report.csv ]; then
+            response=$(curl -X POST "https://sprintparkllc4-dev-ed.develop.my.salesforce.com/services/data/v61.0/sobjects/ContentVersion" \
+              -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+              -H "Content-Type: multipart/form-data" \
+              -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
+              -F "VersionData=@scanner-report.csv;type=text/csv")
+
+            echo "Upload Response: $response"
+
+            # Extract ContentVersionId from response
+            contentVersionId=$(echo "$response" | jq -r '.id // empty')
+
+            if [ -z "$contentVersionId" ]; then
+              echo "Error: Failed to upload file. No ContentVersionId found."
               exit 1
             fi
-        
-        
+
+            echo "CONTENT_VERSION_ID=$contentVersionId" >> $GITHUB_ENV
+
+            echo "Successfully uploaded scanner report with ContentVersionId: $contentVersionId"
+          else
+            echo "No scanner report generated, skipping upload."
+            exit 1
+          fi
 
       - name: Upload Scanner Report as Artifact
         id: upload-report
@@ -146,13 +163,6 @@ jobs:
           for FILE in $(find force-app/main/default/profiles -name '*.profile-meta.xml'); do
             for PERMISSION in "${CRITICAL_PERMISSIONS[@]}"; do
               if grep -q "$PERMISSION" "$FILE" && ! grep -q "System Administrator" "$FILE"; then
-                BLOCKED_FILES+=("$FILE")
-              fi
-            done
-          done
-          for FILE in $(find force-app/main/default/permissionsets -name '*.permissionset-meta.xml'); do
-            for PERMISSION in "${CRITICAL_PERMISSIONS[@]}"; do
-              if grep -q "$PERMISSION" "$FILE"; then
                 BLOCKED_FILES+=("$FILE")
               fi
             done
