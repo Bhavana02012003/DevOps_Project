@@ -97,19 +97,26 @@ jobs:
                 -H "Content-Type: multipart/form-data" \
                 -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
                 -F "VersionData=@scanner-report.csv;type=text/csv")
-                
+        
               echo "Upload Response: $response"
         
+              # Extract ContentVersionId from response
               contentVersionId=$(echo "$response" | jq -r '.id // empty')
+        
               if [ -z "$contentVersionId" ]; then
-                echo "Error: Failed to upload file."
+                echo "Error: Failed to upload file. No ContentVersionId found."
                 exit 1
               fi
-              echo "ContentVersionId: $contentVersionId" >> $GITHUB_ENV
+        
+              # ✅ Corrected Environment Variable Storage
+              echo "CONTENT_VERSION_ID=$contentVersionId" >> $GITHUB_ENV
+        
+              echo "Successfully uploaded scanner report with ContentVersionId: $contentVersionId"
             else
               echo "No scanner report generated, skipping upload."
               exit 1
             fi
+        
         
 
       - name: Upload Scanner Report as Artifact
