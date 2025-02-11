@@ -5,7 +5,7 @@ on:
  
 jobs:
   quality-gate-code-check:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}
       block-pr: ${{ steps.block-check.outputs.block-status }}
@@ -113,21 +113,21 @@ jobs:
       - name: Upload Scanner Report
         id: upload-report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: SFDX_Code_Scan_Report
           path: scanner-report.csv
  
   quality-gate-critical-permissions-check:
-    runs-on: self-hosted
-    # needs: quality-gate-code-check
-    # if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}
+    runs-on: ubuntu-latest
+    needs: quality-gate-code-check
+    if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
  
       - name: Download Scanner Report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: SFDX_Code_Scan_Report
  
@@ -157,3 +157,4 @@ jobs:
             exit 1
           else
             echo "No critical permissions assigned to non-System Administrator profiles or permission sets."
+ 
