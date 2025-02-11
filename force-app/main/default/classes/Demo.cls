@@ -7,6 +7,6 @@ public with sharing class Demo {
         
         Account acc = [SELECT Id, Name FROM Account WHERE Id = :accountId LIMIT 1];
         System.debug('Account Name: ' + acc.Name);
-        System.debug('Account');
+        System.debug('Testing');
     }
 }
