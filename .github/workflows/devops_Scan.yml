@@ -86,14 +86,22 @@ jobs:
             echo "No .cls or .lwc files detected. Skipping scan."
             exit 0
           fi
-          
-          # Ensure the custom ruleset file is in the correct location
-          cp .github/workflows/Custom_apex_ruleset.xml force-app/main/default/
+
+          # Define the correct ruleset path
+          RULESET_PATH="force-app/main/default/Custom_apex_ruleset.xml"
+
+          if [ ! -f "$RULESET_PATH" ]; then
+            echo "Custom ruleset file NOT found at $RULESET_PATH"
+            exit 1
+          else
+            echo "Custom ruleset file found. Proceeding with scan..."
+          fi
 
           for file in $files; do
-            echo "Running SFDX Scanner on file: $file with custom ruleset"
-            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" --ruleset "force-app/main/default/Custom_apex_ruleset.xml" || { echo "Scanner run failed for $file, continuing."; }
+            echo "Running SFDX Scanner on file: $file using custom ruleset"
+            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" --ruleset "$RULESET_PATH" || { echo "Scanner run failed for $file, continuing."; }
           done
+
 
  
       - name: Block PR merge if severity violations are found
