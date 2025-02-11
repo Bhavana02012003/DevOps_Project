@@ -79,17 +79,22 @@ jobs:
             ' || echo "No changes found in $file"
           done
  
-      - name: Run SFDX Scanner on Changed Files
+      - name: Run SFDX Scanner on Changed Files with Custom Ruleset
         run: |
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
-            echo "No .cls or .lwc files detected."
+            echo "No .cls or .lwc files detected. Skipping scan."
             exit 0
           fi
+          
+          # Ensure the custom ruleset file is in the correct location
+          cp .github/workflows/Custom_apex_ruleset.xml force-app/main/default/
+
           for file in $files; do
-            echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" || { echo "Scanner run failed for $file, continuing with other files."; }
+            echo "Running SFDX Scanner on file: $file with custom ruleset"
+            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" --ruleset "force-app/main/default/Custom_apex_ruleset.xml" || { echo "Scanner run failed for $file, continuing."; }
           done
+
  
       - name: Block PR merge if severity violations are found
         id: block-check
