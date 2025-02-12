@@ -3,7 +3,7 @@ public with sharing class File {
         for (ContentVersion file : newFiles) {
             // Only process files where Title starts with "Code Scanner"
             if (file.Title.startsWith('Code Scanner')) {
-                System.debug('✅ New Code Scanner report file detected: ' + file.Title);
+                System.debug('✅ New Code Scanner file detected: ' + file.Title);
                 importVulnerabilityData(file.ContentDocumentId);
             }
         }
@@ -44,7 +44,7 @@ public with sharing class File {
         // Required fields
         List<String> requiredFields = new List<String>{
             'problem', 'severity', 'file', 'line', 'column', 'rule',
-            'description', 'url', 'category', 'engine'
+            'description', 'url', 'category', 'engine', 'commit'
         };
 
         // Validate headers exist
@@ -76,6 +76,7 @@ public with sharing class File {
             vuln.URL__c = columns[columnMap.get('url')].trim().replaceAll('^\"|\"$', '');
             vuln.Category__c = columns[columnMap.get('category')].trim().replaceAll('^\"|\"$', '');
             vuln.Engine__c = columns[columnMap.get('engine')].trim().replaceAll('^\"|\"$', '');
+            vuln.Commit__c = columns[columnMap.get('commit')].trim().replaceAll('^\"|\"$', '');
 
             newRecords.add(vuln);
         }
