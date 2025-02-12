@@ -3,7 +3,7 @@ public with sharing class File {
         for (ContentVersion file : newFiles) {
             // Only process files where Title starts with "Code Scanner"
             if (file.Title.startsWith('Code Scanner')) {
-                System.debug('✅ New Code Scanner file detected: ' + file.Title);
+                System.debug('✅ New Code Scanner report file detected: ' + file.Title);
                 importVulnerabilityData(file.ContentDocumentId);
             }
         }

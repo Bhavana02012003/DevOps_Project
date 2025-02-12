@@ -46,6 +46,13 @@ jobs:
           fi
           cat changed_cls_lwc_files.txt
 
+      - name: Get Commit Author
+        id: commit-author
+        run: |
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+          echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+          echo "Commit Author: $COMMIT_AUTHOR"
+
       - name: Run SFDX Scanner on Changed Files
         run: |
           files=$(cat changed_cls_lwc_files.txt)
@@ -55,8 +62,15 @@ jobs:
           fi
           for file in $files; do
             echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
           done
+
+          # Add 'Commit' column with the commit author
+          if [ -f "scanner-report-temp.csv" ]; then
+            head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
+            tail -n +2 scanner-report-temp.csv | awk -v author="$COMMIT_AUTHOR" -F',' '{print $0","author}' >> scanner-report.csv
+          fi
+
         env:
           SF_LAZY_LOAD_MODULES: 'true'
           SF_AUTOUPDATE_DISABLE: 'true'
@@ -140,6 +154,7 @@ jobs:
             echo "No scanner report found."
             exit 1
           fi
+
 
 
   quality-gate-critical-permissions-check:
