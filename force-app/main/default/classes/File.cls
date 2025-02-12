@@ -11,7 +11,7 @@ public with sharing class File {
         ];
         
         if (file == null) {
-            System.debug('❌ No Code Scanner file found.');
+            System.debug('❌ No Code Scanner report file found.');
             return;
         }
         
