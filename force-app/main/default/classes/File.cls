@@ -1,21 +1,29 @@
 public with sharing class File {
+    public static void processNewFiles(List<ContentVersion> newFiles) {
+        for (ContentVersion file : newFiles) {
+            // Only process files where Title starts with "Code Scanner"
+            if (file.Title.startsWith('Code Scanner')) {
+                System.debug('✅ New Code Scanner file detected: ' + file.Title);
+                importVulnerabilityData(file.ContentDocumentId);
+            }
+        }
+    }
+
     @AuraEnabled
-    public static void importLatestVulnerabilityData() {
-        // Step 1: Get the latest CSV file where the title starts with 'Code Scanner'
+    public static void importVulnerabilityData(Id fileId) {
+        // Fetch the file content
         ContentVersion file = [
-            SELECT ContentDocumentId, VersionData
+            SELECT VersionData
             FROM ContentVersion
-            WHERE Title LIKE 'Code Scanner%'
-            ORDER BY CreatedDate DESC
+            WHERE ContentDocumentId = :fileId
             LIMIT 1
         ];
-        
+
         if (file == null) {
-            System.debug('❌ No Code Scanner file found.');
+            System.debug('❌ File not found.');
             return;
         }
-        
-        Id fileId = file.ContentDocumentId;
+
         String csvContent = file.VersionData.toString();
         List<String> lines = csvContent.split('\\n');
 
@@ -24,16 +32,16 @@ public with sharing class File {
             return;
         }
 
-        // Step 2: Extract headers and normalize them (remove double quotes and trim spaces)
+        // Extract headers and normalize them (remove double quotes and trim spaces)
         List<String> headers = lines[0].split(',');
         Map<String, Integer> columnMap = new Map<String, Integer>();
 
         for (Integer i = 0; i < headers.size(); i++) {
-            String normalizedHeader = headers[i].trim().replaceAll('^\"|\"$', '').toLowerCase(); // Remove leading/trailing quotes
+            String normalizedHeader = headers[i].trim().replaceAll('^\"|\"$', '').toLowerCase();
             columnMap.put(normalizedHeader, i);
         }
 
-        // Required fields (normalized)
+        // Required fields
         List<String> requiredFields = new List<String>{
             'problem', 'severity', 'file', 'line', 'column', 'rule',
             'description', 'url', 'category', 'engine'
@@ -47,7 +55,7 @@ public with sharing class File {
             }
         }
 
-        // Step 3: Parse CSV and create new Vulnerability__c records
+        // Parse CSV and create new Vulnerability__c records
         List<Vulnerability__c> newRecords = new List<Vulnerability__c>();
 
         for (Integer i = 1; i < lines.size(); i++) {
@@ -58,7 +66,7 @@ public with sharing class File {
             }
 
             Vulnerability__c vuln = new Vulnerability__c();
-            vuln.Problem__c = columns[columnMap.get('problem')].trim().replaceAll('^\"|\"$', ''); // Remove quotes
+            vuln.Problem__c = columns[columnMap.get('problem')].trim().replaceAll('^\"|\"$', '');
             vuln.Severity__c = columns[columnMap.get('severity')].trim().replaceAll('^\"|\"$', '');
             vuln.File__c = columns[columnMap.get('file')].trim().replaceAll('^\"|\"$', '');
             vuln.Line__c = columns[columnMap.get('line')].trim().replaceAll('^\"|\"$', '');
@@ -72,10 +80,10 @@ public with sharing class File {
             newRecords.add(vuln);
         }
 
-        // Step 4: Insert records in bulk
+        // Insert records in bulk
         if (!newRecords.isEmpty()) {
             insert newRecords;
-            System.debug(newRecords.size() + ' ✅ Vulnerability records created from the latest Code Scanner file.');
+            System.debug(newRecords.size() + ' ✅ Vulnerability records created automatically.');
         } else {
             System.debug('⚠️ No valid records found to insert.');
         }
