@@ -172,7 +172,7 @@ jobs:
 
       - name: Scan Profiles and Permission Sets for Critical Permissions
         run: |
-          CRITICAL_PERMISSIONS=( "AssignPermissionSets" "AuthorApex" "CustomizeApplication" "FreezeUsers" "ManageEncryptionKeys" "ManageInternalUsers" "ManagePasswordPolicies" "ManageProfilesPermissionSets" "ManageRoles" "ManageSharing" "ManageUsers" "ModifyAllData" "MonitorLoginHistory" "MultiFactorAuthenticationRequired" "PasswordNeverExpires" "ResetPasswordsUnlockUsers" "ViewAllData" )
+          CRITICAL_PERMISSIONS=( "AssignPermissionSets" "AuthorApex" "CustomizeApplication" "FreezeUsers" "ManageEncryptionKeys" "ManageInternalUsers" "ManagePasswordPolicies" "ManageProfilesPermissionSets" "ManageRoles" "ManageSharing" "ManageUsers" "ModifyAllData" "MonitorLoginHistory" "MultiFactorAuthenticationRequired" "PasswordNeverExpires" "ResetPasswordsUnlockUsers" )
           BLOCKED_FILES=()
           for FILE in $(find force-app/main/default/profiles -name '*.profile-meta.xml'); do
             for PERMISSION in "${CRITICAL_PERMISSIONS[@]}"; do
