@@ -11,13 +11,26 @@ public with sharing class File {
 
     @AuraEnabled
     public static void importVulnerabilityData(Id fileId) {
-        // Fetch the file content
-        ContentVersion file = [
-            SELECT VersionData
-            FROM ContentVersion
-            WHERE ContentDocumentId = :fileId
-            LIMIT 1
-        ];
+        // // Fetch the file content
+        // ContentVersion file = [
+        //     SELECT VersionData
+        //     FROM ContentVersion
+        //     WHERE ContentDocumentId = :fileId
+        //     LIMIT 1
+        // ];
+        // Check if the user has Read permission on ContentVersion
+if (Schema.sObjectType.ContentVersion.isAccessible()) {
+    // Fetch the file content
+    ContentVersion file = [
+        SELECT VersionData
+        FROM ContentVersion
+        WHERE ContentDocumentId = :fileId
+        LIMIT 1
+    ];
+} else {
+    System.debug('❌ User does not have read permission on ContentVersion.');
+}
+
 
         if (file == null) {
             System.debug('❌ File not found.');
@@ -81,12 +94,25 @@ public with sharing class File {
             newRecords.add(vuln);
         }
 
-        // Insert records in bulk
-        if (!newRecords.isEmpty()) {
-            insert newRecords;
-            System.debug(newRecords.size() + ' ✅ Vulnerability records created automatically.');
-        } else {
-            System.debug('⚠️ No valid records found to insert.');
-        }
+        // // Insert records in bulk
+        // if (!newRecords.isEmpty()) {
+        //     insert newRecords;
+        //     System.debug(newRecords.size() + ' ✅ Vulnerability records created automatically.');
+        // } else {
+        //     System.debug('⚠️ No valid records found to insert.');
+        // }
+        // Check if the user has Create permission on the object
+if (Schema.sObjectType.Vulnerability__c.isCreateable()) { 
+    // Insert records in bulk
+    if (!newRecords.isEmpty()) {
+        insert newRecords;
+        System.debug(newRecords.size() + ' ✅ Vulnerability records created automatically.');
+    } else {
+        System.debug('⚠️ No valid records found to insert.');
+    }
+} else {
+    System.debug('❌ User does not have create permission on Vulnerability__c.');
+}
+
     }
 }
