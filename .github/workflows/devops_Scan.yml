@@ -68,26 +68,31 @@ jobs:
 
       - name: Run SFDX Scanner on Changed Files
         run: |
-          files=$(cat changed_cls_lwc_files.txt)
-          if [ -z "$files" ]; then
-            echo "No .cls or .lwc files detected."
-            exit 0
-          fi
-          for file in $files; do
-            echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
-          done
-
-          # Add 'Commit' column with the commit author
-          if [ -f "scanner-report-temp.csv" ]; then
-            head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
-            tail -n +2 scanner-report-temp.csv | awk -v author="$COMMIT_AUTHOR" -F',' '{print $0","author}' >> scanner-report.csv
-          fi
-
+            files=$(cat changed_cls_lwc_files.txt)
+            if [ -z "$files" ]; then
+              echo "No .cls or .lwc files detected. Creating an empty scanner report."
+              echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+              exit 0
+            fi
+            
+            for file in $files; do
+              echo "Running SFDX Scanner on file: $file"
+              sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+            done
+        
+            # Add 'Commit' column with the commit author
+            if [ -f "scanner-report-temp.csv" ]; then
+              head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
+              tail -n +2 scanner-report-temp.csv | awk -v author="$COMMIT_AUTHOR" -F',' '{print $0","author}' >> scanner-report.csv
+            else
+              echo "No issues detected. Creating an empty scanner report."
+              echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+            fi
+        
         env:
           SF_LAZY_LOAD_MODULES: 'true'
           SF_AUTOUPDATE_DISABLE: 'true'
-          SF_DISABLE_AUTOUPDATE: 'true'
+          SF_DISABLE_AUTOUPDATE: 'true'        
 
       - name: Authenticate with Salesforce
         id: sf-auth
@@ -148,6 +153,7 @@ jobs:
         with:
           name: SFDX_Code_Scan_Report
           path: scanner-report.csv
+        
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
