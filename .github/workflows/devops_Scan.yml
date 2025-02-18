@@ -30,65 +30,83 @@ jobs:
       - name: Verify Salesforce CLI Installation
         run: sf --version
 
-      - name: Get changed files (for .cls and .lwc files)
+      - name: Get changed lines from .cls and .lwc files
         id: get-changes
         run: |
-          # Ensure full git history
           if git rev-parse --is-shallow-repository | grep -q "true"; then
             git fetch --unshallow || true
           fi
 
-          # Get changed lines only for .cls and .lwc files
-          git diff --unified=0 HEAD~1 HEAD | grep -E '^\+\s*[^+]' | tee changed-lines.txt || true
+          # Get changed lines with file paths
+          git diff -U0 HEAD~1 HEAD | grep -E '^\+\s' | sed 's/^\+//' > changed-lines.txt || true
 
-          if [ ! -s changed-lines.txt ]; then
-            echo "No changed lines detected in .cls or .lwc files."
+          # Extract changed files
+          git diff --name-only HEAD~1 HEAD | grep '\.cls$\|\.lwc$' > changed-files.txt || true
+
+          if [ ! -s changed-files.txt ]; then
+            echo "No .cls or .lwc files detected."
             exit 0
           fi
 
-          cat changed-lines.txt
+          echo "Changed .cls and .lwc files:"
+          cat changed-files.txt
 
-      - name: Get Commit Author
-        id: commit-author
+      - name: Prepare Temporary Files for Scanner
+        id: prepare-temp-files
         run: |
-          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
-          echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
-          echo "Commit Author: $COMMIT_AUTHOR"
+          mkdir -p temp_scanner_files
+          > changed_cls_lwc_files.txt
 
-      - name: Create Temporary File with Changed Lines
-        run: |
-          TEMP_FILE="changed_lines_temp.txt"
-          touch "$TEMP_FILE"
-          awk 'NR>1 { print }' changed-lines.txt > "$TEMP_FILE"
+          while read file; do
+            if [ -f "$file" ]; then
+              temp_file="temp_scanner_files/$(basename $file)"
+              echo "Processing file: $file"
+              
+              # Extract only the changed lines and save to temp file
+              git diff -U0 HEAD~1 HEAD -- "$file" | grep -E '^\+\s' | sed 's/^\+//' > "$temp_file"
+              
+              if [ -s "$temp_file" ]; then
+                echo "$temp_file" >> changed_cls_lwc_files.txt
+              else
+                rm "$temp_file"
+              fi
+            fi
+          done < changed-files.txt
 
-          if [ ! -s "$TEMP_FILE" ]; then
-            echo "No valid changed lines detected. Creating an empty scanner report."
-            echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+          if [ ! -s changed_cls_lwc_files.txt ]; then
+            echo "No valid changed lines detected for .cls or .lwc files."
             exit 0
           fi
+
+          echo "Temporary files created:"
+          cat changed_cls_lwc_files.txt
 
       - name: Run SFDX Scanner on Changed Lines
         run: |
-            TEMP_FILE="changed_lines_temp.txt"
-
-            if [ -s "$TEMP_FILE" ]; then
-              echo "Running SFDX Scanner on changed lines."
-              sf scanner:run --target "$TEMP_FILE" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed"
-            else
-              echo "No valid changed lines detected."
-              echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
-            fi
-        
-            # Add 'Commit' column with the commit author
-            if [ -f "scanner-report-temp.csv" ]; then
-              head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
-              tail -n +2 scanner-report-temp.csv | awk -v author="$COMMIT_AUTHOR" -F',' '{print $0","author}' >> scanner-report.csv
-            fi
-        
+          files=$(cat changed_cls_lwc_files.txt)
+          if [ -z "$files" ]; then
+            echo "No .cls or .lwc files detected. Creating an empty scanner report."
+            echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+            exit 0
+          fi
+          
+          for file in $files; do
+            echo "Running SFDX Scanner on file: $file"
+            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+          done
+      
+          if [ -f "scanner-report-temp.csv" ]; then
+            head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
+            tail -n +2 scanner-report-temp.csv | awk -v author="$COMMIT_AUTHOR" -F',' '{print $0","author}' >> scanner-report.csv
+          else
+            echo "No issues detected. Creating an empty scanner report."
+            echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+          fi
+      
         env:
           SF_LAZY_LOAD_MODULES: 'true'
           SF_AUTOUPDATE_DISABLE: 'true'
-          SF_DISABLE_AUTOUPDATE: 'true'        
+          SF_DISABLE_AUTOUPDATE: 'true'    
 
       - name: Authenticate with Salesforce
         id: sf-auth
@@ -146,7 +164,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SFDX_Code_Scan_Report
-          path: scanner-report.csv
+          path: scanner-report.csv   
 
       - name: Block PR merge if severity violations are found
         id: block-check

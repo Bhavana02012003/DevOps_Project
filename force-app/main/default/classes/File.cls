@@ -94,25 +94,25 @@ public with sharing class File {
             newRecords.add(vuln);
         }
 
-        // // Insert records in bulk
-        // if (!newRecords.isEmpty()) {
-        //     insert newRecords;
-        //     System.debug(newRecords.size() + ' ✅ Vulnerability records created automatically.');
-        // } else {
-        //     System.debug('⚠️ No valid records found to insert.');
-        // }
+        // Insert records in bulk
+        if (!newRecords.isEmpty()) {
+            insert newRecords;
+            System.debug(newRecords.size() + ' ✅ Vulnerability records created automatically.');
+        } else {
+            System.debug('⚠️ No valid records found to insert.');
+        }
         // Check if the user has Create permission on the object
-if (Schema.sObjectType.Vulnerability__c.isCreateable()) { 
-    // Insert records in bulk
-    if (!newRecords.isEmpty()) {
-        insert newRecords;
-        System.debug(newRecords.size() + ' ✅ Vulnerability records created automatically.');
-    } else {
-        System.debug('⚠️ No valid records found to insert.');
-    }
-} else {
-    System.debug('❌ User does not have create permission on Vulnerability__c.');
-}
+// if (Schema.sObjectType.Vulnerability__c.isCreateable()) { 
+//     // Insert records in bulk
+//     if (!newRecords.isEmpty()) {
+//         insert newRecords;
+//         System.debug(newRecords.size() + ' ✅ Vulnerability records created automatically.');
+//     } else {
+//         System.debug('⚠️ No valid records found to insert.');
+//     }
+// } else {
+//     System.debug('❌ User does not have create permission on Vulnerability__c.');
+// }
 
     }
 }
