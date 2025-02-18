@@ -180,6 +180,7 @@ jobs:
                 echo "Problem,Severity,File,TempLine,ActualLine,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
               fi
           
+          
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
