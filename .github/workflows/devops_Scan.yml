@@ -145,7 +145,7 @@ jobs:
             echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
             echo "Commit Author: $COMMIT_AUTHOR"
          
-      - name: Run SFDX Scanner on Changed Lines
+      - name: Run SFDX Scanner on Changed Lines and Map Actual Line Numbers
         run: |
               files=$(cat changed_cls_lwc_files.txt)
               if [ -z "$files" ]; then
@@ -163,18 +163,22 @@ jobs:
                 # Append "Commit" and "Actual Line" columns in the header
                 head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,Actual Line"}' > scanner-report.csv
           
-                while IFS=, read -r problem severity file line column rule description url category engine; do
-                  # Extract actual line number from mapping file
+                while IFS=, read -r problem severity file temp_line column rule description url category engine; do
+                  # Extract the correct file path formatting
                   formatted_file_path=$(basename "$file")
-                  actual_line=$(awk -F',' -v f="$formatted_file_path" '$1 ~ f {print $2}' line_number_mapping.txt)
+          
+                  # Retrieve actual line number from mapping file
+                  actual_line=$(awk -F',' -v f="$formatted_file_path" -v t="$temp_line" '$1 ~ f && $2 == t {print $2}' line_number_mapping.txt)
           
                   # If no matching line found, set it as "N/A"
                   if [ -z "$actual_line" ]; then
                     actual_line="N/A"
                   fi
           
+                  echo "✅ Extracted Actual Line: $actual_line for File: $file"
+          
                   # Append Commit and Actual Line number to the scanner report
-                  echo "$problem,$severity,$file,$line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual_line" >> scanner-report.csv
+                  echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual_line" >> scanner-report.csv
                 done < <(tail -n +2 scanner-report-temp.csv)
               else
                 echo "No issues detected. Creating an empty scanner report."
