@@ -121,26 +121,23 @@ jobs:
             exit 0
           fi
       
-      
-      
-      
-      - name: Debug - Print All Temporary Class Contents
-        run: |
-            echo "====== LIST OF TEMP FILES ======"
-            ls -l temp_scanner_files/
             
-            echo "====== PRINTING TEMP FILE CONTENTS ======"
-            for file in temp_scanner_files/*.cls; do
-              echo "====== Contents of: $file ======"
-              cat "$file"
-              echo "======================================"
-            done
-        
+      - name: Debug Line Number Mapping
+        run: |
             echo "====== FINAL LINE NUMBER MAPPING ======"
             cat line_number_mapping.txt || echo "No mapping found."
         
+            echo "====== SCANNER REPORT TEMP CONTENTS ======"
+            cat scanner-report-temp.csv || echo "No scanner output found."
         
-               
+            echo "====== CHECKING FILE PATH FORMATTING ======"
+            while IFS=, read -r problem severity file temp_line column rule description url category engine; do
+              formatted_file_path=$(echo "$file" | sed 's|/home/runner/work/DevOps_Project/DevOps_Project/||')
+              echo "Checking for: $formatted_file_path,$temp_line"
+              grep "$formatted_file_path,$temp_line," line_number_mapping.txt || echo "No match found for $formatted_file_path,$temp_line"
+            done < <(tail -n +2 scanner-report-temp.csv)
+        
+                      
       
       - name: Get Commit Author
         id: commit-author
@@ -149,7 +146,7 @@ jobs:
             echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
             echo "Commit Author: $COMMIT_AUTHOR"
          
-      - name: Run SFDX Scanner on Changed Lines
+      - name: Run SFDX Scanner on Changed Lines and Fix Line Mapping
         run: |
               files=$(cat changed_cls_lwc_files.txt)
               if [ -z "$files" ]; then
@@ -167,7 +164,10 @@ jobs:
                 head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",ActualLine,Commit"}' > scanner-report.csv
           
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  actual_line=$(grep "^$file,$temp_line," line_number_mapping.txt | cut -d',' -f2)
+                  # Ensure correct path format for lookup
+                  formatted_file_path=$(echo "$file" | sed 's|/home/runner/work/DevOps_Project/DevOps_Project/||')
+          
+                  actual_line=$(grep "$formatted_file_path,$temp_line," line_number_mapping.txt | cut -d',' -f2)
           
                   if [ -z "$actual_line" ]; then
                     actual_line="N/A"
@@ -180,8 +180,6 @@ jobs:
                 echo "Problem,Severity,File,TempLine,ActualLine,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
               fi
           
-
-
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
