@@ -47,6 +47,7 @@ jobs:
       
           if [ -z "$changed_files" ]; then
             echo "No .cls or .lwc files detected."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
             exit 0
           fi
       
