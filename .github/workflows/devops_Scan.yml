@@ -164,6 +164,15 @@ jobs:
                 exit 0
               fi
           
+              declare -A line_map  # Dictionary to store mappings
+          
+              # Read line number mappings into the dictionary
+              while IFS=, read -r temp_file extracted_line_number line_content; do
+                if [[ -n "$temp_file" && -n "$extracted_line_number" ]]; then
+                  line_map["$temp_file:$extracted_line_number"]="$extracted_line_number"
+                fi
+              done < line_number_mapping.txt
+          
               for file in $files; do
                 echo "Running SFDX Scanner on file: $file"
                 sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
@@ -174,19 +183,15 @@ jobs:
                 head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
           
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Extract the correct file path formatting
+                  # Extract file path formatting
                   formatted_file_path=$(basename "$file")
           
-                  # Retrieve the stored extracted line number
-                  extracted_line_number=$(awk -F',' -v f="$file" '$1 == f {print $2}' line_number_mapping.txt | head -n 1)
+                  # Lookup in the dictionary
+                  key="$file:$temp_line"
+                  extracted_line_number="${line_map[$key]:-N/A}"  # Default to N/A if not found
           
-                  # If no matching line found, set it as "N/A"
-                  if [ -z "$extracted_line_number" ]; then
-                    extracted_line_number="N/A"
-                  fi
-          
-                  # Print extracted actual line for debugging
-                  echo "✅ Extracted Actual Line: $extracted_line_number for File: \"$file\""
+                  # Debugging information
+                  echo "✅ File: $file, Temp Line: $temp_line, Actual Line: $extracted_line_number"
           
                   # Append actual line number to the scanner report
                   echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
@@ -195,7 +200,6 @@ jobs:
                 echo "No issues detected. Creating an empty scanner report."
                 echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
               fi
-          
           
           
           
