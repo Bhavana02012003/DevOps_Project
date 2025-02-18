@@ -158,7 +158,7 @@ jobs:
               files=$(cat changed_cls_lwc_files.txt)
               if [ -z "$files" ]; then
                 echo "No files to scan. Creating an empty report."
-                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit,Actual Line" > scanner-report.csv
+                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
                 exit 0
               fi
           
@@ -168,30 +168,32 @@ jobs:
               done
           
               if [ -f "scanner-report-temp.csv" ]; then
-                # Append "Commit" and "Actual Line" columns in the header
-                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,Actual Line"}' > scanner-report.csv
+                # Append "ActualLine" column in the header
+                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
           
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
                   # Extract the correct file path formatting
                   formatted_file_path=$(basename "$file")
           
-                  # Retrieve actual line number from mapping file
-                  actual_line=$(awk -F',' -v f="$formatted_file_path" -v t="$temp_line" '$1 ~ f && $2 == t {print $2}' line_number_mapping.txt)
+                  # Retrieve actual line number from the mapping file
+                  actual_line=$(awk -F',' -v f="$file" -v t="$temp_line" '$1 == f && $2 == t {print $2}' line_number_mapping.txt)
           
                   # If no matching line found, set it as "N/A"
                   if [ -z "$actual_line" ]; then
                     actual_line="N/A"
                   fi
           
-                  echo "✅ Extracted Actual Line: $actual_line for File: $file"
+                  # Print actual line number mapping for debugging
+                  echo "✅ Extracted Actual Line: $actual_line for File: \"$file\""
           
-                  # Append Commit and Actual Line number to the scanner report
+                  # Append actual line number to the scanner report
                   echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual_line" >> scanner-report.csv
                 done < <(tail -n +2 scanner-report-temp.csv)
               else
                 echo "No issues detected. Creating an empty scanner report."
-                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit,Actual Line" > scanner-report.csv
+                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
               fi
+          
           
           
           
