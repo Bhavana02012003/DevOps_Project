@@ -82,6 +82,13 @@ jobs:
             exit 0
           fi
 
+      - name: Debug - Print Temporary Class Content
+        run: |
+          echo "====== TEMP CLASS CONTENT ======"
+          cat temp_scanner_files/temp_force-app_main_default_classes_File.cls
+          echo "================================"
+        
+
       - name: Run SFDX Scanner on Changed Lines
         run: |
           files=$(cat changed_cls_lwc_files.txt)
