@@ -287,8 +287,8 @@ jobs:
 
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
-    needs: quality-gate-code-check
-    if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}  # Only run this job if the code scan passes
+    # needs: quality-gate-code-check
+    if: always()
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
