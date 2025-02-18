@@ -30,17 +30,13 @@ jobs:
       - name: Verify Salesforce CLI Installation
         run: sf --version
 
-      - name: Get changed lines from .cls and .lwc files
+      - name: Extract changed lines while maintaining structure
         id: get-changes
         run: |
-          if git rev-parse --is-shallow-repository | grep -q "true"; then
-            git fetch --unshallow || true
-          fi
+          mkdir -p temp_scanner_files
+          > changed_cls_lwc_files.txt
 
-          # Get changed lines with file paths
-          git diff -U0 HEAD~1 HEAD | grep -E '^\+\s' | sed 's/^\+//' > changed-lines.txt || true
-
-          # Extract changed files
+          # Get all changed .cls and .lwc files
           git diff --name-only HEAD~1 HEAD | grep '\.cls$\|\.lwc$' > changed-files.txt || true
 
           if [ ! -s changed-files.txt ]; then
@@ -48,23 +44,19 @@ jobs:
             exit 0
           fi
 
-          echo "Changed .cls and .lwc files:"
-          cat changed-files.txt
-
-      - name: Prepare Temporary Files for Scanner
-        id: prepare-temp-files
-        run: |
-          mkdir -p temp_scanner_files
-          > changed_cls_lwc_files.txt
-
           while read file; do
             if [ -f "$file" ]; then
               temp_file="temp_scanner_files/$(basename $file)"
               echo "Processing file: $file"
-              
-              # Extract only the changed lines and save to temp file
-              git diff -U0 HEAD~1 HEAD -- "$file" | grep -E '^\+\s' | sed 's/^\+//' > "$temp_file"
-              
+
+              # Extract lines with context (-U3 ensures valid syntax)
+              git diff -U3 HEAD~1 HEAD -- "$file" | awk '
+                /^@@/ { print ""; next } # Skip commit metadata
+                /^\+/ { print substr($0, 2) } # Keep changed lines (remove '+')
+                /^-/ { print "// ..." } # Replace deleted lines with placeholders
+                /^[^+-]/ { print $0 } # Keep unchanged context lines
+              ' > "$temp_file"
+
               if [ -s "$temp_file" ]; then
                 echo "$temp_file" >> changed_cls_lwc_files.txt
               else
@@ -106,7 +98,14 @@ jobs:
         env:
           SF_LAZY_LOAD_MODULES: 'true'
           SF_AUTOUPDATE_DISABLE: 'true'
-          SF_DISABLE_AUTOUPDATE: 'true'    
+          SF_DISABLE_AUTOUPDATE: 'true'
+
+      - name: Upload Scanner Report as Artifact
+        id: upload-report
+        uses: actions/upload-artifact@v4
+        with:
+          name: SFDX_Code_Scan_Report
+          path: scanner-report.csv 
 
       - name: Authenticate with Salesforce
         id: sf-auth
@@ -159,12 +158,12 @@ jobs:
             exit 1
           fi
 
-      - name: Upload Scanner Report as Artifact
-        id: upload-report
-        uses: actions/upload-artifact@v4
-        with:
-          name: SFDX_Code_Scan_Report
-          path: scanner-report.csv   
+      # - name: Upload Scanner Report as Artifact
+      #   id: upload-report
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: SFDX_Code_Scan_Report
+      #     path: scanner-report.csv   
 
       - name: Block PR merge if severity violations are found
         id: block-check
