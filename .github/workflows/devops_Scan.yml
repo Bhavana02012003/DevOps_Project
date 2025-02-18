@@ -39,7 +39,7 @@ jobs:
       
           echo "Checking for changed .cls and .lwc files..."
       
-          # Get only relevant changed files
+          # Get changed files (only .cls and .lwc)
           changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
       
           echo "Detected changed files: $changed_files"
@@ -73,7 +73,10 @@ jobs:
               echo "        /* Extracted changed lines */" >> "$temp_file"
       
               while read -r line_number line_content; do
-                echo "$line_content" >> "$temp_file"
+                if [[ "$line_content" == *b/force-app* ]]; then
+                  continue  # Skip metadata lines
+                fi
+                echo "        $line_content" >> "$temp_file"
                 echo "$temp_file,$line_number" >> line_number_mapping.txt
               done < "line_number_mapping_${file//\//_}.txt"
       
@@ -84,7 +87,10 @@ jobs:
               echo "    <!-- Extracted changed lines -->" >> "$temp_file"
       
               while read -r line_number line_content; do
-                echo "$line_content" >> "$temp_file"
+                if [[ "$line_content" == *b/force-app* ]]; then
+                  continue  # Skip metadata lines
+                fi
+                echo "    $line_content" >> "$temp_file"
                 echo "$temp_file,$line_number" >> line_number_mapping.txt
               done < "line_number_mapping_${file//\//_}.txt"
       
@@ -105,17 +111,19 @@ jobs:
       
       
       
+      
       - name: Debug - Print All Temporary Class Contents
         run: |
-          echo "====== LIST OF TEMP FILES ======"
-          ls -l temp_scanner_files/
-          
-          echo "====== PRINTING TEMP FILE CONTENTS ======"
-          for file in temp_scanner_files/*.cls; do
-            echo "====== Contents of: $file ======"
-            cat "$file"
-            echo "======================================"
-          done
+            echo "====== LIST OF TEMP FILES ======"
+            ls -l temp_scanner_files/
+            
+            echo "====== PRINTING TEMP FILE CONTENTS ======"
+            for file in temp_scanner_files/*.cls; do
+              echo "====== Contents of: $file ======"
+              cat "$file"
+              echo "======================================"
+            done
+        
       
       - name: Get Commit Author
         id: commit-author
