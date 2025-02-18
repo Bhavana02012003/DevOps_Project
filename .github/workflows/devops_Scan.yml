@@ -259,7 +259,8 @@ jobs:
         with:
           name: SFDX_Code_Scan_Report
           path: scanner-report.csv
-          if-no-files-found: create
+          if-no-files-found: warn
+          
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found

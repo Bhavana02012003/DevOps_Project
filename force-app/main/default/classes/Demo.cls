@@ -9,7 +9,6 @@ global class Demo {  // Violates AvoidGlobalModifier
         String hardcodedId = '0019000000XXXXXXX';  // Violates AvoidHardcodingId
         // Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId WITH SECURITY_ENFORCED];
         Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId];
-        
         // System.debug('Acc'+acc);
     }
 
