@@ -33,31 +33,20 @@ jobs:
       - name: Get changed files (for .cls and .lwc files)
         id: get-changes
         run: |
-          # Check if the repository is already fully cloned
+          # Ensure full git history
           if git rev-parse --is-shallow-repository | grep -q "true"; then
             git fetch --unshallow || true
-          else
-            echo "Repository is already fully cloned."
           fi
-      
-          # Determine if there is a previous commit to compare
-          if [ "$(git rev-list --count HEAD)" -gt "1" ]; then
-            git diff --name-only HEAD~1 HEAD > changed-files.txt || { echo "Failed to get git diff"; exit 1; }
-          else
-            echo "No previous commit to compare to." > changed-files.txt
-          fi
-      
-          # Filter for .cls and .lwc files
-          grep '\.cls$\|\.lwc$' changed-files.txt > changed_cls_lwc_files.txt || true
-      
-          # Check if there are any relevant files
-          if [ ! -s changed_cls_lwc_files.txt ]; then
-            echo "No .cls or .lwc files detected."
+
+          # Get changed lines only for .cls and .lwc files
+          git diff --unified=0 HEAD~1 HEAD | grep -E '^\+\s*[^+]' | tee changed-lines.txt || true
+
+          if [ ! -s changed-lines.txt ]; then
+            echo "No changed lines detected in .cls or .lwc files."
             exit 0
           fi
-      
-          cat changed_cls_lwc_files.txt
-      
+
+          cat changed-lines.txt
 
       - name: Get Commit Author
         id: commit-author
@@ -66,27 +55,34 @@ jobs:
           echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
           echo "Commit Author: $COMMIT_AUTHOR"
 
-      - name: Run SFDX Scanner on Changed Files
+      - name: Create Temporary File with Changed Lines
         run: |
-            files=$(cat changed_cls_lwc_files.txt)
-            if [ -z "$files" ]; then
-              echo "No .cls or .lwc files detected. Creating an empty scanner report."
+          TEMP_FILE="changed_lines_temp.txt"
+          touch "$TEMP_FILE"
+          awk 'NR>1 { print }' changed-lines.txt > "$TEMP_FILE"
+
+          if [ ! -s "$TEMP_FILE" ]; then
+            echo "No valid changed lines detected. Creating an empty scanner report."
+            echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+            exit 0
+          fi
+
+      - name: Run SFDX Scanner on Changed Lines
+        run: |
+            TEMP_FILE="changed_lines_temp.txt"
+
+            if [ -s "$TEMP_FILE" ]; then
+              echo "Running SFDX Scanner on changed lines."
+              sf scanner:run --target "$TEMP_FILE" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed"
+            else
+              echo "No valid changed lines detected."
               echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
-              exit 0
             fi
-            
-            for file in $files; do
-              echo "Running SFDX Scanner on file: $file"
-              sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
-            done
         
             # Add 'Commit' column with the commit author
             if [ -f "scanner-report-temp.csv" ]; then
               head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
               tail -n +2 scanner-report-temp.csv | awk -v author="$COMMIT_AUTHOR" -F',' '{print $0","author}' >> scanner-report.csv
-            else
-              echo "No issues detected. Creating an empty scanner report."
-              echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
             fi
         
         env:
@@ -131,16 +127,14 @@ jobs:
 
             echo "Upload Response: $response"
 
-            # Extract ContentVersionId from response
             contentVersionId=$(echo "$response" | jq -r '.id // empty')
 
             if [ -z "$contentVersionId" ]; then
-              echo "Error: Failed to upload file. No ContentVersionId found."
+              echo "Error: Failed to upload file."
               exit 1
             fi
 
             echo "CONTENT_VERSION_ID=$contentVersionId" >> $GITHUB_ENV
-
             echo "Successfully uploaded scanner report with ContentVersionId: $contentVersionId"
           else
             echo "No scanner report generated, skipping upload."
@@ -153,9 +147,7 @@ jobs:
         with:
           name: SFDX_Code_Scan_Report
           path: scanner-report.csv
-        
 
-      # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
         id: block-check
         run: |
@@ -166,12 +158,12 @@ jobs:
             if [ "$severity_fail_count" -gt 0 ]; then
               echo "Blocking commit due to severity 3 vulnerabilities found."
               echo "block-pr=true" >> $GITHUB_ENV
-              echo "block-pr=true" >> $GITHUB_OUTPUT  # ✅ Set output here
+              echo "block-pr=true" >> $GITHUB_OUTPUT
               exit 1
             else
-              echo "No severity 3 vulnerabilities found. Proceeding with Approval."
+              echo "No severity 3 vulnerabilities found."
               echo "block-pr=false" >> $GITHUB_ENV
-              echo "block-pr=false" >> $GITHUB_OUTPUT  # ✅ Set output here
+              echo "block-pr=false" >> $GITHUB_OUTPUT
             fi
           else
             echo "No scanner report found."
@@ -179,7 +171,6 @@ jobs:
             echo "block-pr=false" >> $GITHUB_OUTPUT
             exit 1
           fi
-
 
 
   quality-gate-critical-permissions-check:

@@ -11,25 +11,25 @@ public with sharing class File {
 
     @AuraEnabled
     public static void importVulnerabilityData(Id fileId) {
-        // // Fetch the file content
-        // ContentVersion file = [
-        //     SELECT VersionData
-        //     FROM ContentVersion
-        //     WHERE ContentDocumentId = :fileId
-        //     LIMIT 1
-        // ];
+        // Fetch the file content
+        ContentVersion file = [
+            SELECT VersionData
+            FROM ContentVersion
+            WHERE ContentDocumentId = :fileId
+            LIMIT 1
+        ];
         // Check if the user has Read permission on ContentVersion
-if (Schema.sObjectType.ContentVersion.isAccessible()) {
-    // Fetch the file content
-    ContentVersion file = [
-        SELECT VersionData
-        FROM ContentVersion
-        WHERE ContentDocumentId = :fileId
-        LIMIT 1
-    ];
-} else {
-    System.debug('❌ User does not have read permission on ContentVersion.');
-}
+// if (Schema.sObjectType.ContentVersion.isAccessible()) {
+//     // Fetch the file content
+//     ContentVersion file = [
+//         SELECT VersionData
+//         FROM ContentVersion
+//         WHERE ContentDocumentId = :fileId
+//         LIMIT 1
+//     ];
+// } else {
+//     System.debug('❌ User does not have read permission on ContentVersion.');
+// }
 
 
         if (file == null) {
