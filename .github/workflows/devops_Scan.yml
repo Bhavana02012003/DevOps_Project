@@ -52,7 +52,7 @@ jobs:
           for file in $changed_files; do
             echo "Processing file: $file"
       
-            # Extract changed lines along with their actual line numbers, ignoring metadata
+            # Extract changed lines along with their actual line numbers
             git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
               /^@@/ { 
                 match($0, /@@ -[0-9]+,[0-9]+ \+([0-9]+)/, arr);
@@ -66,6 +66,9 @@ jobs:
               }
             ' > "line_number_mapping_${file//\//_}.txt"
       
+            echo "====== Extracted Lines for $file ======"
+            cat "line_number_mapping_${file//\//_}.txt"
+      
             temp_file="temp_scanner_files/temp_${file//\//_}"
             touch "$temp_file"
       
@@ -74,7 +77,10 @@ jobs:
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
       
-              while read -r line_number line_content; do
+              while IFS= read -r line; do
+                line_number=$(echo "$line" | cut -d' ' -f1)
+                line_content=$(echo "$line" | cut -d' ' -f2-)
+      
                 if [[ -n "$line_content" ]]; then
                   echo "        $line_content;" >> "$temp_file"  # Ensure proper syntax
                   echo "$temp_file,$line_number" >> line_number_mapping.txt
@@ -87,7 +93,10 @@ jobs:
               echo "<template>" > "$temp_file"
               echo "    <!-- Extracted changed lines -->" >> "$temp_file"
       
-              while read -r line_number line_content; do
+              while IFS= read -r line; do
+                line_number=$(echo "$line" | cut -d' ' -f1)
+                line_content=$(echo "$line" | cut -d' ' -f2-)
+      
                 if [[ -n "$line_content" ]]; then
                   echo "    $line_content" >> "$temp_file"
                   echo "$temp_file,$line_number" >> line_number_mapping.txt
@@ -100,6 +109,9 @@ jobs:
             echo "$temp_file" >> changed_cls_lwc_files.txt
             echo "Created temp file: $temp_file"
           done
+      
+          echo "====== Final Line Number Mapping ======"
+          cat line_number_mapping.txt || echo "No line number mapping available."
       
           echo "Generated temp files:"
           ls -l temp_scanner_files
@@ -123,6 +135,7 @@ jobs:
               cat "$file"
               echo "======================================"
             done
+        
         
         
         
