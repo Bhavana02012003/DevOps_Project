@@ -154,21 +154,26 @@ jobs:
       - name: Upload Scanner Report to Salesforce
         if: success()
         run: |
-          if [ -s scanner-report.csv ]; then
-            response=$(curl -X POST "https://sprintparkllc4-dev-ed.develop.my.salesforce.com/services/data/v61.0/sobjects/ContentVersion" \
-              -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
-              -H "Content-Type: multipart/form-data" \
-              -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
-              -F "VersionData=@scanner-report.csv;type=text/csv")
-
-            contentVersionId=$(echo "$response" | jq -r '.id // empty')
-
-            if [ -z "$contentVersionId" ]; then
-              echo "Error: Failed to upload file."
-              exit 1
+            if [ -s scanner-report.csv ]; then
+              response=$(curl -X POST "https://sprintparkllc4-dev-ed.develop.my.salesforce.com/services/data/v61.0/sobjects/ContentVersion" \
+                -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+                -H "Content-Type: multipart/form-data" \
+                -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
+                -F "VersionData=@scanner-report.csv;type=text/csv")
+        
+              contentVersionId=$(echo "$response" | jq -r '.id // empty')
+        
+              if [ -z "$contentVersionId" ]; then
+                echo "Error: Failed to upload file."
+                exit 1
+              fi
+        
+              echo "Successfully uploaded scanner report to Salesforce."
+            else
+              echo "No scanner report generated, skipping upload."
+              exit 0
             fi
-
-            echo "Successfully uploaded scanner report to Salesforce."
+        
 
       - name: Upload Scanner Report as Artifact
         id: upload-report
@@ -180,16 +185,21 @@ jobs:
       - name: Block PR merge if severity 3 violations are found
         id: block-check
         run: |
-          severity_fail_count=$(grep -oP '"severity":\s*3' scanner-report.csv | wc -l)
-
-          echo "Severity 3 Issues Count: $severity_fail_count"
-
-          if [ "$severity_fail_count" -gt 0 ]; then
-            echo "Blocking commit due to severity 3 vulnerabilities found."
-            exit 1
-          else
-            echo "No severity 3 vulnerabilities found. Proceeding."
-          fi
+            if [ -f scanner-report.csv ]; then
+              severity_fail_count=$(awk -F',' '{if ($2 == "3") count++} END {print count}' scanner-report.csv)
+              echo "Severity 3 Issues Count: $severity_fail_count"
+        
+              if [ "$severity_fail_count" -gt 0 ]; then
+                echo "Blocking commit due to severity 3 vulnerabilities found."
+                exit 1
+              else
+                echo "No severity 3 vulnerabilities found. Proceeding."
+              fi
+            else
+              echo "No scanner report found."
+              exit 0
+            fi
+        
 
 
   quality-gate-critical-permissions-check:
