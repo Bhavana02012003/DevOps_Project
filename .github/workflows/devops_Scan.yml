@@ -53,7 +53,7 @@ jobs:
             echo "Processing file: $file"
       
             # Extract changed lines along with their actual line numbers
-            git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
+            extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
               /^@@/ { 
                 match($0, /\+([0-9]+)/, arr);
                 line = arr[1]; next 
@@ -64,13 +64,22 @@ jobs:
                   line++;
                 }
               }
-            ' > "line_number_mapping_${file//\//_}.txt"
+            ')
       
             echo "====== Extracted Lines and Line Numbers for $file ======"
-            cat "line_number_mapping_${file//\//_}.txt"
+            echo "$extracted_lines"
+      
+            # Store extracted lines in a temporary file
+            echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
       
             temp_file="temp_scanner_files/temp_${file//\//_}"
             touch "$temp_file"
+      
+            # Store line number in a variable
+            extracted_line_number=$(echo "$extracted_lines" | awk -F',' '{print $1}' | head -n 1)
+      
+            # Print the extracted line number for verification
+            echo "✅ Extracted Line Number for $file: $extracted_line_number"
       
             if [[ "$file" == *.cls ]]; then
               echo "public class TempWrapperClass {" > "$temp_file"
@@ -81,7 +90,6 @@ jobs:
                 line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
       
                 if [[ -n "$line_content_trimmed" ]]; then
-                  # Remove extra semicolons and ensure valid syntax
                   formatted_line=$(echo "$line_content_trimmed" | sed 's/;;/;/g')
                   echo "        $formatted_line" >> "$temp_file"
                   echo "$temp_file,$line_number,$formatted_line" >> line_number_mapping.txt
