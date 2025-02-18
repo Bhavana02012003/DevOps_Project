@@ -41,10 +41,7 @@ jobs:
           echo "TempFile,ActualFile,TempLine,ActualLine" > line_number_mapping_final.txt
 
           echo "Checking for changed .cls and .lwc files..."
-          
-          # Get only changed files (.cls and .lwc)
           changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
-          
           echo "Detected changed files: $changed_files"
 
           if [ -z "$changed_files" ]; then
@@ -73,7 +70,6 @@ jobs:
             ')
 
             temp_line=1
-
             while IFS=, read -r actual_line line_content; do
               echo "$temp_file,$file,$temp_line,$actual_line" >> line_number_mapping_final.txt
               echo "$line_content" >> "$temp_file"
@@ -83,6 +79,12 @@ jobs:
             echo "$temp_file" >> changed_cls_lwc_files.txt
             echo "Created temp file: $temp_file"
           done
+
+          echo "====== FINAL LINE NUMBER MAPPING ======"
+          cat line_number_mapping_final.txt || echo "❌ No line mappings found!"
+
+          echo "Generated temp files:"
+          ls -l temp_scanner_files
       
             
       - name: Debug Extracted Line Number Mapping
@@ -116,28 +118,35 @@ jobs:
             exit 0
           fi
 
+          > scanner-report-temp.csv
+
           while IFS= read -r file; do
             echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp-$file.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml"
+            
+            if [ -s "scanner-report-temp-$file.csv" ]; then
+              cat "scanner-report-temp-$file.csv" >> scanner-report-temp.csv
+            fi
           done < changed_cls_lwc_files.txt
 
-          if [ -f "scanner-report-temp.csv" ]; then
-            head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
-
-            while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-              extracted_line_number=$(awk -F',' -v f="$file" -v t="$temp_line" '$1 == f && $3 == t {print $4}' line_number_mapping_final.txt | head -n 1)
-              if [ -z "$extracted_line_number" ]; then
-                extracted_line_number="N/A"
-              fi
-
-              echo "✅ File: $file, Temp Line: $temp_line, Actual Line: $extracted_line_number"
-
-              echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
-            done < <(tail -n +2 scanner-report-temp.csv)
-          else
+          if [ ! -s "scanner-report-temp.csv" ]; then
             echo "No issues detected. Creating an empty scanner report."
             echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+            exit 0
           fi
+
+          head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
+
+          while IFS=, read -r problem severity file temp_line column rule description url category engine; do
+            extracted_line_number=$(awk -F',' -v f="$file" -v t="$temp_line" '$1 == f && $3 == t {print $4}' line_number_mapping_final.txt | head -n 1)
+            if [ -z "$extracted_line_number" ]; then
+              extracted_line_number="N/A"
+            fi
+
+            echo "✅ File: $file, Temp Line: $temp_line, Actual Line: $extracted_line_number"
+
+            echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
+          done < <(tail -n +2 scanner-report-temp.csv)
 
           
       - name: Authenticate with Salesforce
