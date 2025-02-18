@@ -6,7 +6,7 @@ global class Demo {  // Violates AvoidGlobalModifier
     }
 
     public void hardCodedIdMethod() {
-        String hardcodedId = '0019000000XXXXXXX';  // Violates AvoidHardcodingId
+        String hardcodedId = '1019000000XXXXXXX';  // Violates AvoidHardcodingId
         // Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId WITH SECURITY_ENFORCED];
         Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId];
         System.debug(acc);

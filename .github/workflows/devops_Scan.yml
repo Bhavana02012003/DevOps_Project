@@ -34,53 +34,70 @@ jobs:
         id: get-changes
         run: |
           mkdir -p temp_scanner_files
-          > changed_cls_lwc_files.txt
-
+          > changed_cls_lwc_files.txt  # Ensure file is reset
+      
           echo "Checking for changed .cls and .lwc files..."
-
+      
           # Detect both staged and committed changes
           changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
-          
+      
           echo "Detected changed files: $changed_files"
-
+      
           if [ -z "$changed_files" ]; then
             echo "No .cls or .lwc files detected."
             exit 0
           fi
-
+      
           for file in $changed_files; do
             echo "Processing file: $file"
-
-            # Extract only changed lines
+      
+            # Extract only changed lines (ensure correct format)
             changed_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | grep '^+' | grep -v '+++' | cut -d'+' -f2-)
-
-            if [ -n "$changed_lines" ]; then
-              temp_file="temp_scanner_files/temp_${file//\//_}"
-
-              if [[ "$file" == *.cls ]]; then
-                echo "public class TempWrapperClass {" > "$temp_file"
-                echo "    public static void tempMethod() {" >> "$temp_file"
-                echo "        /* Extracted changed lines */" >> "$temp_file"
+      
+            temp_file="temp_scanner_files/temp_${file//\//_}"
+      
+            # Ensure the temp file is created
+            touch "$temp_file"
+      
+            if [[ "$file" == *.cls ]]; then
+              echo "public class TempWrapperClass {" > "$temp_file"
+              echo "    public static void tempMethod() {" >> "$temp_file"
+              echo "        /* Extracted changed lines */" >> "$temp_file"
+      
+              if [ -n "$changed_lines" ]; then
                 echo "$changed_lines" >> "$temp_file"
-                echo "    }" >> "$temp_file"
-                echo "}" >> "$temp_file"
-              elif [[ "$file" == *.lwc ]]; then
-                echo "<template>" > "$temp_file"
-                echo "    <!-- Extracted changed lines -->" >> "$temp_file"
-                echo "$changed_lines" >> "$temp_file"
-                echo "</template>" >> "$temp_file"
+              else
+                echo "        // No changed lines found" >> "$temp_file"
               fi
-
-              echo "$temp_file" >> changed_cls_lwc_files.txt
-            else
-              echo "No relevant changes in $file."
+      
+              echo "    }" >> "$temp_file"
+              echo "}" >> "$temp_file"
+            elif [[ "$file" == *.lwc ]]; then
+              echo "<template>" > "$temp_file"
+              echo "    <!-- Extracted changed lines -->" >> "$temp_file"
+      
+              if [ -n "$changed_lines" ]; then
+                echo "$changed_lines" >> "$temp_file"
+              else
+                echo "    <!-- No changed lines found -->" >> "$temp_file"
+              fi
+      
+              echo "</template>" >> "$temp_file"
             fi
+      
+            echo "$temp_file" >> changed_cls_lwc_files.txt
+            echo "Created temp file: $temp_file"
           done
-
+      
+          # Debug: List generated temp files
+          echo "Generated temp files:"
+          ls -l temp_scanner_files
+      
           if [ ! -s changed_cls_lwc_files.txt ]; then
             echo "No temp files created. Exiting."
             exit 0
           fi
+      
 
       - name: Debug - Print Temporary Class Content
         run: |
