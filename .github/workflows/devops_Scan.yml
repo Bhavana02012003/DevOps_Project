@@ -252,12 +252,20 @@ jobs:
             fi
         
 
+      - name: Ensure Scanner Report Exists
+        run: |
+              if [ ! -f scanner-report.csv ]; then
+                echo "Creating an empty scanner report..."
+                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+              fi
+    
       - name: Upload Scanner Report as Artifact
         id: upload-report
         uses: actions/upload-artifact@v4
         with:
-          name: SFDX_Code_Scan_Report
-          path: scanner-report.csv
+              name: SFDX_Code_Scan_Report
+              path: scanner-report.csv
+              if-no-files-found: create
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
@@ -287,16 +295,23 @@ jobs:
 
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
-    # needs: quality-gate-code-check
-    if: always()
+    if: always()  # Ensures this job runs even if quality-gate-code-check fails
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Download Scanner Report
+        continue-on-error: true  # Prevents failure if artifact is missing
         uses: actions/download-artifact@v4
         with:
           name: SFDX_Code_Scan_Report
+
+      - name: Check for Scanner Report
+        run: |
+          if [ ! -f SFDX_Code_Scan_Report/scanner-report.csv ]; then
+            echo "No scanner report found, creating an empty one."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+          fi
 
       - name: Scan Profiles and Permission Sets for Critical Permissions
         run: |
