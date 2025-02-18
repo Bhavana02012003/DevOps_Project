@@ -35,10 +35,11 @@ jobs:
         run: |
           mkdir -p temp_scanner_files
           > changed_cls_lwc_files.txt
+          > line_number_mapping.txt
       
           echo "Checking for changed .cls and .lwc files..."
       
-          changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
+          changed_files=$(git diff --unified=0 HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
       
           echo "Detected changed files: $changed_files"
       
@@ -50,7 +51,17 @@ jobs:
           for file in $changed_files; do
             echo "Processing file: $file"
       
-            changed_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | grep '^+' | grep -v '+++' | cut -d'+' -f2-)
+            # Extract actual changed lines with line numbers
+            git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
+              /^@@/ { 
+                match($0, /@@ -[0-9]+,[0-9]+ \+([0-9]+),/, arr);
+                line = arr[1]; next 
+              }
+              /^\+/ { 
+                print line " " substr($0, 2);
+                line++;
+              }
+            ' > "line_number_mapping_${file//\//_}.txt"
       
             temp_file="temp_scanner_files/temp_${file//\//_}"
             touch "$temp_file"
@@ -60,11 +71,10 @@ jobs:
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
       
-              if [ -n "$changed_lines" ]; then
-                echo "$changed_lines" >> "$temp_file"
-              else
-                echo "        // No changed lines found" >> "$temp_file"
-              fi
+              while read -r line_number line_content; do
+                echo "$line_content" >> "$temp_file"
+                echo "$temp_file,$line_number" >> line_number_mapping.txt
+              done < "line_number_mapping_${file//\//_}.txt"
       
               echo "    }" >> "$temp_file"
               echo "}" >> "$temp_file"
@@ -72,11 +82,10 @@ jobs:
               echo "<template>" > "$temp_file"
               echo "    <!-- Extracted changed lines -->" >> "$temp_file"
       
-              if [ -n "$changed_lines" ]; then
-                echo "$changed_lines" >> "$temp_file"
-              else
-                echo "    <!-- No changed lines found -->" >> "$temp_file"
-              fi
+              while read -r line_number line_content; do
+                echo "$line_content" >> "$temp_file"
+                echo "$temp_file,$line_number" >> line_number_mapping.txt
+              done < "line_number_mapping_${file//\//_}.txt"
       
               echo "</template>" >> "$temp_file"
             fi
@@ -92,6 +101,7 @@ jobs:
             echo "No temp files created. Exiting."
             exit 0
           fi
+      
       
       - name: Debug - Print All Temporary Class Contents
         run: |
@@ -117,24 +127,32 @@ jobs:
               files=$(cat changed_cls_lwc_files.txt)
               if [ -z "$files" ]; then
                 echo "No files to scan. Creating an empty report."
-                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+                echo "Problem,Severity,File,TempLine,ActualLine,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
                 exit 0
               fi
           
-              # Run scanner for each file
               for file in $files; do
                 echo "Running SFDX Scanner on file: $file"
                 sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
               done
           
-              # Add "Commit" column with commit author
               if [ -f "scanner-report-temp.csv" ]; then
-                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
-                tail -n +2 scanner-report-temp.csv | awk -v author="$COMMIT_AUTHOR" -F',' '{print $0","author}' >> scanner-report.csv
+                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",ActualLine,Commit"}' > scanner-report.csv
+          
+                while IFS=, read -r problem severity file temp_line column rule description url category engine; do
+                  actual_line=$(grep "^$file,$temp_line," line_number_mapping.txt | cut -d',' -f2)
+          
+                  if [ -z "$actual_line" ]; then
+                    actual_line="N/A"
+                  fi
+          
+                  echo "$problem,$severity,$file,$temp_line,$actual_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR" >> scanner-report.csv
+                done < <(tail -n +2 scanner-report-temp.csv)
               else
                 echo "No issues detected. Creating an empty scanner report."
-                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+                echo "Problem,Severity,File,TempLine,ActualLine,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
               fi
+          
           
 
 
