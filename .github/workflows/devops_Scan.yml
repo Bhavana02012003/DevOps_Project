@@ -154,36 +154,35 @@ jobs:
          
       - name: Run SFDX Scanner on Changed Lines and Map Actual Line Numbers
         run: |
-              files=$(cat changed_cls_lwc_files.txt)
-          if [ -z "$files" ]; then
-            echo "No files to scan. Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-            exit 0
-          fi
-
-          for file in $files; do
-            # echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
-          done
-
-          if [ -f "scanner-report-temp.csv" ]; then
-            head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
-
-            while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-              extracted_line_number=$(awk -F',' -v f="$file" -v t="$temp_line" '$1 == f && $3 == t {print $4}' line_number_mapping_final.txt | head -n 1)
-              if [ -z "$extracted_line_number" ]; then
-                extracted_line_number="N/A"
+              if [ ! -s changed_cls_lwc_files.txt ]; then
+                echo "No files to scan. Creating an empty report."
+                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+                exit 0
               fi
-
-              # echo "✅ File: $file, Temp Line: $temp_line, Actual Line: $extracted_line_number"
-
-              echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
-            done < <(tail -n +2 scanner-report-temp.csv)
-          else
-            echo "No issues detected. Creating an empty scanner report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-          fi
-
+          
+              while IFS= read -r file; do
+                echo "Running SFDX Scanner on file: $file"
+                sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+              done < changed_cls_lwc_files.txt
+          
+              if [ -f "scanner-report-temp.csv" ]; then
+                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
+          
+                while IFS=, read -r problem severity file temp_line column rule description url category engine; do
+                  # Match the temp file and line number to get the actual line number
+                  extracted_line_number=$(awk -F',' -v f="$file" -v t="$temp_line" '$1 == f && $3 == t {print $4}' line_number_mapping_final.txt | head -n 1)
+                  if [ -z "$extracted_line_number" ]; then
+                    extracted_line_number="N/A"
+                  fi
+          
+                  echo "✅ File: $file, Temp Line: $temp_line, Actual Line: $extracted_line_number"
+          
+                  echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
+                done < <(tail -n +2 scanner-report-temp.csv)
+              else
+                echo "No issues detected. Creating an empty scanner report."
+                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+              fi
           
           
           
