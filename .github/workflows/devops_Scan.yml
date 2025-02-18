@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}
+      block-pr: ${{ steps.block-check.outputs.block-status }}  # ✅ Add block-pr output
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -268,12 +269,18 @@ jobs:
             
             if [ "$severity_fail_count" -gt 0 ]; then
               echo "Blocking commit due to severity 3 vulnerabilities found."
+              echo "block-status=true" >> $GITHUB_ENV
+              echo "block-status=true" >> $GITHUB_OUTPUT
               exit 1  # ✅ Now workflow fails only at the last step
             else
-              echo "No severity 3 vulnerabilities found. Proceeding with Approval."
+              echo "No severity 3 vulnerabilities found. Proceeding."
+              echo "block-status=false" >> $GITHUB_ENV
+              echo "block-status=false" >> $GITHUB_OUTPUT
             fi
           else
             echo "No scanner report found."
+            echo "block-status=true" >> $GITHUB_ENV
+            echo "block-status=true" >> $GITHUB_OUTPUT
             exit 1
           fi
 
@@ -281,7 +288,7 @@ jobs:
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
-    if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}
+    if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' || needs.quality-gate-code-check.outputs.block-pr == '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
