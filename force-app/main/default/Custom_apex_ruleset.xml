@@ -14,4 +14,10 @@
 <priority>3</priority>
 <properties> </properties>
 </rule>
+
+   <rule ref="category/apex/performance.xml/AvoidDebugStatements" message="Avoid Debug Statements">
+<priority>3</priority>
+<properties> </properties>
+</rule>
+
 </ruleset>
