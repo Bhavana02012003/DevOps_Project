@@ -145,12 +145,12 @@ jobs:
             echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
             echo "Commit Author: $COMMIT_AUTHOR"
          
-      - name: Run SFDX Scanner on Changed Lines and Map Actual Line Numbers
+      - name: Run SFDX Scanner on Changed Lines
         run: |
               files=$(cat changed_cls_lwc_files.txt)
               if [ -z "$files" ]; then
                 echo "No files to scan. Creating an empty report."
-                echo "Problem,Severity,File,TempLine,ActualLine,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
                 exit 0
               fi
           
@@ -160,27 +160,15 @@ jobs:
               done
           
               if [ -f "scanner-report-temp.csv" ]; then
-                # Append "ActualLine" column in the header
-                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",ActualLine,Commit"}' > scanner-report.csv
+                # Append "Commit" column in the header
+                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
           
-                while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Extract the correct file path formatting
-                  formatted_file_path=$(basename "$file")
-          
-                  # Retrieve actual line number from the mapping file
-                  actual_line=$(awk -F',' -v f="$formatted_file_path" -v t="$temp_line" '$1 ~ f && $2 == t {print $3}' line_number_mapping.txt)
-          
-                  # If no matching line found, set it as "N/A"
-                  if [ -z "$actual_line" ]; then
-                    actual_line="N/A"
-                  fi
-          
-                  # Append actual line number to the scanner report
-                  echo "$problem,$severity,$file,$temp_line,$actual_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR" >> scanner-report.csv
+                while IFS=, read -r problem severity file line column rule description url category engine; do
+                  echo "$problem,$severity,$file,$line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR" >> scanner-report.csv
                 done < <(tail -n +2 scanner-report-temp.csv)
               else
                 echo "No issues detected. Creating an empty scanner report."
-                echo "Problem,Severity,File,TempLine,ActualLine,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
               fi
           
           
