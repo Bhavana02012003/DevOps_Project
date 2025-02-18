@@ -105,21 +105,37 @@ jobs:
             echo "======================================"
           done
       
-        
-
+      - name: Get Commit Author
+        id: commit-author
+        run: |
+            COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+            echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+            echo "Commit Author: $COMMIT_AUTHOR"
+         
       - name: Run SFDX Scanner on Changed Lines
         run: |
-          files=$(cat changed_cls_lwc_files.txt)
-          if [ -z "$files" ]; then
-            echo "No files to scan. Creating an empty report."
-            echo "[]" > scanner-report.csv
-            exit 0
-          fi
-
-          for file in $files; do
-            echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
-          done
+              files=$(cat changed_cls_lwc_files.txt)
+              if [ -z "$files" ]; then
+                echo "No files to scan. Creating an empty report."
+                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+                exit 0
+              fi
+          
+              # Run scanner for each file
+              for file in $files; do
+                echo "Running SFDX Scanner on file: $file"
+                sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+              done
+          
+              # Add "Commit" column with commit author
+              if [ -f "scanner-report-temp.csv" ]; then
+                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
+                tail -n +2 scanner-report-temp.csv | awk -v author="$COMMIT_AUTHOR" -F',' '{print $0","author}' >> scanner-report.csv
+              else
+                echo "No issues detected. Creating an empty scanner report."
+                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+              fi
+          
 
 
       - name: Authenticate with Salesforce
