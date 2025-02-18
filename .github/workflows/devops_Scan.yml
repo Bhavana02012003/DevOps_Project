@@ -150,7 +150,7 @@ jobs:
               files=$(cat changed_cls_lwc_files.txt)
               if [ -z "$files" ]; then
                 echo "No files to scan. Creating an empty report."
-                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit,Actual Line" > scanner-report.csv
                 exit 0
               fi
           
@@ -160,15 +160,25 @@ jobs:
               done
           
               if [ -f "scanner-report-temp.csv" ]; then
-                # Append "Commit" column in the header
-                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
+                # Append "Commit" and "Actual Line" columns in the header
+                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,Actual Line"}' > scanner-report.csv
           
                 while IFS=, read -r problem severity file line column rule description url category engine; do
-                  echo "$problem,$severity,$file,$line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR" >> scanner-report.csv
+                  # Extract actual line number from mapping file
+                  formatted_file_path=$(basename "$file")
+                  actual_line=$(awk -F',' -v f="$formatted_file_path" -v t="$line" '$1 ~ f && $2 == t {print $3}' line_number_mapping.txt)
+          
+                  # If no matching line found, set it as "N/A"
+                  if [ -z "$actual_line" ]; then
+                    actual_line="N/A"
+                  fi
+          
+                  # Append Commit and Actual Line number to the scanner report
+                  echo "$problem,$severity,$file,$line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual_line" >> scanner-report.csv
                 done < <(tail -n +2 scanner-report-temp.csv)
               else
                 echo "No issues detected. Creating an empty scanner report."
-                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+                echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit,Actual Line" > scanner-report.csv
               fi
           
           
