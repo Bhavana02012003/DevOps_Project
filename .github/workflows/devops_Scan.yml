@@ -34,11 +34,10 @@ jobs:
         id: get-changes
         run: |
           mkdir -p temp_scanner_files
-          > changed_cls_lwc_files.txt  # Ensure file is reset
+          > changed_cls_lwc_files.txt
       
           echo "Checking for changed .cls and .lwc files..."
       
-          # Detect both staged and committed changes
           changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
       
           echo "Detected changed files: $changed_files"
@@ -51,12 +50,9 @@ jobs:
           for file in $changed_files; do
             echo "Processing file: $file"
       
-            # Extract only changed lines (ensure correct format)
             changed_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | grep '^+' | grep -v '+++' | cut -d'+' -f2-)
       
             temp_file="temp_scanner_files/temp_${file//\//_}"
-      
-            # Ensure the temp file is created
             touch "$temp_file"
       
             if [[ "$file" == *.cls ]]; then
@@ -89,7 +85,6 @@ jobs:
             echo "Created temp file: $temp_file"
           done
       
-          # Debug: List generated temp files
           echo "Generated temp files:"
           ls -l temp_scanner_files
       
@@ -98,12 +93,18 @@ jobs:
             exit 0
           fi
       
-
-      - name: Debug - Print Temporary Class Content
+      - name: Debug - Print All Temporary Class Contents
         run: |
-          echo "====== TEMP CLASS CONTENT ======"
-          cat temp_scanner_files/temp_force-app_main_default_classes_File.cls
-          echo "================================"
+          echo "====== LIST OF TEMP FILES ======"
+          ls -l temp_scanner_files/
+          
+          echo "====== PRINTING TEMP FILE CONTENTS ======"
+          for file in temp_scanner_files/*.cls; do
+            echo "====== Contents of: $file ======"
+            cat "$file"
+            echo "======================================"
+          done
+      
         
 
       - name: Run SFDX Scanner on Changed Lines
