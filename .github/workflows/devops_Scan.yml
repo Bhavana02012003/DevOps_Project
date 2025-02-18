@@ -9,8 +9,8 @@ jobs:
   quality-gate-code-check:
     runs-on: ubuntu-latest
     outputs:
-      scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}
-      block-pr: ${{ steps.block-check.outputs.block-status }}  # ✅ Add block-pr output
+      scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}  # Outputs the artifact path to pass to the next job
+      block-pr: ${{ steps.block-check.outputs.block-status }}  # Pass the block status
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -288,7 +288,7 @@ jobs:
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
-    if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' || needs.quality-gate-code-check.outputs.block-pr == '' }}
+    if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}  # Only run this job if the code scan passes
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
