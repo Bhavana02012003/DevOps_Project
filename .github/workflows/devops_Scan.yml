@@ -122,18 +122,15 @@ jobs:
           fi
       
             
-      - name: Debug Line Number Mapping
+      - name: Debug Extracted Line Number Mapping
         run: |
             echo "====== FINAL LINE NUMBER MAPPING ======"
-            cat line_number_mapping.txt || echo "No mapping found."
-        
-            echo "====== SCANNER REPORT TEMP CONTENTS ======"
-            cat scanner-report-temp.csv || echo "No scanner output found."
+            cat line_number_mapping.txt || echo "❌ No line mappings found!"
         
             echo "====== CHECKING FILE PATH FORMATTING ======"
             while IFS=, read -r problem severity file temp_line column rule description url category engine; do
               formatted_file_path=$(basename "$file")
-              echo "Checking for: $formatted_file_path,$temp_line in mapping file"
+              echo "Checking: $formatted_file_path, Temp Line: $temp_line"
               grep "$formatted_file_path,$temp_line" line_number_mapping.txt || echo "❌ No match found for $formatted_file_path,$temp_line"
             done < <(tail -n +2 scanner-report-temp.csv)
         
@@ -148,7 +145,7 @@ jobs:
             echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
             echo "Commit Author: $COMMIT_AUTHOR"
          
-      - name: Run SFDX Scanner on Changed Lines and Fix Line Mapping
+      - name: Run SFDX Scanner on Changed Lines and Map Actual Line Numbers
         run: |
               files=$(cat changed_cls_lwc_files.txt)
               if [ -z "$files" ]; then
@@ -163,26 +160,28 @@ jobs:
               done
           
               if [ -f "scanner-report-temp.csv" ]; then
+                # Append "ActualLine" column in the header
                 head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",ActualLine,Commit"}' > scanner-report.csv
           
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Extract actual filename from scanner output
+                  # Extract the correct file path formatting
                   formatted_file_path=$(basename "$file")
           
-                  # Ensure correct file path lookup in line_number_mapping.txt
+                  # Retrieve actual line number from the mapping file
                   actual_line=$(awk -F',' -v f="$formatted_file_path" -v t="$temp_line" '$1 ~ f && $2 == t {print $3}' line_number_mapping.txt)
           
+                  # If no matching line found, set it as "N/A"
                   if [ -z "$actual_line" ]; then
                     actual_line="N/A"
                   fi
           
+                  # Append actual line number to the scanner report
                   echo "$problem,$severity,$file,$temp_line,$actual_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR" >> scanner-report.csv
                 done < <(tail -n +2 scanner-report-temp.csv)
               else
                 echo "No issues detected. Creating an empty scanner report."
                 echo "Problem,Severity,File,TempLine,ActualLine,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
               fi
-          
           
           
       - name: Authenticate with Salesforce
