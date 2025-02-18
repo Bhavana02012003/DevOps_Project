@@ -66,7 +66,7 @@ jobs:
               }
             ' > "line_number_mapping_${file//\//_}.txt"
       
-            echo "====== Extracted Lines for $file ======"
+            echo "====== Extracted Lines and Line Numbers for $file ======"
             cat "line_number_mapping_${file//\//_}.txt"
       
             temp_file="temp_scanner_files/temp_${file//\//_}"
@@ -83,7 +83,7 @@ jobs:
       
                 if [[ -n "$line_content" ]]; then
                   echo "        $line_content;" >> "$temp_file"  # Ensure proper syntax
-                  echo "$temp_file,$line_number" >> line_number_mapping.txt
+                  echo "$temp_file,$line_number,$line_content" >> line_number_mapping.txt
                 fi
               done < "line_number_mapping_${file//\//_}.txt"
       
@@ -99,7 +99,7 @@ jobs:
       
                 if [[ -n "$line_content" ]]; then
                   echo "    $line_content" >> "$temp_file"
-                  echo "$temp_file,$line_number" >> line_number_mapping.txt
+                  echo "$temp_file,$line_number,$line_content" >> line_number_mapping.txt
                 fi
               done < "line_number_mapping_${file//\//_}.txt"
       
@@ -135,6 +135,9 @@ jobs:
               cat "$file"
               echo "======================================"
             done
+        
+            echo "====== FINAL LINE NUMBER MAPPING ======"
+            cat line_number_mapping.txt || echo "No mapping found."
         
         
         
