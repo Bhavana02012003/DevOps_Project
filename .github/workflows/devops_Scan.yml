@@ -14,7 +14,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Ensures full history is available
 
       - name: Use Node.js
         uses: actions/setup-node@v3
@@ -36,14 +36,7 @@ jobs:
           mkdir -p temp_scanner_files
           > changed_cls_lwc_files.txt
 
-          git fetch --unshallow || true
-          if [ "$(git rev-list --count HEAD)" -gt "1" ]; then
-            git diff --cached --unified=0 | grep -E '^\+\s' | grep -v '+++' | cut -d'+' -f2- > changed-lines.txt
-          else
-            echo "No previous commit to compare to." > changed-lines.txt
-          fi
-
-          # Get list of changed .cls and .lwc files
+          # Get all staged .cls and .lwc files (use --cached to check staged changes)
           changed_files=$(git diff --cached --name-only | grep -E '\.cls$|\.lwc$' || true)
 
           if [ -z "$changed_files" ]; then
@@ -52,33 +45,50 @@ jobs:
           fi
 
           for file in $changed_files; do
-            temp_file="temp_scanner_files/temp_${file//\//_}"
+            echo "Processing file: $file"
 
-            if [[ "$file" == *.cls ]]; then
-              echo "public class TempWrapperClass {" > "$temp_file"
-              echo "    public static void tempMethod() {" >> "$temp_file"
-              echo "$changed_lines" >> "$temp_file"
-              echo "    }" >> "$temp_file"
-              echo "}" >> "$temp_file"
-            elif [[ "$file" == *.lwc ]]; then
-              echo "<template>" > "$temp_file"
-              echo "$changed_lines" >> "$temp_file"
-              echo "</template>" >> "$temp_file"
+            # Extract only changed lines (no context, to ensure exact matches)
+            changed_lines=$(git diff --cached --unified=0 "$file" | grep '^+' | grep -v '+++' | cut -d'+' -f2-)
+
+            if [ -n "$changed_lines" ]; then
+              temp_file="temp_scanner_files/temp_${file//\//_}"
+
+              if [[ "$file" == *.cls ]]; then
+                echo "public class TempWrapperClass {" > "$temp_file"
+                echo "    public static void tempMethod() {" >> "$temp_file"
+                echo "        /* Extracted changed lines */" >> "$temp_file"
+                echo "$changed_lines" >> "$temp_file"
+                echo "    }" >> "$temp_file"
+                echo "}" >> "$temp_file"
+              elif [[ "$file" == *.lwc ]]; then
+                echo "<template>" > "$temp_file"
+                echo "    <!-- Extracted changed lines -->" >> "$temp_file"
+                echo "$changed_lines" >> "$temp_file"
+                echo "</template>" >> "$temp_file"
+              fi
+
+              echo "$temp_file" >> changed_cls_lwc_files.txt
+            else
+              echo "No relevant changes in $file."
             fi
-
-            echo "$temp_file" >> changed_cls_lwc_files.txt
           done
+
+          if [ ! -s changed_cls_lwc_files.txt ]; then
+            echo "No temp files created. Exiting."
+            exit 0
+          fi
 
       - name: Run SFDX Scanner on Changed Lines
         run: |
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
-            echo "No relevant files to scan."
+            echo "No files to scan. Creating an empty report."
             echo "[]" > scanner-report.json
             exit 0
           fi
 
           for file in $files; do
+            echo "Running SFDX Scanner on file: $file"
             sf scanner:run --target "$file" --format "json" --outfile "scanner-report.json" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
           done
 
@@ -150,6 +160,7 @@ jobs:
           else
             echo "No severity 3 vulnerabilities found. Proceeding."
           fi
+
 
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest

@@ -8,4 +8,11 @@
       <properties>
       </properties>
    </rule>
+
+   <!-- BEST PRACTICES -->
+   <rule ref="category/apex/bestpractices.xml/AvoidDebugStatements" message="Avoid using System.debug statements in production code">
+      <priority>3</priority>
+      <properties>
+      </properties>
+   </rule>
 </ruleset>
