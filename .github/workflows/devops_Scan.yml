@@ -81,8 +81,10 @@ jobs:
                 line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
       
                 if [[ -n "$line_content_trimmed" ]]; then
-                  echo "        $line_content_trimmed;" >> "$temp_file"  # Ensure proper syntax
-                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  # Remove extra semicolons and ensure valid syntax
+                  formatted_line=$(echo "$line_content_trimmed" | sed 's/;;/;/g')
+                  echo "        $formatted_line" >> "$temp_file"
+                  echo "$temp_file,$line_number,$formatted_line" >> line_number_mapping.txt
                 fi
               done < "line_number_mapping_${file//\//_}.txt"
       
@@ -121,6 +123,7 @@ jobs:
       
       
       
+      
       - name: Debug - Print All Temporary Class Contents
         run: |
             echo "====== LIST OF TEMP FILES ======"
@@ -137,8 +140,7 @@ jobs:
             cat line_number_mapping.txt || echo "No mapping found."
         
         
-        
-        
+               
       
       - name: Get Commit Author
         id: commit-author
@@ -177,7 +179,6 @@ jobs:
                 echo "No issues detected. Creating an empty scanner report."
                 echo "Problem,Severity,File,TempLine,ActualLine,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
               fi
-          
           
 
 
