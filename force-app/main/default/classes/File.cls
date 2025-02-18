@@ -12,7 +12,6 @@ public with sharing class File {
     @AuraEnabled
     public static void importVulnerabilityData(Id fileId) {
         // Fetch the file content
-        
         ContentVersion file = [
             SELECT VersionData
             FROM ContentVersion

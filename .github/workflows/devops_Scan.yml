@@ -30,6 +30,58 @@ jobs:
       - name: Verify Salesforce CLI Installation
         run: sf --version
 
+      - name: Get changed lines and create temporary files
+        id: get-changes
+        run: |
+          mkdir -p temp_scanner_files
+          > changed_cls_lwc_files.txt
+
+          git fetch --unshallow || true
+          if [ "$(git rev-list --count HEAD)" -gt "1" ]; then
+            git diff --cached --unified=0 | grep -E '^\+\s' | grep -v '+++' | cut -d'+' -f2- > changed-lines.txt
+          else
+            echo "No previous commit to compare to." > changed-lines.txt
+          fi
+
+          # Get list of changed .cls and .lwc files
+          changed_files=$(git diff --cached --name-only | grep -E '\.cls$|\.lwc$' || true)
+
+          if [ -z "$changed_files" ]; then
+            echo "No .cls or .lwc files detected."
+            exit 0
+          fi
+
+          for file in $changed_files; do
+            temp_file="temp_scanner_files/temp_${file//\//_}"
+
+            if [[ "$file" == *.cls ]]; then
+              echo "public class TempWrapperClass {" > "$temp_file"
+              echo "    public static void tempMethod() {" >> "$temp_file"
+              echo "$changed_lines" >> "$temp_file"
+              echo "    }" >> "$temp_file"
+              echo "}" >> "$temp_file"
+            elif [[ "$file" == *.lwc ]]; then
+              echo "<template>" > "$temp_file"
+              echo "$changed_lines" >> "$temp_file"
+              echo "</template>" >> "$temp_file"
+            fi
+
+            echo "$temp_file" >> changed_cls_lwc_files.txt
+          done
+
+      - name: Run SFDX Scanner on Changed Lines
+        run: |
+          files=$(cat changed_cls_lwc_files.txt)
+          if [ -z "$files" ]; then
+            echo "No relevant files to scan."
+            echo "[]" > scanner-report.json
+            exit 0
+          fi
+
+          for file in $files; do
+            sf scanner:run --target "$file" --format "json" --outfile "scanner-report.json" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+          done
+
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
@@ -59,114 +111,6 @@ jobs:
           FILE_TITLE="Code Scanner Delta Report_${REPO_NAME}_${BRANCH_NAME}_${COMMIT_LABEL}"
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
 
-          echo "Repository: $REPO_NAME"
-          echo "Branch: $BRANCH_NAME"
-          echo "Commit Message: $COMMIT_LABEL"
-
-      - name: Extract changed lines and create temporary files
-        id: get-changes
-        run: |
-          mkdir -p temp_scanner_files
-          > changed_cls_lwc_files.txt
-
-          # Get changed .cls and .lwc files
-          changed_files=$(git diff --cached --name-only | grep -E '\.cls$|\.lwc$' || true)
-
-          if [ -z "$changed_files" ]; then
-            echo "No relevant .cls or .lwc changes found."
-            exit 0
-          fi
-
-          for file in $changed_files; do
-            echo "Processing file: $file"
-            
-            # Extract changed lines
-            changed_lines=$(git diff --cached --unified=0 "$file" | grep '^+' | grep -v '+++' | cut -d'+' -f2-)
-
-            if [ -n "$changed_lines" ]; then
-              echo "Changed lines in $file:"
-              echo "$changed_lines"
-
-              # Create a temporary file
-              temp_file="temp_scanner_files/temp_${file//\//_}"
-              echo "/* Temporary file for scanning changed lines */" > "$temp_file"
-
-              # Detect file type and wrap correctly
-              if [[ "$file" == *.cls ]]; then
-                echo "/**" >> "$temp_file"
-                echo " * @description Temporary wrapper class for scanning changed lines." >> "$temp_file"
-                echo " */" >> "$temp_file"
-                echo "public class TempWrapperClass {" >> "$temp_file"
-                echo "    /**" >> "$temp_file"
-                echo "     * @description This method contains the changed lines extracted from the original file." >> "$temp_file"
-                echo "     */" >> "$temp_file"
-                echo "    public static void tempMethod() {" >> "$temp_file"
-                echo "        /* Begin of extracted changed lines */" >> "$temp_file"
-                echo "$changed_lines" >> "$temp_file"
-                echo "        /* End of extracted changed lines */" >> "$temp_file"
-                echo "    }" >> "$temp_file"
-                echo "}" >> "$temp_file"
-              elif [[ "$file" == *.lwc ]]; then
-                echo "<!-- Temporary file for scanning changed lines -->" >> "$temp_file"
-                echo "<template>" >> "$temp_file"
-                echo "    <!-- Begin of extracted changed lines -->" >> "$temp_file"
-                echo "$changed_lines" >> "$temp_file"
-                echo "    <!-- End of extracted changed lines -->" >> "$temp_file"
-                echo "</template>" >> "$temp_file"
-              fi
-
-              echo "$temp_file" >> changed_cls_lwc_files.txt
-              echo "Created temp file: $temp_file"
-            else
-              echo "No relevant changes in $file."
-            fi
-          done
-
-          if [ ! -s changed_cls_lwc_files.txt ]; then
-            echo "No temp files created. Exiting."
-            exit 0
-          fi
-
-      - name: Run SFDX Scanner on Temporary Files
-        run: |
-          files=$(cat changed_cls_lwc_files.txt)
-          if [ -z "$files" ]; then
-            echo "No files to scan. Creating an empty report."
-            echo "[]" > scanner-report.json
-            exit 0
-          fi
-          
-          for file in $files; do
-            echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "json" --outfile "scanner-report.json" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
-          done
-
-          if [ ! -f "scanner-report.json" ]; then
-            echo "Scanner report not generated."
-            exit 1
-          fi
-
-      - name: Block PR merge if severity 3 violations are found
-        id: block-check
-        run: |
-          severity_fail_count=$(grep -oP '"severity":\s*3' scanner-report.json | wc -l)
-
-          echo "Severity 3 Issues Count: $severity_fail_count"
-
-          if [ "$severity_fail_count" -gt 0 ]; then
-            echo "Blocking commit due to severity 3 vulnerabilities found."
-            exit 1
-          else
-            echo "No severity 3 vulnerabilities found. Proceeding."
-          fi
-
-      - name: Upload Scanner Report as Artifact
-        id: upload-report
-        uses: actions/upload-artifact@v4
-        with:
-          name: SFDX_Code_Scan_Report
-          path: scanner-report.json
-
       - name: Upload Scanner Report to Salesforce
         if: success()
         run: |
@@ -185,15 +129,32 @@ jobs:
             fi
 
             echo "Successfully uploaded scanner report to Salesforce."
-          else
-            echo "No scanner report generated, skipping upload."
+
+      - name: Upload Scanner Report as Artifact
+        id: upload-report
+        uses: actions/upload-artifact@v4
+        with:
+          name: SFDX_Code_Scan_Report
+          path: scanner-report.json
+
+      - name: Block PR merge if severity 3 violations are found
+        id: block-check
+        run: |
+          severity_fail_count=$(grep -oP '"severity":\s*3' scanner-report.json | wc -l)
+
+          echo "Severity 3 Issues Count: $severity_fail_count"
+
+          if [ "$severity_fail_count" -gt 0 ]; then
+            echo "Blocking commit due to severity 3 vulnerabilities found."
             exit 1
+          else
+            echo "No severity 3 vulnerabilities found. Proceeding."
           fi
 
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
-    if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' || needs.quality-gate-code-check.outputs.block-pr == '' }}
+    if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
