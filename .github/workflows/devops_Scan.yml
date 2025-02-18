@@ -166,7 +166,7 @@ jobs:
                 while IFS=, read -r problem severity file line column rule description url category engine; do
                   # Extract actual line number from mapping file
                   formatted_file_path=$(basename "$file")
-                  actual_line=$(awk -F',' -v f="$formatted_file_path" -v t="$line" '$1 ~ f && $2 == t {print $3}' line_number_mapping.txt)
+                  actual_line=$(awk -F',' -v f="$formatted_file_path" '$1 ~ f {print $2}' line_number_mapping.txt)
           
                   # If no matching line found, set it as "N/A"
                   if [ -z "$actual_line" ]; then
@@ -180,6 +180,7 @@ jobs:
                 echo "No issues detected. Creating an empty scanner report."
                 echo "Problem,Severity,File,Line,Column,Rule,Description,URL,Category,Engine,Commit,Actual Line" > scanner-report.csv
               fi
+          
           
           
       - name: Authenticate with Salesforce
