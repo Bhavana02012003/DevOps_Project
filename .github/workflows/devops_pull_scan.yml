@@ -47,6 +47,7 @@ jobs:
       
           if [ -z "$changed_files" ]; then
             echo "No .cls or .lwc files detected."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
             exit 0
           fi
       
@@ -258,7 +259,8 @@ jobs:
         with:
           name: SFDX_Code_Scan_Report
           path: scanner-report.csv
-          if-no-files-found: create
+          if-no-files-found: warn
+          
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
