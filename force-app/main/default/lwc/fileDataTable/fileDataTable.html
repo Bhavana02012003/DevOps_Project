@@ -1,0 +1,58 @@
+<template>
+    <lightning-card title="File Data Table" icon-name="custom:custom14">
+        <div class="slds-m-around_medium">
+            <!-- File Dropdown -->
+            <lightning-combobox
+                name="files"
+                label="Select File"
+                placeholder="Select a file"
+                options={files}
+                value={selectedFileId}
+                onchange={handleFileChange}>
+            </lightning-combobox>
+
+            <!-- Reset Filter Button -->
+            <lightning-button 
+                label="Reset Filter" 
+                variant="neutral" 
+                onclick={resetFilter} 
+                class="slds-m-left_small">
+            </lightning-button>
+        </div>
+
+        <!-- Spinner -->
+        <template if:true={isLoading}>
+            <div class="slds-align_absolute-center">
+                <lightning-spinner alternative-text="Loading..." size="medium"></lightning-spinner>
+            </div>
+        </template>
+
+        <!-- Data Table -->
+        <template if:true={displayedData.length}>
+            <lightning-datatable
+                key-field="Id"
+                data={displayedData}
+                columns={columns}
+                hide-checkbox-column="true"
+                class="slds-m-around_medium">
+            </lightning-datatable>
+
+            <!-- Pagination Controls -->
+            <div class="slds-m-around_medium slds-grid slds-grid_align-spread">
+                <lightning-button 
+                    label="Previous" 
+                    onclick={previousPage} 
+                    disabled={isPrevDisabled}>
+                </lightning-button>
+
+                <span>Page {page} of {totalPages}</span>
+
+                <lightning-button 
+                    label="Next" 
+                    onclick={nextPage} 
+                    disabled={isNextDisabled}>
+                </lightning-button>
+            </div>
+        </template>
+    </lightning-card>
+</template>
