@@ -162,7 +162,7 @@ jobs:
           fi
 
           for file in $files; do
-            echo "Running SFDX Scanner on file: $file"
+            # echo "Running SFDX Scanner on file: $file"
             sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
           done
 
@@ -175,7 +175,7 @@ jobs:
                 extracted_line_number="N/A"
               fi
 
-              echo "✅ File: $file, Temp Line: $temp_line, Actual Line: $extracted_line_number"
+              # echo "✅ File: $file, Temp Line: $temp_line, Actual Line: $extracted_line_number"
 
               echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
             done < <(tail -n +2 scanner-report-temp.csv)
