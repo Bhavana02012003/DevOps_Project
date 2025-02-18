@@ -133,9 +133,10 @@ jobs:
             echo "====== CHECKING FILE PATH FORMATTING ======"
             while IFS=, read -r problem severity file temp_line column rule description url category engine; do
               formatted_file_path=$(basename "$file")
-              echo "Checking for: $formatted_file_path,$temp_line"
-              grep "$formatted_file_path,$temp_line," line_number_mapping.txt || echo "No match found for $formatted_file_path,$temp_line"
+              echo "Checking for: $formatted_file_path,$temp_line in mapping file"
+              grep "$formatted_file_path,$temp_line" line_number_mapping.txt || echo "❌ No match found for $formatted_file_path,$temp_line"
             done < <(tail -n +2 scanner-report-temp.csv)
+        
         
         
                       
@@ -165,10 +166,11 @@ jobs:
                 head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",ActualLine,Commit"}' > scanner-report.csv
           
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Ensure correct path format for lookup
+                  # Extract actual filename from scanner output
                   formatted_file_path=$(basename "$file")
           
-                  actual_line=$(grep "$formatted_file_path,$temp_line," line_number_mapping.txt | cut -d',' -f2)
+                  # Ensure correct file path lookup in line_number_mapping.txt
+                  actual_line=$(awk -F',' -v f="$formatted_file_path" -v t="$temp_line" '$1 ~ f && $2 == t {print $3}' line_number_mapping.txt)
           
                   if [ -z "$actual_line" ]; then
                     actual_line="N/A"
