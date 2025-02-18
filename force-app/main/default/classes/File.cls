@@ -41,7 +41,7 @@ public with sharing class File {
         List<String> lines = csvContent.split('\\n');
 
         if (lines.isEmpty()) {
-            System.debug('❌ CSV file empty.');
+            System.debug('❌ CSV file is empty.');
             return;
         }
 

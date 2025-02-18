@@ -14,7 +14,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Ensures full history is available
+          fetch-depth: 0  # Ensures full commit history is available
 
       - name: Use Node.js
         uses: actions/setup-node@v3
@@ -36,8 +36,12 @@ jobs:
           mkdir -p temp_scanner_files
           > changed_cls_lwc_files.txt
 
-          # Get all staged .cls and .lwc files (use --cached to check staged changes)
-          changed_files=$(git diff --cached --name-only | grep -E '\.cls$|\.lwc$' || true)
+          echo "Checking for changed .cls and .lwc files..."
+
+          # Detect both staged and committed changes
+          changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
+          
+          echo "Detected changed files: $changed_files"
 
           if [ -z "$changed_files" ]; then
             echo "No .cls or .lwc files detected."
@@ -47,8 +51,8 @@ jobs:
           for file in $changed_files; do
             echo "Processing file: $file"
 
-            # Extract only changed lines (no context, to ensure exact matches)
-            changed_lines=$(git diff --cached --unified=0 "$file" | grep '^+' | grep -v '+++' | cut -d'+' -f2-)
+            # Extract only changed lines
+            changed_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | grep '^+' | grep -v '+++' | cut -d'+' -f2-)
 
             if [ -n "$changed_lines" ]; then
               temp_file="temp_scanner_files/temp_${file//\//_}"
@@ -83,14 +87,15 @@ jobs:
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
             echo "No files to scan. Creating an empty report."
-            echo "[]" > scanner-report.json
+            echo "[]" > scanner-report.csv
             exit 0
           fi
 
           for file in $files; do
             echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "json" --outfile "scanner-report.json" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
           done
+
 
       - name: Authenticate with Salesforce
         id: sf-auth
@@ -124,12 +129,12 @@ jobs:
       - name: Upload Scanner Report to Salesforce
         if: success()
         run: |
-          if [ -s scanner-report.json ]; then
+          if [ -s scanner-report.csv ]; then
             response=$(curl -X POST "https://sprintparkllc4-dev-ed.develop.my.salesforce.com/services/data/v61.0/sobjects/ContentVersion" \
               -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
               -H "Content-Type: multipart/form-data" \
-              -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.json\"};type=application/json" \
-              -F "VersionData=@scanner-report.json;type=application/json")
+              -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
+              -F "VersionData=@scanner-report.csv;type=text/csv")
 
             contentVersionId=$(echo "$response" | jq -r '.id // empty')
 
@@ -145,12 +150,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SFDX_Code_Scan_Report
-          path: scanner-report.json
+          path: scanner-report.csv
 
       - name: Block PR merge if severity 3 violations are found
         id: block-check
         run: |
-          severity_fail_count=$(grep -oP '"severity":\s*3' scanner-report.json | wc -l)
+          severity_fail_count=$(grep -oP '"severity":\s*3' scanner-report.csv | wc -l)
 
           echo "Severity 3 Issues Count: $severity_fail_count"
 
