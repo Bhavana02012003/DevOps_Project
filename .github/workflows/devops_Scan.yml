@@ -52,14 +52,14 @@ jobs:
           for file in $changed_files; do
             echo "Processing file: $file"
       
-            # Extract changed lines along with their actual line numbers
+            # Extract changed lines along with their actual line numbers, ignoring metadata
             git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
               /^@@/ { 
                 match($0, /@@ -[0-9]+,[0-9]+ \+([0-9]+)/, arr);
                 line = arr[1]; next 
               }
               /^\+/ { 
-                if (length($0) > 2) {  # Ensure non-empty lines
+                if ($0 !~ /^(diff --git|index|---|\+\+\+|@@|b\/force-app)/) {
                   print line " " substr($0, 2);
                   line++;
                 }
@@ -76,7 +76,7 @@ jobs:
       
               while read -r line_number line_content; do
                 if [[ -n "$line_content" ]]; then
-                  echo "        $line_content" >> "$temp_file"
+                  echo "        $line_content;" >> "$temp_file"  # Ensure proper syntax
                   echo "$temp_file,$line_number" >> line_number_mapping.txt
                 fi
               done < "line_number_mapping_${file//\//_}.txt"
@@ -123,6 +123,7 @@ jobs:
               cat "$file"
               echo "======================================"
             done
+        
         
         
       
