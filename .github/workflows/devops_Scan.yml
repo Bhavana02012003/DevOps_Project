@@ -55,12 +55,12 @@ jobs:
             # Extract changed lines along with their actual line numbers
             git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
               /^@@/ { 
-                match($0, /@@ -[0-9]+,[0-9]+ \+([0-9]+)/, arr);
+                match($0, /\+([0-9]+)/, arr);
                 line = arr[1]; next 
               }
               /^\+/ { 
                 if ($0 !~ /^(diff --git|index|---|\+\+\+|@@|b\/force-app)/) {
-                  print line " " substr($0, 2);
+                  print line "," substr($0, 2);
                   line++;
                 }
               }
@@ -77,13 +77,12 @@ jobs:
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
       
-              while IFS= read -r line; do
-                line_number=$(echo "$line" | cut -d' ' -f1)
-                line_content=$(echo "$line" | cut -d' ' -f2-)
+              while IFS=, read -r line_number line_content; do
+                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
       
-                if [[ -n "$line_content" ]]; then
-                  echo "        $line_content;" >> "$temp_file"  # Ensure proper syntax
-                  echo "$temp_file,$line_number,$line_content" >> line_number_mapping.txt
+                if [[ -n "$line_content_trimmed" ]]; then
+                  echo "        $line_content_trimmed;" >> "$temp_file"  # Ensure proper syntax
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                 fi
               done < "line_number_mapping_${file//\//_}.txt"
       
@@ -93,13 +92,12 @@ jobs:
               echo "<template>" > "$temp_file"
               echo "    <!-- Extracted changed lines -->" >> "$temp_file"
       
-              while IFS= read -r line; do
-                line_number=$(echo "$line" | cut -d' ' -f1)
-                line_content=$(echo "$line" | cut -d' ' -f2-)
+              while IFS=, read -r line_number line_content; do
+                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
       
-                if [[ -n "$line_content" ]]; then
-                  echo "    $line_content" >> "$temp_file"
-                  echo "$temp_file,$line_number,$line_content" >> line_number_mapping.txt
+                if [[ -n "$line_content_trimmed" ]]; then
+                  echo "    $line_content_trimmed" >> "$temp_file"
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                 fi
               done < "line_number_mapping_${file//\//_}.txt"
       
@@ -120,7 +118,6 @@ jobs:
             echo "No temp files created. Exiting."
             exit 0
           fi
-      
       
       
       
