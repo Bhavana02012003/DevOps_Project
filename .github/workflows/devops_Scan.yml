@@ -164,6 +164,13 @@ jobs:
                 exit 0
               fi
           
+              declare -A line_mapping
+          
+              # Load mapping into an associative array (hashmap)
+              while IFS=, read -r mapped_file actual_line original_code; do
+                line_mapping["$mapped_file,$actual_line"]=$actual_line
+              done < line_number_mapping.txt
+          
               for file in $files; do
                 echo "Running SFDX Scanner on file: $file"
                 sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
@@ -174,14 +181,13 @@ jobs:
                 head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
           
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Remove any surrounding double quotes
+                  # Remove quotes from the file path and extract the relative path
                   file=$(echo "$file" | sed 's/^"//;s/"$//')
-          
-                  # Extract relative file path
                   relative_path=$(echo "$file" | sed 's|.*/temp_scanner_files/|temp_scanner_files/|')
           
-                  # Retrieve the stored extracted line number **for the specific TempLine**
-                  extracted_line_number=$(grep "$relative_path,$temp_line," line_number_mapping.txt | awk -F',' '{print $2}' | head -n 1)
+                  # Extract actual line number by mapping "TempLine" to stored original line numbers
+                  key="$relative_path,$temp_line"
+                  extracted_line_number=${line_mapping[$key]}
           
                   # Debugging: Print extracted values
                   echo "🔍 DEBUG: Cleaned File Path: \"$file\""
