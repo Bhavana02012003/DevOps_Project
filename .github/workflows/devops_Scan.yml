@@ -11,7 +11,13 @@ jobs:
     outputs:
       scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}  # Outputs the artifact path to pass to the next job
       block-pr: ${{ steps.block-check.outputs.block-status }}  # Pass the block status
+      runner-name: ${{ steps.get-runner.outputs.runner_name }}  # Store the runner name
+
     steps:
+      - name: Get Runner Name
+        id: get-runner
+        run: echo "runner_name=${{ runner.name }}" >> $GITHUB_ENV
+
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
@@ -293,6 +299,24 @@ jobs:
     needs: quality-gate-code-check
     if: always()  # ✅ Ensures this job runs even if the first job fails
     steps:
+      - name: Get Current Runner Name
+        id: get-runner
+        run: echo "runner_name=${{ runner.name }}" >> $GITHUB_ENV
+
+      - name: Compare Runner Names
+        run: |
+          PREVIOUS_RUNNER="${{ needs.quality-gate-code-check.outputs.runner-name }}"
+          CURRENT_RUNNER="${{ runner.name }}"
+
+          echo "Previous job ran on: $PREVIOUS_RUNNER"
+          echo "Current job is running on: $CURRENT_RUNNER"
+
+          if [ "$PREVIOUS_RUNNER" == "$CURRENT_RUNNER" ]; then
+            echo "✅ Both jobs are running on the same agent."
+          else
+            echo "⚠️ Warning: Jobs are running on different agents."
+          fi
+          
       - name: Checkout code
         uses: actions/checkout@v4
 
