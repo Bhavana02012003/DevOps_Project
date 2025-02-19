@@ -94,4 +94,3 @@ else
   echo "No vulnerabilities found. Proceeding with commit."
   rm -rf "$temp_dir"
   exit 0
-fi
