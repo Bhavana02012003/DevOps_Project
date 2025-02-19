@@ -176,29 +176,13 @@ jobs:
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
                   # Extract the correct file path formatting
                   formatted_file_path=$(basename "$file")
-
-
-                  # Extract changed lines along with their actual line numbers
-                  extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
-                    /^@@/ { 
-                      match($0, /\+([0-9]+)/, arr);
-                      line = arr[1]; next 
-                    }
-                    /^\+/ { 
-                      if ($0 !~ /^(diff --git|index|---|\+\+\+|@@|b\/force-app)/) {
-                        print line "," substr($0, 2);
-                        line++;
-                      }
-                    }
-                  ')
           
-                  # Retrieve the stored extracted line number
-                  # extracted_line_number=$(awk -F',' -v f="$file" '$1 == f {print $2}' line_number_mapping.txt | head -n 1)
-                  extracted_line_number=$(echo "$extracted_lines" | awk -F',' '{print $1}' | head -n 1)
+                  # Retrieve the stored extracted line number correctly
+                  extracted_line_number=$(grep "$formatted_file_path," line_number_mapping.txt | awk -F',' '{print $2}' | head -n 1)
           
                   # If no matching line found, set it as "N/A"
                   if [ -z "$extracted_line_number" ]; then
-                    extracted_line_number="$extracted_line_number"
+                    extracted_line_number="N/A"
                   fi
           
                   # Print extracted actual line for debugging
