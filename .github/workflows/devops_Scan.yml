@@ -173,18 +173,19 @@ jobs:
                 # Append "ActualLine" column in the header
                 head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
           
-                # Reuse the same logic to extract actual line numbers
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Normalize the file path to match with line_number_mapping.txt
-                  file_name=$(basename "$file")
+                  # Remove any surrounding double quotes
+                  file=$(echo "$file" | sed 's/^"//;s/"$//')
+          
+                  # Extract relative file path
                   relative_path=$(echo "$file" | sed 's|.*/temp_scanner_files/|temp_scanner_files/|')
           
                   # Extract actual line number from mapping
                   extracted_line_number=$(grep "$relative_path," line_number_mapping.txt | awk -F',' '{print $2}' | head -n 1)
           
                   # Debugging: Print extracted values
-                  echo "🔍 DEBUG: File path from scanner report: \"$file\""
-                  echo "🔍 DEBUG: Matching relative path: \"$relative_path\""
+                  echo "🔍 DEBUG: Cleaned File Path: \"$file\""
+                  echo "🔍 DEBUG: Matching Relative Path: \"$relative_path\""
                   echo "🔍 DEBUG: Extracted Line Number: \"$extracted_line_number\""
           
                   # If no matching line found, set it as "N/A"
