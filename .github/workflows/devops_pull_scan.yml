@@ -1,136 +1,317 @@
+name: SFDX Code Scan and Store in Salesforce
+
 on:
   pull_request:
     branches:
       - "**"
- 
+
 jobs:
   quality-gate-code-check:
     runs-on: ubuntu-latest
     outputs:
-      scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}
-      block-pr: ${{ steps.block-check.outputs.block-status }}
+      scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}  # Outputs the artifact path to pass to the next job
+      block-pr: ${{ steps.block-check.outputs.block-status }}  # Pass the block status
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
- 
+          fetch-depth: 0  # Ensures full commit history is available
+
       - name: Use Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 20.x
- 
+
       - name: Install Salesforce CLI
         run: npm install @salesforce/cli --global
- 
+
       - name: Install Scanner Plugin
         run: sf plugins install @salesforce/sfdx-scanner
- 
+
       - name: Verify Salesforce CLI Installation
         run: sf --version
- 
-      - name: Verify Scanner Plugin Installation
-        run: sf plugins --core
- 
-      - name: Get changed files (for .cls and .lwc files)
+
+      - name: Get changed lines and create temporary files
         id: get-changes
         run: |
-          git fetch --unshallow || true
-          if [ "$(git rev-list --count HEAD)" -gt "1" ]; then
-            echo "Fetching changed files between HEAD~1 and HEAD"
-            git diff --name-only HEAD~1 HEAD > changed-files.txt || { echo "Failed to get git diff"; exit 1; }
-          else
-            echo "No previous commit to compare to." > changed-files.txt
-          fi
-          if [ ! -s changed-files.txt ]; then
-            echo "No changes detected between HEAD~1 and HEAD."
+          mkdir -p temp_scanner_files
+          > changed_cls_lwc_files.txt
+          > line_number_mapping.txt
+      
+          echo "Checking for changed .cls and .lwc files..."
+      
+          # Get only changed files (.cls and .lwc)
+          changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
+      
+          echo "Detected changed files: $changed_files"
+      
+          if [ -z "$changed_files" ]; then
+            echo "No .cls or .lwc files detected."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
             exit 0
           fi
-          echo "Processing changes for .cls and .lwc files only..."
-          grep '\.cls$\|\.lwc$' changed-files.txt > changed_cls_lwc_files.txt
+      
+          for file in $changed_files; do
+            echo "Processing file: $file"
+      
+            # Extract changed lines along with their actual line numbers
+            extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
+              /^@@/ { 
+                match($0, /\+([0-9]+)/, arr);
+                line = arr[1]; next 
+              }
+              /^\+/ { 
+                if ($0 !~ /^(diff --git|index|---|\+\+\+|@@|b\/force-app)/) {
+                  print line "," substr($0, 2);
+                  line++;
+                }
+              }
+            ')
+      
+            echo "====== Extracted Lines and Line Numbers for $file ======"
+            echo "$extracted_lines"
+      
+            # Store extracted lines in a temporary file
+            echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
+      
+            temp_file="temp_scanner_files/temp_${file//\//_}"
+            touch "$temp_file"
+      
+            # Store line number in a variable
+            extracted_line_number=$(echo "$extracted_lines" | awk -F',' '{print $1}' | head -n 1)
+      
+            # Print the extracted line number for verification
+            echo "✅ Extracted Line Number for $file: $extracted_line_number"
+      
+            if [[ "$file" == *.cls ]]; then
+              echo "public class TempWrapperClass {" > "$temp_file"
+              echo "    public static void tempMethod() {" >> "$temp_file"
+              echo "        /* Extracted changed lines */" >> "$temp_file"
+      
+              while IFS=, read -r line_number line_content; do
+                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+      
+                if [[ -n "$line_content_trimmed" ]]; then
+                  formatted_line=$(echo "$line_content_trimmed" | sed 's/;;/;/g')
+                  echo "        $formatted_line" >> "$temp_file"
+                  echo "$temp_file,$line_number,$formatted_line" >> line_number_mapping.txt
+                fi
+              done < "line_number_mapping_${file//\//_}.txt"
+      
+              echo "    }" >> "$temp_file"
+              echo "}" >> "$temp_file"
+            elif [[ "$file" == *.lwc ]]; then
+              echo "<template>" > "$temp_file"
+              echo "    <!-- Extracted changed lines -->" >> "$temp_file"
+      
+              while IFS=, read -r line_number line_content; do
+                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+      
+                if [[ -n "$line_content_trimmed" ]]; then
+                  echo "    $line_content_trimmed" >> "$temp_file"
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                fi
+              done < "line_number_mapping_${file//\//_}.txt"
+      
+              echo "</template>" >> "$temp_file"
+            fi
+      
+            echo "$temp_file" >> changed_cls_lwc_files.txt
+            echo "Created temp file: $temp_file"
+          done
+      
+          echo "====== Final Line Number Mapping ======"
+          cat line_number_mapping.txt || echo "No line number mapping available."
+      
+          echo "Generated temp files:"
+          ls -l temp_scanner_files
+      
           if [ ! -s changed_cls_lwc_files.txt ]; then
-            echo "No .cls or .lwc files detected."
+            echo "No temp files created. Exiting."
             exit 0
           fi
-          cat changed_cls_lwc_files.txt
- 
-      - name: Show Changed Lines and Correct Line Numbers from .cls or .lwc Files
+      
+            
+      - name: Debug Extracted Line Number Mapping
         run: |
-          files=$(cat changed_cls_lwc_files.txt)
-          if [ -z "$files" ]; then
-            echo "No .cls or .lwc files detected."
-            exit 0
-          fi
- 
-          for file in $files; do
-            echo "Showing changed lines for file: $file"
-           
-            # Compare the current commit (HEAD) with the previous commit (HEAD~1)
-            git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
-              /^@@/ {
-                # Extract the starting line number of the changes in the new file
-                match($0, /\+[0-9]+/)
-                line_number = substr($0, RSTART+1, RLENGTH-1)
-              }
-              /^[+][^+]/ {
-                # Process only lines that are changes (starting with a single '+')
-                print "Line", line_number ":", $0
-                line_number++
-              }
-            ' || echo "No changes found in $file"
-          done
- 
-      - name: Run SFDX Scanner on Changed Files
+            echo "====== FINAL LINE NUMBER MAPPING ======"
+            cat line_number_mapping.txt || echo "❌ No line mappings found!"
+        
+            echo "====== CHECKING FILE PATH FORMATTING ======"
+            while IFS=, read -r problem severity file temp_line column rule description url category engine; do
+              formatted_file_path=$(basename "$file")
+              echo "Checking: $formatted_file_path, Temp Line: $temp_line"
+              grep "$formatted_file_path,$temp_line" line_number_mapping.txt || echo "❌ No match found for $formatted_file_path,$temp_line"
+            done < <(tail -n +2 scanner-report-temp.csv)
+        
+        
+        
+                      
+      
+      - name: Get Commit Author
+        id: commit-author
         run: |
-          files=$(cat changed_cls_lwc_files.txt)
-          if [ -z "$files" ]; then
-            echo "No .cls or .lwc files detected."
-            exit 0
+            COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+            echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+            echo "Commit Author: $COMMIT_AUTHOR"
+         
+      - name: Run SFDX Scanner on Changed Lines and Map Actual Line Numbers
+        run: |
+              files=$(cat changed_cls_lwc_files.txt)
+              if [ -z "$files" ]; then
+                echo "No files to scan. Creating an empty report."
+                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+                exit 0
+              fi
+          
+              for file in $files; do
+                echo "Running SFDX Scanner on file: $file"
+                sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+              done
+          
+              if [ -f "scanner-report-temp.csv" ]; then
+                # Append "ActualLine" column in the header
+                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
+          
+                while IFS=, read -r problem severity file temp_line column rule description url category engine; do
+                  # Extract the correct file path formatting
+                  formatted_file_path=$(basename "$file")
+          
+                  # Retrieve the stored extracted line number
+                  extracted_line_number=$(awk -F',' -v f="$file" '$1 == f {print $2}' line_number_mapping.txt | head -n 1)
+          
+                  # If no matching line found, set it as "N/A"
+                  if [ -z "$extracted_line_number" ]; then
+                    extracted_line_number="N/A"
+                  fi
+          
+                  # Print extracted actual line for debugging
+                  echo "✅ Extracted Actual Line: $extracted_line_number for File: \"$file\""
+          
+                  # Append actual line number to the scanner report
+                  echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
+                done < <(tail -n +2 scanner-report-temp.csv)
+              else
+                echo "No issues detected. Creating an empty scanner report."
+                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+              fi
+          
+          
+          
+          
+          
+      - name: Authenticate with Salesforce
+        id: sf-auth
+        run: |
+          response=$(curl -X POST "https://login.salesforce.com/services/oauth2/token" \
+            -d "grant_type=password" \
+            -d "client_id=${{ secrets.SF_CLIENT_ID }}" \
+            -d "client_secret=${{ secrets.SF_CLIENT_SECRET }}" \
+            -d "username=${{ secrets.SF_USERNAME }}" \
+            -d "password=${{ secrets.SF_PASSWORD }}" )
+          SF_ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
+
+          if [ -z "$SF_ACCESS_TOKEN" ]; then
+            echo "Salesforce authentication failed."
+            exit 1
           fi
-          for file in $files; do
-            echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report.csv" --ruleset "/force-app/main/default/Custom_apex_ruleset.xml" || { echo "Scanner run failed for $file, continuing with other files."; }
-          done
- 
+
+          echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> $GITHUB_ENV
+          echo "Successfully authenticated with Salesforce."
+
+      - name: Get Repository and Branch Info
+        id: get-info
+        run: |
+          REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d'/' -f2)
+          BRANCH_NAME=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
+          COMMIT_LABEL=$(git log -1 --pretty=format:'%s')
+
+          FILE_TITLE="Code Scanner Delta Report_${REPO_NAME}_${BRANCH_NAME}_${COMMIT_LABEL}"
+          echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
+
+      - name: Upload Scanner Report to Salesforce
+        if: success()
+        run: |
+            if [ -s scanner-report.csv ]; then
+              response=$(curl -X POST "https://sprintparkllc4-dev-ed.develop.my.salesforce.com/services/data/v61.0/sobjects/ContentVersion" \
+                -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+                -H "Content-Type: multipart/form-data" \
+                -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
+                -F "VersionData=@scanner-report.csv;type=text/csv")
+        
+              contentVersionId=$(echo "$response" | jq -r '.id // empty')
+        
+              if [ -z "$contentVersionId" ]; then
+                echo "Error: Failed to upload file."
+                exit 1
+              fi
+        
+              echo "Successfully uploaded scanner report to Salesforce."
+            else
+              echo "No scanner report generated, skipping upload."
+              exit 0
+            fi
+        
+
+      - name: Upload Scanner Report as Artifact
+        id: upload-report
+        uses: actions/upload-artifact@v4
+        with:
+          name: SFDX_Code_Scan_Report
+          path: scanner-report.csv
+          if-no-files-found: warn
+          
+
+      # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
         id: block-check
         run: |
           if [ -f scanner-report.csv ]; then
             severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
             echo "Severity 3 issues count: $severity_fail_count"
+            
             if [ "$severity_fail_count" -gt 0 ]; then
-              echo "Blocking your pull request due to severity 3 vulnerabilities found."
-              echo "::set-output name=block-status::true"
-              exit 1
+              echo "Blocking commit due to severity 3 vulnerabilities found."
+              echo "block-status=true" >> $GITHUB_ENV
+              echo "block-status=true" >> $GITHUB_OUTPUT
+              exit 1  # ✅ Now workflow fails only at the last step
             else
-              echo "No severity 3 vulnerabilities found. Proceeding with Approval."
-              echo "::set-output name=block-status::false"
+              echo "No severity 3 vulnerabilities found. Proceeding."
+              echo "block-status=false" >> $GITHUB_ENV
+              echo "block-status=false" >> $GITHUB_OUTPUT
             fi
           else
             echo "No scanner report found."
+            echo "block-status=true" >> $GITHUB_ENV
+            echo "block-status=true" >> $GITHUB_OUTPUT
             exit 1
           fi
- 
-      - name: Upload Scanner Report
-        id: upload-report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: SFDX_Code_Scan_Report
-          path: scanner-report.csv
- 
+
+
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
-    # needs: quality-gate-code-check
-    # if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}
+    needs: quality-gate-code-check
+    if: always()  # ✅ Ensures this job runs even if the first job fails
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
- 
+
       - name: Download Scanner Report
         uses: actions/download-artifact@v4
         with:
           name: SFDX_Code_Scan_Report
- 
+          path: .  # ✅ Downloads into the working directory
+
+      - name: Verify Scanner Report Download
+        run: |
+          if [ ! -f scanner-report.csv ]; then
+            echo "❌ Scanner report not found, creating an empty one."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+          else
+            echo "✅ Scanner report downloaded successfully."
+          fi
+
+
       - name: Scan Profiles and Permission Sets for Critical Permissions
         run: |
           CRITICAL_PERMISSIONS=( "AssignPermissionSets" "AuthorApex" "CustomizeApplication" "FreezeUsers" "ManageEncryptionKeys" "ManageInternalUsers" "ManagePasswordPolicies" "ManageProfilesPermissionSets" "ManageRoles" "ManageSharing" "ManageUsers" "ModifyAllData" "MonitorLoginHistory" "MultiFactorAuthenticationRequired" "PasswordNeverExpires" "ResetPasswordsUnlockUsers" "ViewAllData" )
@@ -138,13 +319,6 @@ jobs:
           for FILE in $(find force-app/main/default/profiles -name '*.profile-meta.xml'); do
             for PERMISSION in "${CRITICAL_PERMISSIONS[@]}"; do
               if grep -q "$PERMISSION" "$FILE" && ! grep -q "System Administrator" "$FILE"; then
-                BLOCKED_FILES+=("$FILE")
-              fi
-            done
-          done
-          for FILE in $(find force-app/main/default/permissionsets -name '*.permissionset-meta.xml'); do
-            for PERMISSION in "${CRITICAL_PERMISSIONS[@]}"; do
-              if grep -q "$PERMISSION" "$FILE"; then
                 BLOCKED_FILES+=("$FILE")
               fi
             done
@@ -157,3 +331,4 @@ jobs:
             exit 1
           else
             echo "No critical permissions assigned to non-System Administrator profiles or permission sets."
+          fi

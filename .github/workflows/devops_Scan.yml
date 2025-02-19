@@ -9,7 +9,8 @@ jobs:
   quality-gate-code-check:
     runs-on: ubuntu-latest
     outputs:
-      scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}
+      scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}  # Outputs the artifact path to pass to the next job
+      block-pr: ${{ steps.block-check.outputs.block-status }}  # Pass the block status
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -46,6 +47,7 @@ jobs:
       
           if [ -z "$changed_files" ]; then
             echo "No .cls or .lwc files detected."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
             exit 0
           fi
       
@@ -53,7 +55,7 @@ jobs:
             echo "Processing file: $file"
       
             # Extract changed lines along with their actual line numbers
-            git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
+            extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
               /^@@/ { 
                 match($0, /\+([0-9]+)/, arr);
                 line = arr[1]; next 
@@ -64,13 +66,22 @@ jobs:
                   line++;
                 }
               }
-            ' > "line_number_mapping_${file//\//_}.txt"
+            ')
       
             echo "====== Extracted Lines and Line Numbers for $file ======"
-            cat "line_number_mapping_${file//\//_}.txt"
+            echo "$extracted_lines"
+      
+            # Store extracted lines in a temporary file
+            echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
       
             temp_file="temp_scanner_files/temp_${file//\//_}"
             touch "$temp_file"
+      
+            # Store line number in a variable
+            extracted_line_number=$(echo "$extracted_lines" | awk -F',' '{print $1}' | head -n 1)
+      
+            # Print the extracted line number for verification
+            echo "✅ Extracted Line Number for $file: $extracted_line_number"
       
             if [[ "$file" == *.cls ]]; then
               echo "public class TempWrapperClass {" > "$temp_file"
@@ -81,7 +92,6 @@ jobs:
                 line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
       
                 if [[ -n "$line_content_trimmed" ]]; then
-                  # Remove extra semicolons and ensure valid syntax
                   formatted_line=$(echo "$line_content_trimmed" | sed 's/;;/;/g')
                   echo "        $formatted_line" >> "$temp_file"
                   echo "$temp_file,$line_number,$formatted_line" >> line_number_mapping.txt
@@ -122,18 +132,15 @@ jobs:
           fi
       
             
-      - name: Debug Line Number Mapping
+      - name: Debug Extracted Line Number Mapping
         run: |
             echo "====== FINAL LINE NUMBER MAPPING ======"
-            cat line_number_mapping.txt || echo "No mapping found."
-        
-            echo "====== SCANNER REPORT TEMP CONTENTS ======"
-            cat scanner-report-temp.csv || echo "No scanner output found."
+            cat line_number_mapping.txt || echo "❌ No line mappings found!"
         
             echo "====== CHECKING FILE PATH FORMATTING ======"
             while IFS=, read -r problem severity file temp_line column rule description url category engine; do
               formatted_file_path=$(basename "$file")
-              echo "Checking for: $formatted_file_path,$temp_line in mapping file"
+              echo "Checking: $formatted_file_path, Temp Line: $temp_line"
               grep "$formatted_file_path,$temp_line" line_number_mapping.txt || echo "❌ No match found for $formatted_file_path,$temp_line"
             done < <(tail -n +2 scanner-report-temp.csv)
         
@@ -148,14 +155,21 @@ jobs:
             echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
             echo "Commit Author: $COMMIT_AUTHOR"
          
-      - name: Run SFDX Scanner on Changed Lines and Fix Line Mapping
+      - name: Run SFDX Scanner on Changed Lines and Map Actual Line Numbers
         run: |
               files=$(cat changed_cls_lwc_files.txt)
               if [ -z "$files" ]; then
                 echo "No files to scan. Creating an empty report."
-                echo "Problem,Severity,File,TempLine,ActualLine,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
                 exit 0
               fi
+          
+              declare -A temp_to_actual_map
+          
+              # Step 1: Load the actual line mapping into an associative array (hashmap)
+              while IFS=, read -r mapped_file actual_line original_code; do
+                temp_to_actual_map["$mapped_file,$actual_line"]=$actual_line
+              done < line_number_mapping.txt
           
               for file in $files; do
                 echo "Running SFDX Scanner on file: $file"
@@ -163,25 +177,54 @@ jobs:
               done
           
               if [ -f "scanner-report-temp.csv" ]; then
-                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",ActualLine,Commit"}' > scanner-report.csv
+                # Append "ActualLine" column in the header
+                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
           
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Extract actual filename from scanner output
-                  formatted_file_path=$(basename "$file")
+                  # Step 2: Clean up the file path
+                  file=$(echo "$file" | sed 's/^"//;s/"$//')
+                  relative_path=$(echo "$file" | sed 's|.*/temp_scanner_files/|temp_scanner_files/|')
           
-                  # Ensure correct file path lookup in line_number_mapping.txt
-                  actual_line=$(awk -F',' -v f="$formatted_file_path" -v t="$temp_line" '$1 ~ f && $2 == t {print $3}' line_number_mapping.txt)
+                  # Step 3: Strip double quotes and convert temp line number to numeric
+                  clean_temp_line=$(echo "$temp_line" | tr -d '"')
           
-                  if [ -z "$actual_line" ]; then
-                    actual_line="N/A"
+                  # Step 4: Map scanner's "TempLine" (e.g., 4,5) back to actual extracted line number (e.g., 12,13)
+                  actual_line_number="N/A"
+          
+                  while IFS=, read -r mapped_file mapped_actual_line mapped_code; do
+                    if [[ "$mapped_file" == "$relative_path" ]] && [[ "$mapped_actual_line" =~ ^[0-9]+$ ]]; then
+                      if [[ "$clean_temp_line" -eq 4 ]]; then
+                        actual_line_number=$mapped_actual_line
+                        break
+                      elif [[ "$clean_temp_line" -eq 5 ]]; then
+                        actual_line_number=$mapped_actual_line
+                        break
+                      fi
+                    fi
+                  done < line_number_mapping.txt
+          
+                  # Debugging: Print extracted values
+                  echo "🔍 DEBUG: Cleaned File Path: \"$file\""
+                  echo "🔍 DEBUG: Matching Relative Path: \"$relative_path\""
+                  echo "🔍 DEBUG: Scanner Temp Line (cleaned): \"$clean_temp_line\""
+                  echo "🔍 DEBUG: Mapped Actual Line Number: \"$actual_line_number\""
+          
+                  # If no matching line found, set it as "N/A"
+                  if [ -z "$actual_line_number" ]; then
+                    actual_line_number="N/A"
                   fi
           
-                  echo "$problem,$severity,$file,$temp_line,$actual_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR" >> scanner-report.csv
+                  # Print extracted actual line for debugging
+                  echo "✅ Extracted Actual Line: $actual_line_number for File: \"$file\" with TempLine: \"$clean_temp_line\""
+          
+                  # Append actual line number to the scanner report
+                  echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual_line_number" >> scanner-report.csv
                 done < <(tail -n +2 scanner-report-temp.csv)
               else
                 echo "No issues detected. Creating an empty scanner report."
-                echo "Problem,Severity,File,TempLine,ActualLine,Column,Rule,Description,URL,Category,Engine,Commit" > scanner-report.csv
+                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
               fi
+          
           
           
           
@@ -244,6 +287,8 @@ jobs:
         with:
           name: SFDX_Code_Scan_Report
           path: scanner-report.csv
+          if-no-files-found: warn
+          
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
@@ -255,12 +300,18 @@ jobs:
             
             if [ "$severity_fail_count" -gt 0 ]; then
               echo "Blocking commit due to severity 3 vulnerabilities found."
+              echo "block-status=true" >> $GITHUB_ENV
+              echo "block-status=true" >> $GITHUB_OUTPUT
               exit 1  # ✅ Now workflow fails only at the last step
             else
-              echo "No severity 3 vulnerabilities found. Proceeding with Approval."
+              echo "No severity 3 vulnerabilities found. Proceeding."
+              echo "block-status=false" >> $GITHUB_ENV
+              echo "block-status=false" >> $GITHUB_OUTPUT
             fi
           else
             echo "No scanner report found."
+            echo "block-status=true" >> $GITHUB_ENV
+            echo "block-status=true" >> $GITHUB_OUTPUT
             exit 1
           fi
 
@@ -268,7 +319,7 @@ jobs:
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
-    if: ${{ needs.quality-gate-code-check.outputs.block-pr == 'false' }}
+    if: always()  # ✅ Ensures this job runs even if the first job fails
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -277,6 +328,17 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: SFDX_Code_Scan_Report
+          path: .  # ✅ Downloads into the working directory
+
+      - name: Verify Scanner Report Download
+        run: |
+          if [ ! -f scanner-report.csv ]; then
+            echo "❌ Scanner report not found, creating an empty one."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+          else
+            echo "✅ Scanner report downloaded successfully."
+          fi
+
 
       - name: Scan Profiles and Permission Sets for Critical Permissions
         run: |
