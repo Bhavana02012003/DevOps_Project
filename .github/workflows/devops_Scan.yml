@@ -198,7 +198,7 @@ jobs:
           
                   # If no matching line found, set it as "N/A"
                   if [ -z "$extracted_line_number" ]; then
-                    extracted_line_number="N/A"
+                    extracted_line_number="$extracted_line_number"
                   fi
           
                   # Print extracted actual line for debugging
