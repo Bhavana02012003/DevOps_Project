@@ -121,8 +121,8 @@ jobs:
             "PR_Status__c": "'"$prStatus"'",
             "PR_Author__c": "'"${{ github.event.pull_request.user.login }}"'",
             "PR_Reviewer__c": "'"$updatedReviewer"'",
-            "PR_Check_Status__c": "'"${{ steps.fetch_checks.outputs.CHECK_STATUSES }}"'",
-            "PR_Check_Name__c": "'"${{ steps.fetch_checks.outputs.CHECK_NAMES }}"'",
+            "Code_Analyzer_Check_Status__c": "'"${{ steps.fetch_checks.outputs.CHECK_STATUSES }}"'",
+            "Code_Analyzer_Check_Name__c": "'"${{ steps.fetch_checks.outputs.CHECK_NAMES }}"'",
             "PR_Review_Comment__c": "'"$updatedComment"'"
           }'
  
