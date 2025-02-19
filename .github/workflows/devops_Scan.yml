@@ -175,25 +175,17 @@ jobs:
           
                 # Reuse the same logic to extract actual line numbers
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Extract the correct file path formatting
-                  formatted_file_path=$(basename "$file")
+                  # Normalize the file path to match with line_number_mapping.txt
+                  file_name=$(basename "$file")
+                  relative_path=$(echo "$file" | sed 's|.*/temp_scanner_files/|temp_scanner_files/|')
           
-                  # Extract changed lines along with their actual line numbers using the same logic
-                  extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
-                    /^@@/ { 
-                      match($0, /\+([0-9]+)/, arr);
-                      line = arr[1]; next 
-                    }
-                    /^\+/ { 
-                      if ($0 !~ /^(diff --git|index|---|\+\+\+|@@|b\/force-app)/) {
-                        print line "," substr($0, 2);
-                        line++;
-                      }
-                    }
-                  ')
+                  # Extract actual line number from mapping
+                  extracted_line_number=$(grep "$relative_path," line_number_mapping.txt | awk -F',' '{print $2}' | head -n 1)
           
-                  # Extract the first changed line number
-                  extracted_line_number=$(echo "$extracted_lines" | awk -F',' '{print $1}' | head -n 1)
+                  # Debugging: Print extracted values
+                  echo "🔍 DEBUG: File path from scanner report: \"$file\""
+                  echo "🔍 DEBUG: Matching relative path: \"$relative_path\""
+                  echo "🔍 DEBUG: Extracted Line Number: \"$extracted_line_number\""
           
                   # If no matching line found, set it as "N/A"
                   if [ -z "$extracted_line_number" ]; then
@@ -210,8 +202,6 @@ jobs:
                 echo "No issues detected. Creating an empty scanner report."
                 echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
               fi
-          
-          
           
           
           
