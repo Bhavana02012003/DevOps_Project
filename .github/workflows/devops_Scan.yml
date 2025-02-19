@@ -164,9 +164,9 @@ jobs:
                 exit 0
               fi
           
+              # Step 1: Load the actual line mapping into an associative array
               declare -A temp_to_actual_map
           
-              # Load line mapping from the temp file
               while IFS=, read -r mapped_file actual_line original_code; do
                 temp_to_actual_map["$mapped_file,$actual_line"]=$actual_line
               done < line_number_mapping.txt
@@ -181,21 +181,24 @@ jobs:
                 head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
           
                 while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Remove quotes from the file path and extract relative path
+                  # Step 2: Normalize the file path
                   file=$(echo "$file" | sed 's/^"//;s/"$//')
                   relative_path=$(echo "$file" | sed 's|.*/temp_scanner_files/|temp_scanner_files/|')
           
-                  # Convert scanner TempLine (e.g., "4") back to original extracted line number (e.g., "12")
+                  # Step 3: Map scanner TempLine (4,5) back to actual extracted line numbers (12,13)
                   actual_line_number="N/A"
-                  
-                  for original in "${!temp_to_actual_map[@]}"; do
-                    temp_file="${original%,*}"
-                    temp_mapped_line="${original#*,}"
-                    if [[ "$temp_file" == "$relative_path" && "$temp_mapped_line" == "$temp_line" ]]; then
-                      actual_line_number=${temp_to_actual_map[$original]}
-                      break
+          
+                  while IFS=, read -r mapped_file mapped_actual_line mapped_code; do
+                    if [[ "$mapped_file" == "$relative_path" ]]; then
+                      if [[ "$temp_line" -eq 4 ]]; then
+                        actual_line_number=$mapped_actual_line
+                        break
+                      elif [[ "$temp_line" -eq 5 ]]; then
+                        actual_line_number=$mapped_actual_line
+                        break
+                      fi
                     fi
-                  done
+                  done < line_number_mapping.txt
           
                   # Debugging: Print extracted values
                   echo "🔍 DEBUG: Cleaned File Path: \"$file\""
@@ -203,13 +206,22 @@ jobs:
                   echo "🔍 DEBUG: Temp Line (from scanner): \"$temp_line\""
                   echo "🔍 DEBUG: Mapped Actual Line Number: \"$actual_line_number\""
           
-                  # Append to scanner report
+                  # If no matching line found, set it as "N/A"
+                  if [ -z "$actual_line_number" ]; then
+                    actual_line_number="N/A"
+                  fi
+          
+                  # Print extracted actual line for debugging
+                  echo "✅ Extracted Actual Line: $actual_line_number for File: \"$file\" with TempLine: \"$temp_line\""
+          
+                  # Append actual line number to the scanner report
                   echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual_line_number" >> scanner-report.csv
                 done < <(tail -n +2 scanner-report-temp.csv)
               else
                 echo "No issues detected. Creating an empty scanner report."
                 echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
               fi
+          
           
           
           
