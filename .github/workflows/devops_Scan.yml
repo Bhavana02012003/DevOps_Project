@@ -180,13 +180,14 @@ jobs:
                   # Extract relative file path
                   relative_path=$(echo "$file" | sed 's|.*/temp_scanner_files/|temp_scanner_files/|')
           
-                  # Extract actual line number from mapping
-                  extracted_line_number=$(grep "$relative_path," line_number_mapping.txt | awk -F',' '{print $2}' | head -n 1)
+                  # Retrieve the stored extracted line number **for the specific TempLine**
+                  extracted_line_number=$(grep "$relative_path,$temp_line," line_number_mapping.txt | awk -F',' '{print $2}' | head -n 1)
           
                   # Debugging: Print extracted values
                   echo "🔍 DEBUG: Cleaned File Path: \"$file\""
                   echo "🔍 DEBUG: Matching Relative Path: \"$relative_path\""
-                  echo "🔍 DEBUG: Extracted Line Number: \"$extracted_line_number\""
+                  echo "🔍 DEBUG: Temp Line (from scanner): \"$temp_line\""
+                  echo "🔍 DEBUG: Extracted Actual Line Number: \"$extracted_line_number\""
           
                   # If no matching line found, set it as "N/A"
                   if [ -z "$extracted_line_number" ]; then
@@ -194,7 +195,7 @@ jobs:
                   fi
           
                   # Print extracted actual line for debugging
-                  echo "✅ Extracted Actual Line: $extracted_line_number for File: \"$file\""
+                  echo "✅ Extracted Actual Line: $extracted_line_number for File: \"$file\" with TempLine: \"$temp_line\""
           
                   # Append actual line number to the scanner report
                   echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
@@ -203,7 +204,6 @@ jobs:
                 echo "No issues detected. Creating an empty scanner report."
                 echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
               fi
-          
           
           
       - name: Authenticate with Salesforce
