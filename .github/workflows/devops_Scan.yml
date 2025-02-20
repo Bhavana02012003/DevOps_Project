@@ -23,6 +23,10 @@ jobs:
               echo "Machine Hostname: $(hostname)"
               echo "System Info:"
               uname -a
+              echo "OS Release Information:"
+              cat /etc/os-release
+              echo "Ubuntu Version:"
+              lsb_release -a || echo "lsb_release command not found"
 
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -307,7 +311,17 @@ jobs:
     steps:
       - name: Get Current Runner Name
         id: get-runner
-        run: echo "runner_name=${{ runner.name }}" >> $GITHUB_ENV
+        run: |
+              echo "Runner Name: ${{ runner.name }}"
+              echo "Runner OS: ${{ runner.os }}"
+              echo "Runner Arch: ${{ runner.arch }}"
+              echo "Machine Hostname: $(hostname)"
+              echo "System Info:"
+              uname -a
+              echo "OS Release Information:"
+              cat /etc/os-release
+              echo "Ubuntu Version:"
+              lsb_release -a || echo "lsb_release command not found"
 
       - name: Compare Runner Names
         run: |
