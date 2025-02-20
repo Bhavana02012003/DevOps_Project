@@ -16,7 +16,13 @@ jobs:
     steps:
       - name: Get Runner Name
         id: get-runner
-        run: echo "runner_name=${{ runner.name }}" >> $GITHUB_ENV
+        run: |
+              echo "Runner Name: ${{ runner.name }}"
+              echo "Runner OS: ${{ runner.os }}"
+              echo "Runner Arch: ${{ runner.arch }}"
+              echo "Machine Hostname: $(hostname)"
+              echo "System Info:"
+              uname -a
 
       - name: Checkout Code
         uses: actions/checkout@v4
