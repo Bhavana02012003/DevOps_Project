@@ -284,10 +284,10 @@ jobs:
       - name: Get Commit Author  # ✅ Fetch the commit author
         id: commit-author
         run: |
-              COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
-              echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
-              echo "Commit Author: $COMMIT_AUTHOR"
-    
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+          echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+          echo "Commit Author: $COMMIT_AUTHOR"
+
       - name: Fetch Slack User Mapping  # ✅ Get the Slack ID of the commit author
         env:
           SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
@@ -311,11 +311,14 @@ jobs:
           if [ -n "$AUTHOR_SLACK_ID" ] && [ "$AUTHOR_SLACK_ID" != "null" ]; then
             echo "🔵 Step 1: Requesting an Upload URL from Slack..."
 
-            # Step 1: Request an Upload URL from Slack
-            UPLOAD_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-Type: application/json" \
+            FILE_NAME="scanner-report.csv"
+            FILE_LENGTH=$(stat --printf="%s" $FILE_NAME)
+
+            UPLOAD_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
             --data '{
-              "filename": "scanner-report.csv",
-              "length": '$(stat --printf="%s" scanner-report.csv)',
+              "filename": "'"$FILE_NAME"'",
+              "length": '"$FILE_LENGTH"',
               "channels": ["'"$AUTHOR_SLACK_ID"'"]
             }' https://slack.com/api/files.getUploadURLExternal)
 
@@ -333,13 +336,14 @@ jobs:
             echo "🔵 Step 2: Uploading File to Slack..."
 
             # Step 2: Upload File to Slack's External Upload URL
-            curl -X PUT -H "Content-Type: text/csv" --upload-file scanner-report.csv "$UPLOAD_URL"
+            curl -X PUT -H "Content-Type: text/csv" --upload-file $FILE_NAME "$UPLOAD_URL"
 
             echo "✅ File Uploaded Successfully!"
             echo "🔵 Step 3: Completing Upload in Slack..."
 
             # Step 3: Complete File Upload in Slack
-            COMPLETE_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-Type: application/json" \
+            COMPLETE_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
             --data '{
               "files": [{
                 "id": "'"$FILE_ID"'",
@@ -356,7 +360,6 @@ jobs:
 
             echo "✅ Scanner Report Sent to Slack Successfully!"
           fi
-
       # - name: Upload Scanner Report as Artifact
       #   id: upload-report
       #   uses: actions/upload-artifact@v4
