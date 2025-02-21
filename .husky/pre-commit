@@ -70,7 +70,7 @@ fi
  
 # Run the SFDX scanner on the temp files
 echo "Running SFDX scanner on temporary files."
-sf scanner:run --target "$temp_dir" --format "json" --outfile "scanner-report.json"
+sf scanner:run --target "$temp_dir" --format "json" --outfile "scanner-report.json" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml"
  
 # Ensure that the scanner report was generated
 if [ ! -f "scanner-report.json" ]; then
@@ -94,3 +94,4 @@ else
   echo "No vulnerabilities found. Proceeding with commit."
   rm -rf "$temp_dir"
   exit 0
+fi

@@ -15,7 +15,8 @@
     "prettier:verify": "prettier --list-different \"**/*.{cls,cmp,component,css,html,js,json,md,page,trigger,xml,yaml,yml}\" --no-error-on-unmatched-pattern",
     "postinstall": "node ./node_modules/devops-center-local-config-files/src/copy-files.js && husky install",
     "precommit": "lint-staged",
-    "update:dependencies": "ncu -u && npm install"
+    "update:dependencies": "ncu -u && npm install",
+    "prepare": "husky install"
   },
   "devDependencies": {
     "@actions/core": "latest",
@@ -32,7 +33,7 @@
     "eslint-plugin-jest": "latest",
     "execa": "latest",
     "fs-extra": "latest",
-    "husky": "latest",
+    "husky": "^8.0.0",
     "lint-staged": "latest",
     "prettier": "latest",
     "prettier-plugin-apex": "latest"
