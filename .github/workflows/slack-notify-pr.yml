@@ -38,20 +38,17 @@ jobs:
           echo "REVIEWER_SLACK_ID=$REVIEWER_SLACK_ID" >> $GITHUB_ENV
           echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
 
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: scan-report
+          path: ./scanner-report.csv  # Replace with the actual file path
 
-      - name: Debug GitHub Payload
+      - name: Generate Artifact URL
         run: |
-          echo "Printing full GitHub event payload:"
-          echo '${{ toJson(github.event) }}'
-
-
-      - name: Debug Slack User Map
-        env:
-          SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
-        run: |
-          echo "Printing full Slack User Map JSON:"
-          echo "$SLACK_USER_MAP"
-
+          ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts"
+          echo "Artifact URL: $ARTIFACT_URL"
+          echo "ARTIFACT_URL=$ARTIFACT_URL" >> $GITHUB_ENV
 
       - name: Send Slack DM to Assigned Reviewer
         if: github.event.action == 'assigned' || github.event.action == 'review_requested'
@@ -63,14 +60,17 @@ jobs:
           PR_AUTHOR: "${{ github.event.pull_request.user.login }}"
         run: |
           if [ -n "$REVIEWER_SLACK_ID" ] && [ "$REVIEWER_SLACK_ID" != "null" ]; then
+            echo "Sending Slack DM to reviewer: $REVIEWER_SLACK_ID"
             curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
             --data '{
               "channel": "'"$REVIEWER_SLACK_ID"'",
               "text": ":wave: *You have been assigned a PR for review!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n📝 *Author:* '"$PR_AUTHOR"'\n🔗 *PR Link:* '"$PR_URL"'"
             }' https://slack.com/api/chat.postMessage
+          else
+            echo "ERROR: No valid Slack ID found for reviewer: $REVIEWER_GITHUB"
           fi
 
-      - name: Send Slack DM to PR Author on Review Submission
+      - name: Send Slack DM to PR Author with Artifact
         if: github.event_name == 'pull_request_review' && github.event.action == 'submitted'
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -80,11 +80,15 @@ jobs:
           REVIEWER: "${{ github.event.review.user.login }}"
           REVIEW_STATE: "${{ github.event.review.state }}"
           REVIEW_BODY: "${{ github.event.review.body }}"
+          ARTIFACT_URL: "${{ env.ARTIFACT_URL }}"
         run: |
           if [ -n "$AUTHOR_SLACK_ID" ] && [ "$AUTHOR_SLACK_ID" != "null" ]; then
+            echo "Sending Slack DM to PR Author: $AUTHOR_SLACK_ID"
             curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
             --data '{
               "channel": "'"$AUTHOR_SLACK_ID"'",
-              "text": ":speech_balloon: *Your PR has been reviewed!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n👤 *Reviewed by:* '"$REVIEWER"'\n📄 *Review State:* '"$REVIEW_STATE"'\n💬 *Comments:* '"$REVIEW_BODY"'\n🔗 *PR Link:* '"$PR_URL"'"
+              "text": ":speech_balloon: *Your PR has been reviewed!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n👤 *Reviewed by:* '"$REVIEWER"'\n📄 *Review State:* '"$REVIEW_STATE"'\n💬 *Comments:* '"$REVIEW_BODY"'\n🔗 *PR Link:* '"$PR_URL"'\n\n📂 *Download Artifact:* <'"$ARTIFACT_URL"'|Click here>"
             }' https://slack.com/api/chat.postMessage
+          else
+            echo "ERROR: No valid Slack ID found for author: $AUTHOR_GITHUB"
           fi
