@@ -293,31 +293,40 @@ jobs:
           SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
           COMMIT_AUTHOR: ${{ env.COMMIT_AUTHOR }}
         run: |
-              echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
-              AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
-    
-              if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "null" ]; then
-                echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
-                exit 1
-              fi
-    
-              echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
-    
-      - name: Send Scanner Report Directly to PR Author via Slack
+          echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
+          AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
+
+          if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "null" ]; then
+            echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
+            exit 1
+          fi
+
+          echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
+
+      - name: Send Scanner Report Directly to PR Author via Slack (Using files.uploadV2)
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           AUTHOR_SLACK_ID: ${{ env.AUTHOR_SLACK_ID }}
         run: |
-              if [ -n "$AUTHOR_SLACK_ID" ] && [ "$AUTHOR_SLACK_ID" != "null" ]; then
-                echo "Sending Scanner Report to Slack for PR Author: $AUTHOR_SLACK_ID"
-                
-                # Upload the scanner report as a file to Slack
-                curl -F file=@scanner-report.csv \
-                     -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is your scan report." \
-                     -F channels="$AUTHOR_SLACK_ID" \
-                     -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-                     https://slack.com/api/files.upload
-              fi
+          if [ -n "$AUTHOR_SLACK_ID" ] && [ "$AUTHOR_SLACK_ID" != "null" ]; then
+            echo "Sending Scanner Report to Slack for PR Author: $AUTHOR_SLACK_ID"
+            
+            # Upload the scanner report using Slack's new `files.uploadV2` API
+            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-Type: application/json" \
+            --data '{
+              "channel_id": "'"$AUTHOR_SLACK_ID"'",
+              "initial_comment": ":white_check_mark: *SFDX Code Scan Completed!*\nHere is your scan report."
+            }' https://slack.com/api/files.uploadV2 > response.json
+
+            # Extract the `file_id` from the response
+            FILE_ID=$(jq -r '.file.id' response.json)
+            
+            # Attach the file
+            curl -F file=@scanner-report.csv \
+                 -F "file_id=$FILE_ID" \
+                 -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                 https://slack.com/api/files.completeUploadExternal
+          fi
 
       # - name: Upload Scanner Report as Artifact
       #   id: upload-report
