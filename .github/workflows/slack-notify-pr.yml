@@ -3,12 +3,8 @@ name: Notify Slack on PR Assignment and Review
 on:
   pull_request:
     types:
-      - opened
       - assigned
       - review_requested
-      - review_request_removed
-      - edited
-      - closed
 
   pull_request_review:
     types:
@@ -19,7 +15,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Send Slack Notification on PR Assignment
+      - name: Get Slack User Mapping
+        env:
+          SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
+          REVIEWER_GITHUB: "${{ github.event.assignee.login }}"
+          AUTHOR_GITHUB: "${{ github.event.pull_request.user.login }}"
+        run: |
+          echo "Fetching Slack IDs for users..."
+
+          # Extract Slack ID for the assigned reviewer
+          REVIEWER_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$REVIEWER_GITHUB" '.[$user]')
+          
+          # Extract Slack ID for the PR author
+          AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$AUTHOR_GITHUB" '.[$user]')
+
+          echo "Reviewer Slack ID: $REVIEWER_SLACK_ID"
+          echo "Author Slack ID: $AUTHOR_SLACK_ID"
+
+          echo "REVIEWER_SLACK_ID=$REVIEWER_SLACK_ID" >> $GITHUB_ENV
+          echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
+
+      - name: Send Slack Notification to Assigned Reviewer
         if: github.event.action == 'assigned' || github.event.action == 'review_requested'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
@@ -27,24 +43,28 @@ jobs:
           PR_TITLE: "${{ github.event.pull_request.title }}"
           PR_URL: "${{ github.event.pull_request.html_url }}"
           PR_AUTHOR: "${{ github.event.pull_request.user.login }}"
-          REVIEWER: "${{ github.event.requested_reviewer.login }}"
         run: |
-          curl -X POST -H 'Content-type: application/json' --data '{
-            "text": ":wave: *PR Review Requested*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n📝 *Author:* '"$PR_AUTHOR"'\n👤 *Assigned to Reviewer:* '"$REVIEWER"'\n🔗 *PR Link:* '"$PR_URL"'"
-          }' "$SLACK_WEBHOOK_URL"
+          if [ -n "$REVIEWER_SLACK_ID" ] && [ "$REVIEWER_SLACK_ID" != "null" ]; then
+            curl -X POST -H 'Content-type: application/json' --data '{
+              "channel": "'"$REVIEWER_SLACK_ID"'",
+              "text": ":wave: *You have been assigned a PR for review!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n📝 *Author:* '"$PR_AUTHOR"'\n🔗 *PR Link:* '"$PR_URL"'"
+            }' "$SLACK_WEBHOOK_URL"
+          fi
 
-      - name: Send Slack Notification on PR Review Submission
+      - name: Send Slack Notification to PR Author on Review Submission
         if: github.event_name == 'pull_request_review' && github.event.action == 'submitted'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
           PR_NUMBER: "${{ github.event.pull_request.number }}"
           PR_TITLE: "${{ github.event.pull_request.title }}"
           PR_URL: "${{ github.event.pull_request.html_url }}"
-          PR_AUTHOR: "${{ github.event.pull_request.user.login }}"
           REVIEWER: "${{ github.event.review.user.login }}"
           REVIEW_STATE: "${{ github.event.review.state }}"
           REVIEW_BODY: "${{ github.event.review.body }}"
         run: |
-          curl -X POST -H 'Content-type: application/json' --data '{
-            "text": ":speech_balloon: *PR Review Submitted*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n📝 *Author:* '"$PR_AUTHOR"'\n👤 *Reviewed by:* '"$REVIEWER"'\n📄 *Review State:* '"$REVIEW_STATE"'\n💬 *Comments:* '"$REVIEW_BODY"'\n🔗 *PR Link:* '"$PR_URL"'"
-          }' "$SLACK_WEBHOOK_URL"
+          if [ -n "$AUTHOR_SLACK_ID" ] && [ "$AUTHOR_SLACK_ID" != "null" ]; then
+            curl -X POST -H 'Content-type: application/json' --data '{
+              "channel": "'"$AUTHOR_SLACK_ID"'",
+              "text": ":speech_balloon: *Your PR has been reviewed!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n👤 *Reviewed by:* '"$REVIEWER"'\n📄 *Review State:* '"$REVIEW_STATE"'\n💬 *Comments:* '"$REVIEW_BODY"'\n🔗 *PR Link:* '"$PR_URL"'"
+            }' "$SLACK_WEBHOOK_URL"
+          fi
