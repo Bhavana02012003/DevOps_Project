@@ -286,6 +286,13 @@ jobs:
           name: SFDX_Code_Scan_Report
           path: scanner-report.csv
           if-no-files-found: warn
+
+      - name: Generate Artifact URL
+        id: generate-artifact-url
+        run: |
+            ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts"
+            echo "ARTIFACT_URL=$ARTIFACT_URL" >> $GITHUB_ENV
+            echo "artifact_url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
           
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
@@ -313,6 +320,50 @@ jobs:
             echo "block-status=true" >> $GITHUB_OUTPUT
             exit 1
           fi
+
+
+  notify_slack:
+    runs-on: ubuntu-latest
+    needs: quality-gate-code-check
+
+    steps:
+      - name: Get Commit Author
+        id: commit-author
+        run: |
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+          echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+          echo "Commit Author: $COMMIT_AUTHOR"
+
+      - name: Fetch Slack User Mapping
+        env:
+          SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
+          COMMIT_AUTHOR: ${{ env.COMMIT_AUTHOR }}
+        run: |
+          echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
+          AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
+
+          if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "null" ]; then
+            echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
+            exit 1
+          fi
+
+          echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
+
+      - name: Send Slack DM to PR Author with Artifact
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          ARTIFACT_URL: ${{ needs.quality-gate-code-check.outputs.artifact_url }}
+          AUTHOR_SLACK_ID: ${{ env.AUTHOR_SLACK_ID }}
+        run: |
+          if [ -n "$AUTHOR_SLACK_ID" ] && [ "$AUTHOR_SLACK_ID" != "null" ]; then
+            echo "Sending Slack DM to PR Author: $AUTHOR_SLACK_ID"
+            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+            --data '{
+              "channel": "'"$AUTHOR_SLACK_ID"'",
+              "text": ":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Artifact:* <'"$ARTIFACT_URL"'|Click here>"
+            }' https://slack.com/api/chat.postMessage
+          fi
+
 
 
   quality-gate-critical-permissions-check:
