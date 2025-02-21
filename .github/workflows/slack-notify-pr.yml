@@ -35,26 +35,27 @@ jobs:
           echo "REVIEWER_SLACK_ID=$REVIEWER_SLACK_ID" >> $GITHUB_ENV
           echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
 
-      - name: Send Slack Notification to Assigned Reviewer
+      - name: Send Slack DM to Assigned Reviewer
         if: github.event.action == 'assigned' || github.event.action == 'review_requested'
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           PR_NUMBER: "${{ github.event.pull_request.number }}"
           PR_TITLE: "${{ github.event.pull_request.title }}"
           PR_URL: "${{ github.event.pull_request.html_url }}"
           PR_AUTHOR: "${{ github.event.pull_request.user.login }}"
         run: |
           if [ -n "$REVIEWER_SLACK_ID" ] && [ "$REVIEWER_SLACK_ID" != "null" ]; then
-            curl -X POST -H 'Content-type: application/json' --data '{
+            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+            --data '{
               "channel": "'"$REVIEWER_SLACK_ID"'",
               "text": ":wave: *You have been assigned a PR for review!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n📝 *Author:* '"$PR_AUTHOR"'\n🔗 *PR Link:* '"$PR_URL"'"
-            }' "$SLACK_WEBHOOK_URL"
+            }' https://slack.com/api/chat.postMessage
           fi
 
-      - name: Send Slack Notification to PR Author on Review Submission
+      - name: Send Slack DM to PR Author on Review Submission
         if: github.event_name == 'pull_request_review' && github.event.action == 'submitted'
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           PR_NUMBER: "${{ github.event.pull_request.number }}"
           PR_TITLE: "${{ github.event.pull_request.title }}"
           PR_URL: "${{ github.event.pull_request.html_url }}"
@@ -63,8 +64,9 @@ jobs:
           REVIEW_BODY: "${{ github.event.review.body }}"
         run: |
           if [ -n "$AUTHOR_SLACK_ID" ] && [ "$AUTHOR_SLACK_ID" != "null" ]; then
-            curl -X POST -H 'Content-type: application/json' --data '{
+            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+            --data '{
               "channel": "'"$AUTHOR_SLACK_ID"'",
               "text": ":speech_balloon: *Your PR has been reviewed!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n👤 *Reviewed by:* '"$REVIEWER"'\n📄 *Review State:* '"$REVIEW_STATE"'\n💬 *Comments:* '"$REVIEW_BODY"'\n🔗 *PR Link:* '"$PR_URL"'"
-            }' "$SLACK_WEBHOOK_URL"
+            }' https://slack.com/api/chat.postMessage
           fi
