@@ -17,6 +17,8 @@ jobs:
       scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}  # Outputs the artifact path to pass to the next job
       block-pr: ${{ steps.block-check.outputs.block-status }}  # Pass the block status
       runner-name: ${{ steps.get-runner.outputs.runner_name }}  # Store the runner name
+      artifact_url: ${{ steps.generate-artifact-url.outputs.artifact_url }}
+
 
     steps:
       - name: Get Runner Name
@@ -327,7 +329,10 @@ jobs:
     needs: quality-gate-code-check
 
     steps:
-      - name: Get Commit Author
+      - name: Checkout Code  # ✅ Ensures git commands work in this job too
+        uses: actions/checkout@v4
+
+      - name: Get Commit Author  # ✅ Runs after checking out the repo
         id: commit-author
         run: |
           COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
