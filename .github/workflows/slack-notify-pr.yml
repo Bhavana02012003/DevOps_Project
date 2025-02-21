@@ -18,7 +18,7 @@ jobs:
       - name: Get Slack User Mapping
         env:
           SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
-          REVIEWER_GITHUB: "${{ github.event.assignee.login }}"
+          REVIEWER_GITHUB: "${{ github.event.requested_reviewer.login || github.event.assignee.login }}"
           AUTHOR_GITHUB: "${{ github.event.pull_request.user.login }}"
         run: |
           echo "Fetching Slack IDs for users..."
@@ -37,6 +37,13 @@ jobs:
 
           echo "REVIEWER_SLACK_ID=$REVIEWER_SLACK_ID" >> $GITHUB_ENV
           echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
+
+
+      - name: Debug GitHub Payload
+        run: |
+          echo "Printing full GitHub event payload:"
+          echo '${{ toJson(github.event) }}'
+
 
       - name: Debug Slack User Map
         env:
