@@ -53,6 +53,19 @@ jobs:
           echo "$SLACK_USER_MAP"
 
 
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: pr-scan-report
+          path: ./scanner-report.csv  # Replace with actual file
+  
+      - name: Generate Artifact URL
+        run: |
+            ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts"
+            echo "Artifact URL: $ARTIFACT_URL"
+            echo "ARTIFACT_URL=$ARTIFACT_URL" >> $GITHUB_ENV
+
+
       - name: Send Slack DM to Assigned Reviewer
         if: github.event.action == 'assigned' || github.event.action == 'review_requested'
         env:
@@ -70,7 +83,7 @@ jobs:
             }' https://slack.com/api/chat.postMessage
           fi
 
-      - name: Send Slack DM to PR Author on Review Submission
+      - name: Send Slack DM to PR Author with Artifact
         if: github.event_name == 'pull_request_review' && github.event.action == 'submitted'
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -80,11 +93,13 @@ jobs:
           REVIEWER: "${{ github.event.review.user.login }}"
           REVIEW_STATE: "${{ github.event.review.state }}"
           REVIEW_BODY: "${{ github.event.review.body }}"
+          ARTIFACT_URL: "${{ env.ARTIFACT_URL }}"
         run: |
           if [ -n "$AUTHOR_SLACK_ID" ] && [ "$AUTHOR_SLACK_ID" != "null" ]; then
+            echo "Sending Slack DM to PR Author: $AUTHOR_SLACK_ID"
             curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
             --data '{
               "channel": "'"$AUTHOR_SLACK_ID"'",
-              "text": ":speech_balloon: *Your PR has been reviewed!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n👤 *Reviewed by:* '"$REVIEWER"'\n📄 *Review State:* '"$REVIEW_STATE"'\n💬 *Comments:* '"$REVIEW_BODY"'\n🔗 *PR Link:* '"$PR_URL"'"
+              "text": ":speech_balloon: *Your PR has been reviewed!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n👤 *Reviewed by:* '"$REVIEWER"'\n📄 *Review State:* '"$REVIEW_STATE"'\n💬 *Comments:* '"$REVIEW_BODY"'\n🔗 *PR Link:* '"$PR_URL"' \n\n📂 *Download Artifact:* <'"$ARTIFACT_URL"'|Click here>"
             }' https://slack.com/api/chat.postMessage
           fi
