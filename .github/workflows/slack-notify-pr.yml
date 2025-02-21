@@ -23,28 +23,28 @@ jobs:
         if: github.event.action == 'assigned' || github.event.action == 'review_requested'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          REVIEWER: ${{ github.event.requested_reviewer.login }}
+          PR_NUMBER: "${{ github.event.pull_request.number }}"
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+          PR_URL: "${{ github.event.pull_request.html_url }}"
+          PR_AUTHOR: "${{ github.event.pull_request.user.login }}"
+          REVIEWER: "${{ github.event.requested_reviewer.login }}"
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": ":wave: *PR Review Requested*\n\n📌 *Title:* ${PR_TITLE}\n🔢 *PR Number:* #${PR_NUMBER}\n📝 *Author:* ${PR_AUTHOR}\n👤 *Assigned to Reviewer:* ${REVIEWER}\n🔗 *PR Link:* ${PR_URL}"
-          }' $SLACK_WEBHOOK_URL
+            "text": ":wave: *PR Review Requested*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n📝 *Author:* '"$PR_AUTHOR"'\n👤 *Assigned to Reviewer:* '"$REVIEWER"'\n🔗 *PR Link:* '"$PR_URL"'"
+          }' "$SLACK_WEBHOOK_URL"
 
       - name: Send Slack Notification on PR Review Submission
         if: github.event_name == 'pull_request_review' && github.event.action == 'submitted'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          REVIEWER: ${{ github.event.review.user.login }}
-          REVIEW_STATE: ${{ github.event.review.state }}
-          REVIEW_BODY: ${{ github.event.review.body }}
+          PR_NUMBER: "${{ github.event.pull_request.number }}"
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+          PR_URL: "${{ github.event.pull_request.html_url }}"
+          PR_AUTHOR: "${{ github.event.pull_request.user.login }}"
+          REVIEWER: "${{ github.event.review.user.login }}"
+          REVIEW_STATE: "${{ github.event.review.state }}"
+          REVIEW_BODY: "${{ github.event.review.body }}"
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": ":speech_balloon: *PR Review Submitted*\n\n📌 *Title:* ${PR_TITLE}\n🔢 *PR Number:* #${PR_NUMBER}\n📝 *Author:* ${PR_AUTHOR}\n👤 *Reviewed by:* ${REVIEWER}\n📄 *Review State:* ${REVIEW_STATE}\n💬 *Comments:* ${REVIEW_BODY}\n🔗 *PR Link:* ${PR_URL}"
-          }' $SLACK_WEBHOOK_URL
+            "text": ":speech_balloon: *PR Review Submitted*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n📝 *Author:* '"$PR_AUTHOR"'\n👤 *Reviewed by:* '"$REVIEWER"'\n📄 *Review State:* '"$REVIEW_STATE"'\n💬 *Comments:* '"$REVIEW_BODY"'\n🔗 *PR Link:* '"$PR_URL"'"
+          }' "$SLACK_WEBHOOK_URL"
