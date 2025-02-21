@@ -297,7 +297,7 @@ jobs:
           AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
 
           if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "null" ]; then
-            echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
+            echo "❌ ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
             exit 1
           fi
 
@@ -311,13 +311,15 @@ jobs:
           if [ -n "$AUTHOR_SLACK_ID" ] && [ "$AUTHOR_SLACK_ID" != "null" ]; then
             echo "🔵 Step 1: Requesting an Upload URL from Slack..."
 
-            # Step 1: Get Upload URL from Slack
-            UPLOAD_RESPONSE=$(curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-Type: application/json" \
+            # Step 1: Request an Upload URL from Slack
+            UPLOAD_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-Type: application/json" \
             --data '{
               "filename": "scanner-report.csv",
               "length": '$(stat --printf="%s" scanner-report.csv)',
-              "channels": "'"$AUTHOR_SLACK_ID"'"
+              "channels": ["'"$AUTHOR_SLACK_ID"'"]
             }' https://slack.com/api/files.getUploadURLExternal)
+
+            echo "📄 Slack API Response: $UPLOAD_RESPONSE"
 
             UPLOAD_URL=$(echo "$UPLOAD_RESPONSE" | jq -r '.upload_url')
             FILE_ID=$(echo "$UPLOAD_RESPONSE" | jq -r '.file_id')
@@ -337,13 +339,15 @@ jobs:
             echo "🔵 Step 3: Completing Upload in Slack..."
 
             # Step 3: Complete File Upload in Slack
-            COMPLETE_RESPONSE=$(curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-Type: application/json" \
+            COMPLETE_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-Type: application/json" \
             --data '{
               "files": [{
                 "id": "'"$FILE_ID"'",
                 "title": "SFDX Scanner Report"
               }]
             }' https://slack.com/api/files.completeUploadExternal)
+
+            echo "📄 Slack API Response: $COMPLETE_RESPONSE"
 
             if echo "$COMPLETE_RESPONSE" | grep -q '"ok":false'; then
               echo "❌ ERROR: Failed to complete file upload in Slack."
