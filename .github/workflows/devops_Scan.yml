@@ -230,19 +230,21 @@ jobs:
               fi
           
 
-      - name: Upload Scanner Report to Temporary Storage (file.io)
+      - name: Upload Scanner Report to Temporary Storage (GoFile.io)
         id: upload-report
         run: |
           if [ -f scanner-report.csv ]; then
-            echo "✅ Uploading scanner report to file.io..."
-            response=$(curl -F "file=@scanner-report.csv" https://file.io)
-            echo "📢 File.io Response: $response"
+            echo "✅ Uploading scanner report to GoFile.io..."
+            
+            # Upload the file and capture response
+            response=$(curl -F "file=@scanner-report.csv" https://store1.gofile.io/uploadFile)
+            echo "📢 GoFile.io Response: $response"
 
             # Extract the URL from the JSON response
-            SCANNER_REPORT_URL=$(echo $response | jq -r '.link')
+            SCANNER_REPORT_URL=$(echo $response | jq -r '.data.downloadPage')
 
             if [[ "$SCANNER_REPORT_URL" == "null" || -z "$SCANNER_REPORT_URL" ]]; then
-              echo "❌ Failed to upload file to file.io"
+              echo "❌ Failed to upload file to GoFile.io"
               exit 1
             fi
 
