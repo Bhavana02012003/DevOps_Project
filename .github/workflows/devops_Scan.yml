@@ -400,54 +400,32 @@ jobs:
             echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
           fi
 
-      - name: Debug Slack File Upload
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      - name: Generate Artifact URL
         run: |
-          AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
-          SEND_FAILURE_NOTIFICATION="${{ env.SEND_FAILURE_NOTIFICATION }}"
-
-          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
-            echo "❌ No Slack ID found for commit author, skipping message."
-            exit 0
-          fi
-
-          if [ "$SEND_FAILURE_NOTIFICATION" == "true" ]; then
-            echo "⚠️ No scanner report found. Sending failure notification to Slack."
+            ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts"
+            echo "📢 Generated artifact URL: $ARTIFACT_URL"
+            echo "ARTIFACT_URL=$ARTIFACT_URL" >> $GITHUB_ENV
+  
+      - name: Send Scanner Report Link to Slack
+        env:
+            SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+            AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
+            ARTIFACT_URL="${{ env.ARTIFACT_URL }}"
+  
+            if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
+              echo "❌ No Slack ID found for commit author, skipping message."
+              exit 0
+            fi
+  
+            echo "✅ Sending scanner report link to Slack..."
+  
             curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
             --data '{
               "channel": "'"$AUTHOR_SLACK_ID"'",
-              "text": ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
+              "text": ":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <'"$ARTIFACT_URL"'|Click here>"
             }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
-          else
-            echo "✅ Scanner report found. Uploading file to Slack."
 
-            # Debug - Verify File Exists Before Upload
-            ls -lah scanner-report.csv || echo "⚠️ scanner-report.csv not found!"
-
-            # Upload the file using `files.upload`
-            response=$(curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-              -F file=@scanner-report.csv \
-              -F "filename=scanner-report.csv" \
-              -F "title=SFDX Code Scan Report" \
-              -F "channels=$AUTHOR_SLACK_ID" \
-              -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file." \
-              https://slack.com/api/files.upload)
-
-            echo "📢 Slack API Raw Response: $response"
-
-            # Save response to a file for further debugging
-            echo "$response" > slack_response.json
-
-            # Handle Slack API Response
-            if [[ "$response" == *'"ok":false'* ]]; then
-              echo "❌ Slack file upload failed. Check API permissions and response."
-              cat slack_response.json  # Print full response for debugging
-              exit 1
-            else
-              echo "✅ Scanner report successfully uploaded to Slack!"
-            fi
-          fi
 
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
