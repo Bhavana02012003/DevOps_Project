@@ -334,38 +334,73 @@ jobs:
 
   notify-slack:
     runs-on: ubuntu-latest
-    needs: quality-gate-code-check
-    if: always()  # ✅ Runs even if previous job fails
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Get Commit Author
+        id: commit-author
+        run: |
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+          echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+          echo "commit-author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
+          echo "Commit Author: $COMMIT_AUTHOR"
+
       - name: Fetch Slack User Mapping
         env:
           SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
         run: |
-          COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
+          COMMIT_AUTHOR="${{ env.COMMIT_AUTHOR }}"
           echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
 
-          # Ensure JSON format is correct
-          if [[ -z "$SLACK_USER_MAP" ]]; then
-            echo "ERROR: SLACK_USER_MAP secret is empty or not set."
-            exit 1
-          fi
-
-          # Extract Slack ID from JSON mapping
           AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
 
-          # Debugging output
-          echo "Extracted Slack ID: $AUTHOR_SLACK_ID"
-
-          # If no Slack ID is found, handle the case properly
-          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "null" ]]; then
+          if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "null" ]; then
             echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
             echo "AUTHOR_SLACK_ID=unknown" >> $GITHUB_ENV
           else
             echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
+
+      - name: Install Salesforce CLI and Scanner Plugin
+        run: |
+          npm install @salesforce/cli --global
+          sf plugins install @salesforce/sfdx-scanner
+          sf --version
+
+      - name: Run SFDX Scanner on Changed Files
+        run: |
+          mkdir -p temp_scanner_files
+          > scanner-report.csv  # Ensure file exists
+
+          echo "Checking for changed .cls and .lwc files..."
+          changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
+
+          if [ -z "$changed_files" ]; then
+            echo "No .cls or .lwc files detected."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+          else
+            for file in $changed_files; do
+              echo "Running SFDX Scanner on file: $file"
+              sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+            done
+
+            if [ -f "scanner-report-temp.csv" ]; then
+              head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit"}' > scanner-report.csv
+              tail -n +2 scanner-report-temp.csv | awk -F',' -v commit="${{ env.COMMIT_AUTHOR }}" '{print $0","commit}' >> scanner-report.csv
+            else
+              echo "No issues detected. Creating an empty scanner report."
+              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+            fi
+          fi
+
+      - name: Verify Scanner Report
+        run: |
+          if [ ! -s scanner-report.csv ]; then
+            echo "No scanner report generated, sending failure notification."
+            echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
+          else
+            echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
           fi
 
       - name: Send Slack Notification
@@ -373,15 +408,14 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
           AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
+          SEND_FAILURE_NOTIFICATION="${{ env.SEND_FAILURE_NOTIFICATION }}"
 
-          # Ensure we have a valid Slack ID
-          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
+          if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "unknown" ]; then
             echo "No Slack ID found for commit author, skipping message."
             exit 0
           fi
 
-          # Check if scanner report exists
-          if [ ! -s scanner-report.csv ]; then
+          if [ "$SEND_FAILURE_NOTIFICATION" == "true" ]; then
             echo "No scanner report found. Sending failure notification."
             curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
             --data '{
