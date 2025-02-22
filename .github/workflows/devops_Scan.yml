@@ -331,6 +331,14 @@ jobs:
               echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
             fi
 
+      - name: Upload Scanner Report as Artifact
+        id: upload-report
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanner-report
+          path: scanner-report.csv
+          if-no-files-found: error  # Prevents workflow from passing if no file is found
+
 
   notify-slack:
     runs-on: ubuntu-latest
@@ -348,19 +356,13 @@ jobs:
           COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
           echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
 
-          # Ensure JSON format is correct
           if [[ -z "$SLACK_USER_MAP" ]]; then
             echo "ERROR: SLACK_USER_MAP secret is empty or not set."
             exit 1
           fi
 
-          # Extract Slack ID from JSON mapping
           AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
 
-          # Debugging output
-          echo "Extracted Slack ID: $AUTHOR_SLACK_ID"
-
-          # If no Slack ID is found, handle the case properly
           if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "null" ]]; then
             echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
             echo "AUTHOR_SLACK_ID=unknown" >> $GITHUB_ENV
@@ -368,20 +370,34 @@ jobs:
             echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
           fi
 
+      - name: Download Scanner Report
+        uses: actions/download-artifact@v4
+        with:
+          name: scanner-report
+          path: .
+
+      - name: Verify Scanner Report Download
+        run: |
+          if [ ! -s scanner-report.csv ]; then
+            echo "No scanner report found after download."
+            echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
+          else
+            echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
+          fi
+
       - name: Send Slack Notification
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
           AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
+          SEND_FAILURE_NOTIFICATION="${{ env.SEND_FAILURE_NOTIFICATION }}"
 
-          # Ensure we have a valid Slack ID
           if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
             echo "No Slack ID found for commit author, skipping message."
             exit 0
           fi
 
-          # Check if scanner report exists
-          if [ ! -s scanner-report.csv ]; then
+          if [ "$SEND_FAILURE_NOTIFICATION" == "true" ]; then
             echo "No scanner report found. Sending failure notification."
             curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
             --data '{
