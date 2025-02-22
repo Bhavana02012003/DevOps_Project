@@ -324,6 +324,13 @@ jobs:
             exit 1
           fi
 
+      - name: Ensure Scanner Report Exists (Even on Failure)
+        run: |
+            if [ ! -s scanner-report.csv ]; then
+              echo "No scanner report generated. Creating an empty file."
+              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+            fi
+
 
   notify-slack:
     runs-on: ubuntu-latest
@@ -352,9 +359,8 @@ jobs:
             echo "AUTHOR_SLACK_ID=unknown" >> $GITHUB_ENV
           else
             echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
-          fi
 
-      - name: Send Scanner Report to Author via Slack
+      - name: Send Slack Notification
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
@@ -364,18 +370,21 @@ jobs:
             exit 0
           fi
 
-          if [ ! -f scanner-report.csv ]; then
-            echo "No scanner report found. Sending failure notification instead."
-            MESSAGE=":x: *SFDX Code Scan Failed!* No scanner report was generated."
+          if [ ! -s scanner-report.csv ]; then
+            echo "No scanner report found. Sending failure notification."
+            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+            --data '{
+              "channel": "'"$AUTHOR_SLACK_ID"'",
+              "text": ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
+            }' https://slack.com/api/chat.postMessage
           else
-            MESSAGE=":white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file."
+            echo "Scanner report found. Sending file to Slack."
+            curl -F file=@scanner-report.csv \
+                 -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file." \
+                 -F channels="$AUTHOR_SLACK_ID" \
+                 -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                 https://slack.com/api/files.upload || echo "Slack file upload failed"
           fi
-
-          curl -F file=@scanner-report.csv \
-               -F "initial_comment=$MESSAGE" \
-               -F channels="$AUTHOR_SLACK_ID" \
-               -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-               https://slack.com/api/files.upload || echo "Slack file upload failed"
 
 
   quality-gate-critical-permissions-check:
