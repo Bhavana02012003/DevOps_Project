@@ -420,20 +420,25 @@ jobs:
               "text": ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
             }' https://slack.com/api/chat.postMessage || echo "Slack message failed"
           else
-            echo "Scanner report found. Sending file to Slack using files.upload.v2"
+            echo "Scanner report found. Sending file to Slack."
 
+            # Debug - Verify File Exists Before Upload
+            ls -lah scanner-report.csv || echo "⚠️ scanner-report.csv not found!"
+
+            # Send file using the correct `files.upload` API
             response=$(curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
               -F "file=@scanner-report.csv" \
               -F "filename=scanner-report.csv" \
               -F "title=SFDX Code Scan Report" \
               -F "channels=$AUTHOR_SLACK_ID" \
               -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file." \
-              https://slack.com/api/files.upload.v2)
+              https://slack.com/api/files.upload)
 
             echo "Slack Response: $response"
 
+            # Handle Slack API Response
             if [[ "$response" == *'"ok":false'* ]]; then
-              echo "Slack file upload failed."
+              echo "❌ Slack file upload failed. Check API permissions and response."
               exit 1
             fi
           fi
