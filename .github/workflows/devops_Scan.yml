@@ -420,19 +420,20 @@ jobs:
               "text": ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
             }' https://slack.com/api/chat.postMessage || echo "Slack message failed"
           else
-            echo "Scanner report found. Sending file to Slack."
+            echo "Scanner report found. Uploading file externally and linking in Slack."
 
-            # Debug - Verify File Exists Before Upload
-            ls -lah scanner-report.csv || echo "⚠️ scanner-report.csv not found!"
+            # Upload file to an external storage
+            FILE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" # Adjust if needed
 
-            # Send file using the correct `files.upload` API
-            response=$(curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-              -F "file=@scanner-report.csv" \
-              -F "filename=scanner-report.csv" \
-              -F "title=SFDX Code Scan Report" \
-              -F "channels=$AUTHOR_SLACK_ID" \
-              -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file." \
-              https://slack.com/api/files.upload)
+            # Add remote file to Slack
+            response=$(curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+              --data '{
+                "external_id": "scanner-report-'${{ github.run_id }}'",
+                "external_url": "'"$FILE_URL"'",
+                "title": "SFDX Code Scan Report",
+                "filetype": "csv",
+                "channels": "'"$AUTHOR_SLACK_ID"'"
+              }' https://slack.com/api/files.remote.add)
 
             echo "Slack Response: $response"
 
