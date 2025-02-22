@@ -328,6 +328,7 @@ jobs:
   notify-slack:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
+    if: always()  # ✅ Ensures this job runs even if the previous job fails
 
     steps:
       - name: Checkout Code
@@ -348,30 +349,35 @@ jobs:
           
           if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "null" ]; then
             echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
-            exit 1
+            echo "AUTHOR_SLACK_ID=unknown" >> $GITHUB_ENV
+          else
+            echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
           fi
-
-          echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
 
       - name: Send Scanner Report to Author via Slack
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
           AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
-          if [ -z "$AUTHOR_SLACK_ID" ]; then
+          if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "unknown" ]; then
             echo "No Slack ID found for commit author, skipping message."
-            exit 1
+            exit 0
           fi
 
-          echo "Sending scanner report to Slack user: $AUTHOR_SLACK_ID"
+          if [ ! -f scanner-report.csv ]; then
+            echo "No scanner report found. Sending failure notification instead."
+            MESSAGE=":x: *SFDX Code Scan Failed!* No scanner report was generated."
+          else
+            MESSAGE=":white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file."
+          fi
 
           curl -F file=@scanner-report.csv \
-               -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file." \
+               -F "initial_comment=$MESSAGE" \
                -F channels="$AUTHOR_SLACK_ID" \
                -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-               https://slack.com/api/files.upload
+               https://slack.com/api/files.upload || echo "Slack file upload failed"
 
-               
+
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
