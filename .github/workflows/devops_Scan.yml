@@ -354,13 +354,19 @@ jobs:
           COMMIT_AUTHOR="${{ env.COMMIT_AUTHOR }}"
           echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
 
+          if [[ -z "$SLACK_USER_MAP" ]]; then
+            echo "ERROR: SLACK_USER_MAP is not set."
+            exit 1
+          fi
+
           AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
 
-          if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "null" ]; then
+          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "null" ]]; then
             echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
             echo "AUTHOR_SLACK_ID=unknown" >> $GITHUB_ENV
           else
             echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
+          fi
 
       - name: Install Salesforce CLI and Scanner Plugin
         run: |
@@ -410,7 +416,7 @@ jobs:
           AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
           SEND_FAILURE_NOTIFICATION="${{ env.SEND_FAILURE_NOTIFICATION }}"
 
-          if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "unknown" ]; then
+          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
             echo "No Slack ID found for commit author, skipping message."
             exit 0
           fi
