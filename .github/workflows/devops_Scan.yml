@@ -19,6 +19,7 @@ jobs:
       runner-name: ${{ steps.get-runner.outputs.runner_name }}  # Store the runner name
       # artifact_url: ${{ steps.generate-artifact-url.outputs.artifact_url }}
       commit-author: ${{ steps.commit-author.outputs.commit-author }}
+      scanner-report-url: ${{ steps.upload-report.outputs.scanner-report-url }} # Pass the report URL to Slack job
 
 
     steps:
@@ -228,6 +229,22 @@ jobs:
                 echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
               fi
           
+
+      - name: Upload Scanner Report to Temporary Storage (Transfer.sh)
+        id: upload-report
+        run: |
+                if [ -f scanner-report.csv ]; then
+                  echo "✅ Uploading scanner report to temporary storage..."
+                  SCANNER_REPORT_URL=$(curl --upload-file scanner-report.csv https://transfer.sh/scanner-report.csv)
+                  echo "📢 Generated Scanner Report URL: $SCANNER_REPORT_URL"
+                  echo "scanner-report-url=$SCANNER_REPORT_URL" >> $GITHUB_ENV
+                  echo "scanner-report-url=$SCANNER_REPORT_URL" >> $GITHUB_OUTPUT
+                else
+                  echo "⚠️ No scanner report found. Cannot generate URL."
+                  echo "scanner-report-url=" >> $GITHUB_ENV
+                  echo "scanner-report-url=" >> $GITHUB_OUTPUT
+                  echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
+                fi
           
           
       - name: Load Salesforce API URL
@@ -380,51 +397,55 @@ jobs:
             echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
           fi
 
-      - name: Download Scanner Report
-        uses: actions/download-artifact@v4
-        with:
-          name: scanner-report
-          path: .
+      # - name: Download Scanner Report
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: scanner-report
+      #     path: .
 
-      - name: Debug - Verify Downloaded Files
-        run: |
-          echo "Checking if scanner report was downloaded:"
-          ls -lah
+      # - name: Debug - Verify Downloaded Files
+      #   run: |
+      #     echo "Checking if scanner report was downloaded:"
+      #     ls -lah
 
-      - name: Verify Scanner Report Download
+      # - name: Verify Scanner Report Download
+      #   run: |
+      #     if [ ! -s scanner-report.csv ]; then
+      #       echo "No scanner report found after download."
+      #       echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
+      #     else
+      #       echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
+      #     fi
+
+  
+      - name: Send Scanner Report URL to Slack
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
-          if [ ! -s scanner-report.csv ]; then
-            echo "No scanner report found after download."
-            echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
-          else
-            echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
+          AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
+          SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
+
+          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
+            echo "❌ No Slack ID found for commit author, skipping message."
+            exit 0
           fi
 
-      - name: Generate Artifact URL
-        run: |
-            ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts"
-            echo "📢 Generated artifact URL: $ARTIFACT_URL"
-            echo "ARTIFACT_URL=$ARTIFACT_URL" >> $GITHUB_ENV
-  
-      - name: Send Scanner Report Link to Slack
-        env:
-            SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-        run: |
-            AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
-            ARTIFACT_URL="${{ env.ARTIFACT_URL }}"
-  
-            if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
-              echo "❌ No Slack ID found for commit author, skipping message."
-              exit 0
-            fi
-  
-            echo "✅ Sending scanner report link to Slack..."
-  
+          if [[ -z "$SCANNER_REPORT_URL" ]]; then
+            echo "⚠️ No scanner report found. Sending failure notification to Slack."
             curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
             --data '{
               "channel": "'"$AUTHOR_SLACK_ID"'",
-              "text": ":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <'"$ARTIFACT_URL"'|Click here>"
+              "text": ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
             }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
+          else
+            echo "✅ Sending scanner report download link to Slack..."
+
+            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+            --data '{
+              "channel": "'"$AUTHOR_SLACK_ID"'",
+              "text": ":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <'"$SCANNER_REPORT_URL"'|Click here>"
+            }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
+          fi
 
 
   quality-gate-critical-permissions-check:
