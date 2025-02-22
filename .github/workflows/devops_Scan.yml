@@ -18,6 +18,7 @@ jobs:
       block-pr: ${{ steps.block-check.outputs.block-status }}  # Pass the block status
       runner-name: ${{ steps.get-runner.outputs.runner_name }}  # Store the runner name
       # artifact_url: ${{ steps.generate-artifact-url.outputs.artifact_url }}
+      commit-author: ${{ steps.commit-author.outputs.commit-author }}
 
 
     steps:
@@ -53,6 +54,14 @@ jobs:
 
       - name: Verify Salesforce CLI Installation
         run: sf --version
+
+      - name: Get Commit Author
+        id: commit-author
+        run: |
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+          echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+          echo "commit-author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
+          echo "Commit Author: $COMMIT_AUTHOR"
 
       - name: Get changed lines and create temporary files
         id: get-changes
@@ -281,100 +290,13 @@ jobs:
             fi
         
 
-      - name: Get Commit Author  # ✅ Fetch the commit author
-        id: commit-author
-        run: |
-          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
-          echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
-          echo "Commit Author: $COMMIT_AUTHOR"
-
-      - name: Fetch Slack User Mapping  # ✅ Get the Slack ID of the commit author
-        env:
-          SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
-          COMMIT_AUTHOR: ${{ env.COMMIT_AUTHOR }}
-        run: |
-          echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
-          AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
-
-          if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "null" ]; then
-            echo "❌ ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
-            exit 1
-          fi
-
-          echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
-
-      - name: Send Scanner Report Directly to PR Author via Slack (Using files.uploadV2)
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          AUTHOR_SLACK_ID: ${{ env.AUTHOR_SLACK_ID }}
-        run: |
-          if [ -n "$AUTHOR_SLACK_ID" ] && [ "$AUTHOR_SLACK_ID" != "null" ]; then
-            echo "🔵 Step 1: Requesting an Upload URL from Slack..."
-
-            FILE_NAME="scanner-report.csv"
-            FILE_LENGTH=$(stat --printf="%s" $FILE_NAME)
-
-            UPLOAD_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-            -H "Content-Type: application/json; charset=utf-8" \
-            --data '{
-              "filename": "'"$FILE_NAME"'",
-              "length": '"$FILE_LENGTH"',
-              "channels": ["'"$AUTHOR_SLACK_ID"'"]
-            }' https://slack.com/api/files.getUploadURLExternal)
-
-            echo "📄 Slack API Response: $UPLOAD_RESPONSE"
-
-            UPLOAD_URL=$(echo "$UPLOAD_RESPONSE" | jq -r '.upload_url')
-            FILE_ID=$(echo "$UPLOAD_RESPONSE" | jq -r '.file_id')
-
-            if [ -z "$UPLOAD_URL" ] || [ "$UPLOAD_URL" == "null" ]; then
-              echo "❌ ERROR: Failed to get an upload URL from Slack."
-              exit 1
-            fi
-
-            echo "✅ Received Upload URL: $UPLOAD_URL"
-            echo "🔵 Step 2: Uploading File to Slack..."
-
-            # Step 2: Upload File to Slack's External Upload URL
-            curl -X PUT -H "Content-Type: text/csv" --upload-file $FILE_NAME "$UPLOAD_URL"
-
-            echo "✅ File Uploaded Successfully!"
-            echo "🔵 Step 3: Completing Upload in Slack..."
-
-            # Step 3: Complete File Upload in Slack
-            COMPLETE_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-            -H "Content-Type: application/json; charset=utf-8" \
-            --data '{
-              "files": [{
-                "id": "'"$FILE_ID"'",
-                "title": "SFDX Scanner Report"
-              }]
-            }' https://slack.com/api/files.completeUploadExternal)
-
-            echo "📄 Slack API Response: $COMPLETE_RESPONSE"
-
-            if echo "$COMPLETE_RESPONSE" | grep -q '"ok":false'; then
-              echo "❌ ERROR: Failed to complete file upload in Slack."
-              exit 1
-            fi
-
-            echo "✅ Scanner Report Sent to Slack Successfully!"
-          fi
-      # - name: Upload Scanner Report as Artifact
-      #   id: upload-report
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: SFDX_Code_Scan_Report
-      #     path: scanner-report.csv
-      #     if-no-files-found: warn
-
-      # - name: Generate Artifact URL
-      #   id: generate-artifact-url
+      # - name: Get Commit Author  # ✅ Fetch the commit author
+      #   id: commit-author
       #   run: |
-      #       ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts"
-      #       echo "ARTIFACT_URL=$ARTIFACT_URL" >> $GITHUB_ENV
-      #       echo "artifact_url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
-          
+      #     COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+      #     echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+      #     echo "Commit Author: $COMMIT_AUTHOR"
+
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
@@ -403,6 +325,53 @@ jobs:
           fi
 
 
+  notify-slack:
+    runs-on: ubuntu-latest
+    needs: quality-gate-code-check
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Get Commit Author from Previous Job
+        run: |
+          echo "Commit Author from previous job: ${{ needs.quality-gate-code-check.outputs.commit-author }}"
+
+      - name: Fetch Slack User Mapping
+        env:
+          SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
+        run: |
+          COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
+          echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
+          
+          AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
+          
+          if [ -z "$AUTHOR_SLACK_ID" ] || [ "$AUTHOR_SLACK_ID" == "null" ]; then
+            echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
+            exit 1
+          fi
+
+          echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
+
+      - name: Send Scanner Report to Author via Slack
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
+          if [ -z "$AUTHOR_SLACK_ID" ]; then
+            echo "No Slack ID found for commit author, skipping message."
+            exit 1
+          fi
+
+          echo "Sending scanner report to Slack user: $AUTHOR_SLACK_ID"
+
+          curl -F file=@scanner-report.csv \
+               -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file." \
+               -F channels="$AUTHOR_SLACK_ID" \
+               -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+               https://slack.com/api/files.upload
+
+               
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
