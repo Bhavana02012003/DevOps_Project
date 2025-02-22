@@ -400,7 +400,7 @@ jobs:
             echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
           fi
 
-      - name: Send Slack Notification
+      - name: Send Scanner Report to Slack
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
@@ -420,12 +420,22 @@ jobs:
               "text": ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
             }' https://slack.com/api/chat.postMessage || echo "Slack message failed"
           else
-            echo "Scanner report found. Sending file to Slack."
-            curl -F file=@scanner-report.csv \
-                 -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file." \
-                 -F channels="$AUTHOR_SLACK_ID" \
-                 -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-                 https://slack.com/api/files.upload || echo "Slack file upload failed"
+            echo "Scanner report found. Sending file to Slack using files.upload.v2"
+
+            response=$(curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+              -F "file=@scanner-report.csv" \
+              -F "filename=scanner-report.csv" \
+              -F "title=SFDX Code Scan Report" \
+              -F "channels=$AUTHOR_SLACK_ID" \
+              -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file." \
+              https://slack.com/api/files.upload.v2)
+
+            echo "Slack Response: $response"
+
+            if [[ "$response" == *'"ok":false'* ]]; then
+              echo "Slack file upload failed."
+              exit 1
+            fi
           fi
 
   quality-gate-critical-permissions-check:
