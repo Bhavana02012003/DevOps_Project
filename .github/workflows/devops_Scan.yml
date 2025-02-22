@@ -334,33 +334,33 @@ jobs:
 
   notify-slack:
     runs-on: ubuntu-latest
+    needs: quality-gate-code-check
+    if: always()  # ✅ Runs even if previous job fails
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Get Commit Author
-        id: commit-author
-        run: |
-          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
-          echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
-          echo "commit-author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
-          echo "Commit Author: $COMMIT_AUTHOR"
-
       - name: Fetch Slack User Mapping
         env:
           SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
         run: |
-          COMMIT_AUTHOR="${{ env.COMMIT_AUTHOR }}"
+          COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
           echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
 
+          # Ensure JSON format is correct
           if [[ -z "$SLACK_USER_MAP" ]]; then
-            echo "ERROR: SLACK_USER_MAP is not set."
+            echo "ERROR: SLACK_USER_MAP secret is empty or not set."
             exit 1
           fi
 
+          # Extract Slack ID from JSON mapping
           AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
 
+          # Debugging output
+          echo "Extracted Slack ID: $AUTHOR_SLACK_ID"
+
+          # If no Slack ID is found, handle the case properly
           if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "null" ]]; then
             echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
             echo "AUTHOR_SLACK_ID=unknown" >> $GITHUB_ENV
@@ -368,189 +368,20 @@ jobs:
             echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
           fi
 
-      - name: Install Salesforce CLI and Scanner Plugin
-        run: |
-          npm install @salesforce/cli --global
-          sf plugins install @salesforce/sfdx-scanner
-          sf --version
-
-      - name: Get changed lines and create temporary files
-        id: get-changes
-        run: |
-            mkdir -p temp_scanner_files
-            > changed_cls_lwc_files.txt
-            > line_number_mapping.txt
-        
-            echo "Checking for changed .cls and .lwc files..."
-        
-            # Get only changed files (.cls and .lwc)
-            changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
-        
-            echo "Detected changed files: $changed_files"
-        
-            if [ -z "$changed_files" ]; then
-              echo "No .cls or .lwc files detected."
-              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-              exit 0
-            fi
-        
-            for file in $changed_files; do
-              echo "Processing file: $file"
-        
-              # Extract changed lines along with their actual line numbers
-              extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
-                /^@@/ { 
-                  match($0, /\+([0-9]+)/, arr);
-                  line = arr[1]; next 
-                }
-                /^\+/ { 
-                  if ($0 !~ /^(diff --git|index|---|\+\+\+|@@|b\/force-app)/) {
-                    print line "," substr($0, 2);
-                    line++;
-                  }
-                }
-              ')
-        
-              echo "====== Extracted Lines and Line Numbers for $file ======"
-              echo "$extracted_lines"
-        
-              # Store extracted lines in a temporary file
-              echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
-        
-              temp_file="temp_scanner_files/temp_${file//\//_}"
-              touch "$temp_file"
-        
-              # Store line number in a variable
-              extracted_line_number=$(echo "$extracted_lines" | awk -F',' '{print $1}' | head -n 1)
-        
-              # Print the extracted line number for verification
-              echo "✅ Extracted Line Number for $file: $extracted_line_number"
-        
-              if [[ "$file" == *.cls ]]; then
-                echo "public class TempWrapperClass {" > "$temp_file"
-                echo "    public static void tempMethod() {" >> "$temp_file"
-                echo "        /* Extracted changed lines */" >> "$temp_file"
-        
-                while IFS=, read -r line_number line_content; do
-                  line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-        
-                  if [[ -n "$line_content_trimmed" ]]; then
-                    formatted_line=$(echo "$line_content_trimmed" | sed 's/;;/;/g')
-                    echo "        $formatted_line" >> "$temp_file"
-                    echo "$temp_file,$line_number,$formatted_line" >> line_number_mapping.txt
-                  fi
-                done < "line_number_mapping_${file//\//_}.txt"
-        
-                echo "    }" >> "$temp_file"
-                echo "}" >> "$temp_file"
-              elif [[ "$file" == *.lwc ]]; then
-                echo "<template>" > "$temp_file"
-                echo "    <!-- Extracted changed lines -->" >> "$temp_file"
-        
-                while IFS=, read -r line_number line_content; do
-                  line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-        
-                  if [[ -n "$line_content_trimmed" ]]; then
-                    echo "    $line_content_trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                  fi
-                done < "line_number_mapping_${file//\//_}.txt"
-        
-                echo "</template>" >> "$temp_file"
-              fi
-        
-              echo "$temp_file" >> changed_cls_lwc_files.txt
-              echo "Created temp file: $temp_file"
-            done
-        
-            echo "====== Final Line Number Mapping ======"
-            cat line_number_mapping.txt || echo "No line number mapping available."
-        
-            echo "Generated temp files:"
-            ls -l temp_scanner_files
-        
-            if [ ! -s changed_cls_lwc_files.txt ]; then
-              echo "No temp files created. Exiting."
-              exit 0
-            fi
-        
-              
-      - name: Debug Extracted Line Number Mapping
-        run: |
-              echo "====== FINAL LINE NUMBER MAPPING ======"
-              cat line_number_mapping.txt || echo "❌ No line mappings found!"
-          
-              echo "====== CHECKING FILE PATH FORMATTING ======"
-              while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                formatted_file_path=$(basename "$file")
-                echo "Checking: $formatted_file_path, Temp Line: $temp_line"
-                grep "$formatted_file_path,$temp_line" line_number_mapping.txt || echo "❌ No match found for $formatted_file_path,$temp_line"
-              done < <(tail -n +2 scanner-report-temp.csv)
-
-      - name: Run SFDX Scanner on Changed Lines and Map Actual Line Numbers
-        run: |
-              files=$(cat changed_cls_lwc_files.txt)
-              if [ -z "$files" ]; then
-                echo "No files to scan. Creating an empty report."
-                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-                exit 0
-              fi
-          
-              for file in $files; do
-                echo "Running SFDX Scanner on file: $file"
-                sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
-              done
-          
-              if [ -f "scanner-report-temp.csv" ]; then
-                # Append "ActualLine" column in the header
-                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
-          
-                while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Extract the correct file path formatting
-                  formatted_file_path=$(basename "$file")
-          
-                  # Retrieve the stored extracted line number
-                  extracted_line_number=$(awk -F',' -v f="$file" '$1 == f {print $2}' line_number_mapping.txt | head -n 1)
-          
-                  # If no matching line found, set it as "N/A"
-                  if [ -z "$extracted_line_number" ]; then
-                    extracted_line_number="N/A"
-                  fi
-          
-                  # Print extracted actual line for debugging
-                  echo "✅ Extracted Actual Line: $extracted_line_number for File: \"$file\""
-          
-                  # Append actual line number to the scanner report
-                  echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
-                done < <(tail -n +2 scanner-report-temp.csv)
-              else
-                echo "No issues detected. Creating an empty scanner report."
-                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-              fi
-          
-
-      - name: Verify Scanner Report
-        run: |
-          if [ ! -s scanner-report.csv ]; then
-            echo "No scanner report generated, sending failure notification."
-            echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
-          else
-            echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
-          fi
-
       - name: Send Slack Notification
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
           AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
-          SEND_FAILURE_NOTIFICATION="${{ env.SEND_FAILURE_NOTIFICATION }}"
 
+          # Ensure we have a valid Slack ID
           if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
             echo "No Slack ID found for commit author, skipping message."
             exit 0
           fi
 
-          if [ "$SEND_FAILURE_NOTIFICATION" == "true" ]; then
+          # Check if scanner report exists
+          if [ ! -s scanner-report.csv ]; then
             echo "No scanner report found. Sending failure notification."
             curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
             --data '{
@@ -559,22 +390,13 @@ jobs:
             }' https://slack.com/api/chat.postMessage || echo "Slack message failed"
           else
             echo "Scanner report found. Sending file to Slack."
-
-            response=$(curl -F file=@scanner-report.csv \
-                           -F "channels=$AUTHOR_SLACK_ID" \
-                           -F "filename=scanner-report.csv" \
-                           -F "title=SFDX Code Scan Report" \
-                           -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file." \
-                           -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-                           https://slack.com/api/files.upload)
-
-            echo "Slack Response: $response"
-
-            if [[ "$response" == *'"ok":false'* ]]; then
-              echo "Slack file upload failed."
-              exit 1
-            fi
+            curl -F file=@scanner-report.csv \
+                 -F "initial_comment=:white_check_mark: *SFDX Code Scan Completed!*\nHere is the scan report file." \
+                 -F channels="$AUTHOR_SLACK_ID" \
+                 -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                 https://slack.com/api/files.upload || echo "Slack file upload failed"
           fi
+
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
