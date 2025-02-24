@@ -365,12 +365,12 @@ jobs:
             echo "Listing files before uploading scanner report:"
             ls -lah
   
-      - name: Upload Scanner Report as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-            name: scanner-report
-            path: scanner-report.csv
-            retention-days: 1
+      # - name: Upload Scanner Report as Artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #       name: scanner-report
+      #       path: scanner-report.csv
+      #       retention-days: 1
 
 
   notify-slack:
