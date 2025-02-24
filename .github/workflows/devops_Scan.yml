@@ -374,22 +374,22 @@ jobs:
 
 
       - name: Move Scanner Report to Artifact Folder
-      run: |
-        mkdir -p Artifact
-        mv scanner-report.csv Artifact/scanner-report.csv
-        echo "Scanner report moved to Artifact folder."
+        run: |
+          mkdir -p Artifact
+          mv scanner-report.csv Artifact/scanner-report.csv
+          echo "Scanner report moved to Artifact folder."
 
-    - name: Commit and Push Scanner Report to Main Branch
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git checkout main
-        git pull origin main  # Ensure the latest changes are fetched
-        git add Artifact/scanner-report.csv
-        git commit -m "🔄 Update scanner report in Artifact folder"
-        git push origin main
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit and Push Scanner Report to Main Branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git pull origin main  # Ensure the latest changes are fetched
+          git add Artifact/scanner-report.csv
+          git commit -m "🔄 Update scanner report in Artifact folder"
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
 
 
 
