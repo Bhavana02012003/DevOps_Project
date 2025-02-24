@@ -382,82 +382,44 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Fetch Slack User Mapping
-        env:
-          SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
-        run: |
-          COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
-          echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
-
-          # Ensure JSON format is correct
-          if [[ -z "$SLACK_USER_MAP" ]]; then
-            echo "ERROR: SLACK_USER_MAP secret is empty or not set."
-            exit 1
-          fi
-
-          # Extract Slack ID from JSON mapping
-          AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
-
-          # Debugging output
-          echo "Extracted Slack ID: $AUTHOR_SLACK_ID"
-
-          # If no Slack ID is found, handle the case properly
-          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "null" ]]; then
-            echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
-            echo "AUTHOR_SLACK_ID=unknown" >> $GITHUB_ENV
-          else
-            echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
-          fi
-
-      # - name: Download Scanner Report
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: scanner-report
-      #     path: .
-
-      # - name: Debug - Verify Downloaded Files
-      #   run: |
-      #     echo "Checking if scanner report was downloaded:"
-      #     ls -lah
-
-      # - name: Verify Scanner Report Download
-      #   run: |
-      #     if [ ! -s scanner-report.csv ]; then
-      #       echo "No scanner report found after download."
-      #       echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
-      #     else
-      #       echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
-      #     fi
-
-  
-      - name: Send Scanner Report URL to Slack
+      - name: Send Scanner Report URL to Slack (Commit Author)
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
         run: |
-          AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
+          AUTHOR_SLACK_ID=$(echo "${{ secrets.SLACK_USER_MAP }}" | jq -r --arg user "${{ needs.quality-gate-code-check.outputs.commit-author }}" '.[$user]')
           SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
+          REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d'/' -f2)
+          BRANCH_NAME=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
+          COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
 
-          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
-            echo "❌ No Slack ID found for commit author, skipping message."
-            exit 0
+          # Send DM to Commit Author
+          if [[ -n "$AUTHOR_SLACK_ID" && "$AUTHOR_SLACK_ID" != "null" ]]; then
+            if [[ -n "$SCANNER_REPORT_URL" ]]; then
+              MESSAGE=":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n🔗 *[Download Scanner Report]($SCANNER_REPORT_URL)*"
+            else
+              MESSAGE=":x: *SFDX Code Scan Failed!*\n\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n⚠️ No scanner report was generated."
+            fi
+            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+            --data "{\"channel\": \"$AUTHOR_SLACK_ID\", \"text\": \"$MESSAGE\"}" https://slack.com/api/chat.postMessage
           fi
 
-          if [[ -z "$SCANNER_REPORT_URL" ]]; then
-            echo "⚠️ No scanner report found. Sending failure notification to Slack."
-            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
-            --data '{
-              "channel": "'"$AUTHOR_SLACK_ID"'",
-              "text": ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
-            }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
+      - name: Send Scanner Report URL to Slack Channel
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
+          REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d'/' -f2)
+          BRANCH_NAME=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
+          COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
+
+          if [[ -n "$SCANNER_REPORT_URL" ]]; then
+            MESSAGE=":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n🔗 *[Download Scanner Report]($SCANNER_REPORT_URL)*"
           else
-            echo "✅ Sending scanner report download link to Slack..."
-
-            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
-            --data '{
-              "channel": "'"$AUTHOR_SLACK_ID"'",
-              "text": ":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <'"$SCANNER_REPORT_URL"'|Click here>"
-            }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
+            MESSAGE=":x: *SFDX Code Scan Failed!*\n\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n⚠️ No scanner report was generated."
           fi
+
+          curl -X POST -H 'Content-type: application/json' --data "{\"text\": \"$MESSAGE\"}" "$SLACK_WEBHOOK_URL"
 
 
   quality-gate-critical-permissions-check:
