@@ -389,15 +389,19 @@ jobs:
           COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
           echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
 
+          # Ensure JSON format is correct
           if [[ -z "$SLACK_USER_MAP" ]]; then
             echo "ERROR: SLACK_USER_MAP secret is empty or not set."
             exit 1
           fi
 
+          # Extract Slack ID from JSON mapping
           AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
 
+          # Debugging output
           echo "Extracted Slack ID: $AUTHOR_SLACK_ID"
 
+          # If no Slack ID is found, handle the case properly
           if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "null" ]]; then
             echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
             echo "AUTHOR_SLACK_ID=unknown" >> $GITHUB_ENV
@@ -405,39 +409,56 @@ jobs:
             echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
           fi
 
-      - name: Send Scanner Report Notification to Slack
+      # - name: Download Scanner Report
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: scanner-report
+      #     path: .
+
+      # - name: Debug - Verify Downloaded Files
+      #   run: |
+      #     echo "Checking if scanner report was downloaded:"
+      #     ls -lah
+
+      # - name: Verify Scanner Report Download
+      #   run: |
+      #     if [ ! -s scanner-report.csv ]; then
+      #       echo "No scanner report found after download."
+      #       echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
+      #     else
+      #       echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
+      #     fi
+
+  
+      - name: Send Scanner Report URL to Slack
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
           AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
           SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
-          SLACK_CHANNEL="#code-scanner-reports"  # Change this to your desired Slack channel
 
-          send_slack_message() {
-            local channel=$1
-            local message=$2
+          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
+            echo "❌ No Slack ID found for commit author, skipping message."
+            exit 0
+          fi
+
+          if [[ -z "$SCANNER_REPORT_URL" ]]; then
+            echo "⚠️ No scanner report found. Sending failure notification to Slack."
+            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+            --data '{
+              "channel": "'"$AUTHOR_SLACK_ID"'",
+              "text": ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
+            }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
+          else
+            echo "✅ Sending scanner report download link to Slack..."
 
             curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
             --data '{
-              "channel": "'"$channel"'",
-              "text": "'"$message"'"
-            }' https://slack.com/api/chat.postMessage || echo "⚠️ Failed to send Slack message to $channel"
-          }
-
-          if [[ -z "$SCANNER_REPORT_URL" ]]; then
-            echo "⚠️ No scanner report found. Sending failure notification."
-
-            # Send failure notification to both the user and the channel
-            send_slack_message "$AUTHOR_SLACK_ID" ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
-            send_slack_message "$SLACK_CHANNEL" ":x: *SFDX Code Scan Failed!* No scanner report was generated."
-          else
-            echo "✅ Sending scanner report link to Slack."
-
-            # Send success notification to both the user and the channel
-            send_slack_message "$AUTHOR_SLACK_ID" ":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <'"$SCANNER_REPORT_URL"'|Click here>"
-            send_slack_message "$SLACK_CHANNEL" ":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <'"$SCANNER_REPORT_URL"'|Click here>"
+              "channel": "'"$AUTHOR_SLACK_ID"'",
+              "text": ":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <'"$SCANNER_REPORT_URL"'|Click here>"
+            }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
           fi
-          
+
 
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
