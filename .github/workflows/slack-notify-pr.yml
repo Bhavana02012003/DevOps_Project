@@ -38,12 +38,10 @@ jobs:
           echo "REVIEWER_SLACK_ID=$REVIEWER_SLACK_ID" >> $GITHUB_ENV
           echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
 
-
       - name: Debug GitHub Payload
         run: |
           echo "Printing full GitHub event payload:"
           echo '${{ toJson(github.event) }}'
-
 
       - name: Debug Slack User Map
         env:
@@ -52,7 +50,22 @@ jobs:
           echo "Printing full Slack User Map JSON:"
           echo "$SLACK_USER_MAP"
 
+      # 📢 Send Slack Notification to Channel for PR Assignment
+      - name: Send Slack Channel Notification on PR Assignment
+        if: github.event.action == 'assigned' || github.event.action == 'review_requested'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          PR_NUMBER: "${{ github.event.pull_request.number }}"
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+          PR_URL: "${{ github.event.pull_request.html_url }}"
+          PR_AUTHOR: "${{ github.event.pull_request.user.login }}"
+          REVIEWER: "${{ github.event.requested_reviewer.login || github.event.assignee.login }}"
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": ":wave: *PR Review Requested in the Channel!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n📝 *Author:* '"$PR_AUTHOR"'\n👤 *Assigned to:* '"$REVIEWER"'\n🔗 *PR Link:* '"$PR_URL"'"
+          }' "$SLACK_WEBHOOK_URL"
 
+      # 📢 Send Slack DM to Assigned Reviewer
       - name: Send Slack DM to Assigned Reviewer
         if: github.event.action == 'assigned' || github.event.action == 'review_requested'
         env:
@@ -70,6 +83,24 @@ jobs:
             }' https://slack.com/api/chat.postMessage
           fi
 
+      # 📢 Send Slack Channel Notification on PR Review Submission
+      - name: Send Slack Channel Notification on PR Review Submission
+        if: github.event_name == 'pull_request_review' && github.event.action == 'submitted'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          PR_NUMBER: "${{ github.event.pull_request.number }}"
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+          PR_URL: "${{ github.event.pull_request.html_url }}"
+          PR_AUTHOR: "${{ github.event.pull_request.user.login }}"
+          REVIEWER: "${{ github.event.review.user.login }}"
+          REVIEW_STATE: "${{ github.event.review.state }}"
+          REVIEW_BODY: "${{ github.event.review.body }}"
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": ":speech_balloon: *PR Review Submitted in the Channel!*\n\n📌 *Title:* '"$PR_TITLE"'\n🔢 *PR Number:* #'"$PR_NUMBER"'\n📝 *Author:* '"$PR_AUTHOR"'\n👤 *Reviewed by:* '"$REVIEWER"'\n📄 *Review State:* '"$REVIEW_STATE"'\n💬 *Comments:* '"$REVIEW_BODY"'\n🔗 *PR Link:* '"$PR_URL"'"
+          }' "$SLACK_WEBHOOK_URL"
+
+      # 📢 Send Slack DM to PR Author on Review Submission
       - name: Send Slack DM to PR Author on Review Submission
         if: github.event_name == 'pull_request_review' && github.event.action == 'submitted'
         env:

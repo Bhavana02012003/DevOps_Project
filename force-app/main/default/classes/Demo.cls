@@ -2,7 +2,7 @@ global class Demo {  // Violates AvoidGlobalModifier
   
     public void excessiveParamsMethod(String param1, String param2, String param3, String param4, String param5) { 
         // Violates ExcessiveParameterList (more than 4 params)
-        //System.debug(param1 + param2 + param3 + param4 + param5);
+        System.debug(param1 + param2 + param3 + param4 + param5);
     }
 
     public void hardCodedIdMethod() {
