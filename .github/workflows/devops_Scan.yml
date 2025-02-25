@@ -429,27 +429,35 @@ jobs:
         id: get-pusher-email
         run: |
           GITHUB_ACTOR="${{ github.actor }}"
-          echo "Fetching email for user: $GITHUB_ACTOR"
+          echo "Fetching email for GitHub user: $GITHUB_ACTOR"
 
+          # Get user's email from GitHub API (if public)
           PUSHER_EMAIL=$(curl -s -H "Authorization: token ${{ secrets.GH_PAT }}" \
           "https://api.github.com/users/$GITHUB_ACTOR" | jq -r '.email')
 
-          # If API does not return an email, fallback to Git commit email
+          # Fallback: If GitHub API does not return an email, use Git commit email
           if [[ "$PUSHER_EMAIL" == "null" || -z "$PUSHER_EMAIL" ]]; then
             echo "GitHub API did not return an email. Using Git commit email instead."
             PUSHER_EMAIL=$(git log -1 --pretty=format:'%ae')
+          fi
+
+          # Check if email is valid (avoid GitHub bot email)
+          if [[ "$PUSHER_EMAIL" =~ .*noreply\.github\.com ]]; then
+            echo "❌ Invalid email detected ($PUSHER_EMAIL). Email will not be sent."
+            PUSHER_EMAIL=""
           fi
 
           echo "PUSHER_EMAIL=$PUSHER_EMAIL" >> $GITHUB_ENV
           echo "✅ Pusher Email Detected: $PUSHER_EMAIL"
 
       - name: Install Mail Utility
+        if: env.PUSHER_EMAIL != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y mailutils
 
       - name: Send Scanner Report via Email
-        if: always()
+        if: env.PUSHER_EMAIL != ''
         run: |
           echo "Dear Developer,
 
