@@ -372,27 +372,20 @@ jobs:
       #       path: scanner-report.csv
       #       retention-days: 1
 
-      - name: Debug Git Authentication
+      - name: Get Previous Branch Name
+        id: previous-branch
         run: |
-          echo "🔍 Checking Git Remote URL Before Push:"
-          git remote -v
-          
-          echo "🔍 Testing GH_PAT Authentication:"
-          curl -H "Authorization: token ${{ secrets.GH_PAT }}" https://api.github.com/user
-          
-          echo "🔍 Checking Repository Access:"
-          curl -H "Authorization: token ${{ secrets.GH_PAT }}" https://api.github.com/repos/Bhavana02012003/DevOps_Project
+          git fetch --all --prune --unshallow
+          git branch -a
+          PREV_BRANCH=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin/ | grep -v "$(git rev-parse --abbrev-ref HEAD)" | head -n 1 | sed 's/origin\///')
 
+          if [ -z "$PREV_BRANCH" ]; then
+            echo "❌ Could not detect the previous branch."
+            exit 1
+          fi
 
-
-      - name: Debug Git Remote URL Before Push
-        run: |
-          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git
-          echo "✅ Git Remote URL Updated"
-          git remote -v
-
-
-
+          echo "✅ Previous branch detected: $PREV_BRANCH"
+          echo "PREV_BRANCH=$PREV_BRANCH" >> $GITHUB_ENV
 
       - name: Save Scanner Report Before Branch Checkout
         run: |
@@ -404,20 +397,6 @@ jobs:
           mkdir -p /tmp/artifact_backup
           cp scanner-report.csv /tmp/artifact_backup/scanner-report.csv
           echo "✅ Scanner report backed up in /tmp/artifact_backup/."
-
-      - name: Get Previous Branch Name
-        id: previous-branch
-        run: |
-          git fetch --all
-          PREV_BRANCH=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin/ | grep -v "$(git rev-parse --abbrev-ref HEAD)" | head -n 1 | sed 's/origin\///')
-
-          if [ -z "$PREV_BRANCH" ]; then
-            echo "❌ Could not detect the previous branch."
-            exit 1
-          fi
-
-          echo "✅ Previous branch detected: $PREV_BRANCH"
-          echo "PREV_BRANCH=$PREV_BRANCH" >> $GITHUB_ENV
 
       - name: Commit and Push Scanner Report to Previous Branch
         run: |
@@ -432,15 +411,17 @@ jobs:
           git remote add origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git
           echo "✅ Updated Git Remote to Use GH_PAT"
 
-          if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
+          # 🔹 Ensure the branch exists before checking it out
+          if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
             echo "✅ Remote branch $BRANCH_NAME exists, switching..."
             git checkout -b $BRANCH_NAME origin/$BRANCH_NAME
           elif git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
             echo "✅ Local branch $BRANCH_NAME exists, switching..."
             git checkout $BRANCH_NAME
           else
-            echo "❌ ERROR: Branch $BRANCH_NAME does not exist!"
-            exit 1
+            echo "❌ ERROR: Branch $BRANCH_NAME does not exist! Creating it now..."
+            git checkout -b $BRANCH_NAME
+            git push --set-upstream origin $BRANCH_NAME
           fi
 
           git pull origin $BRANCH_NAME --rebase
@@ -456,6 +437,7 @@ jobs:
           git push origin $BRANCH_NAME
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
+
 
 
   notify-slack:
