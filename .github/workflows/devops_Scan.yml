@@ -352,26 +352,22 @@ jobs:
           fi
 
       - name: Ensure Scanner Report Exists
+        if: always()  # ✅ Ensures it runs even if commit is blocked
         run: |
             if [ ! -s scanner-report.csv ]; then
               echo "No scanner report generated, creating a dummy report."
               echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
             fi
-  
+
       - name: Debug - List Files Before Upload
+        if: always()
         run: |
             echo "Listing files before uploading scanner report:"
             ls -lah
-  
-      # - name: Upload Scanner Report as Artifact
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #       name: scanner-report
-      #       path: scanner-report.csv
-      #       retention-days: 1
 
       - name: Get Previous Branch Name
         id: previous-branch
+        if: always()
         run: |
           git fetch --all --prune
           git branch -a
@@ -386,6 +382,7 @@ jobs:
           echo "PREV_BRANCH=$PREV_BRANCH" >> $GITHUB_ENV
 
       - name: Save Scanner Report Before Branch Checkout
+        if: always()
         run: |
           if [ ! -f scanner-report.csv ]; then
             echo "❌ scanner-report.csv file not found! Creating an empty report."
@@ -397,6 +394,7 @@ jobs:
           echo "✅ Scanner report backed up in /tmp/artifact_backup/."
 
       - name: Commit and Push Scanner Report to Previous Branch
+        if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -440,6 +438,12 @@ jobs:
           git push origin $BRANCH_NAME
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
+
+      - name: Fail the Job if Severity 3 Violations Are Found
+        if: env.block-status == 'true'
+        run: |
+          echo "❌ Failing the job due to severity 3 violations."
+          exit 1
 
 
 
