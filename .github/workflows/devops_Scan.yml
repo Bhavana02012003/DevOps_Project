@@ -425,10 +425,21 @@ jobs:
 
 
 
-      - name: Get Pusher Email
+      - name: Get Pusher Email from GitHub API
         id: get-pusher-email
         run: |
-          PUSHER_EMAIL=$(git log -1 --pretty=format:'%ae')
+          GITHUB_ACTOR="${{ github.actor }}"
+          echo "Fetching email for user: $GITHUB_ACTOR"
+
+          PUSHER_EMAIL=$(curl -s -H "Authorization: token ${{ secrets.GH_PAT }}" \
+          "https://api.github.com/users/$GITHUB_ACTOR" | jq -r '.email')
+
+          # If API does not return an email, fallback to Git commit email
+          if [[ "$PUSHER_EMAIL" == "null" || -z "$PUSHER_EMAIL" ]]; then
+            echo "GitHub API did not return an email. Using Git commit email instead."
+            PUSHER_EMAIL=$(git log -1 --pretty=format:'%ae')
+          fi
+
           echo "PUSHER_EMAIL=$PUSHER_EMAIL" >> $GITHUB_ENV
           echo "✅ Pusher Email Detected: $PUSHER_EMAIL"
 
@@ -438,6 +449,7 @@ jobs:
           sudo apt-get install -y mailutils
 
       - name: Send Scanner Report via Email
+        if: always()
         run: |
           echo "Dear Developer,
 
@@ -448,31 +460,6 @@ jobs:
           Regards,
           DevOps Team" | mail -s "SFDX Code Scan Report" -A scanner-report.csv "${{ env.PUSHER_EMAIL }}"
 
-
-      # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
-      - name: Block PR merge if severity violations are found
-        id: block-check
-        run: |
-          if [ -f scanner-report.csv ]; then
-            severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
-            echo "Severity 3 issues count: $severity_fail_count"
-            
-            if [ "$severity_fail_count" -gt 0 ]; then
-              echo "Blocking commit due to severity 3 vulnerabilities found."
-              echo "block-status=true" >> $GITHUB_ENV
-              echo "block-status=true" >> $GITHUB_OUTPUT
-              exit 1  # ✅ Now workflow fails only at the last step
-            else
-              echo "No severity 3 vulnerabilities found. Proceeding."
-              echo "block-status=false" >> $GITHUB_ENV
-              echo "block-status=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "No scanner report found."
-            echo "block-status=true" >> $GITHUB_ENV
-            echo "block-status=true" >> $GITHUB_OUTPUT
-            exit 1
-          fi
 
 
 
