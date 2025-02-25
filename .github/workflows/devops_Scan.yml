@@ -372,6 +372,24 @@ jobs:
       #       path: scanner-report.csv
       #       retention-days: 1
 
+      - name: Debug Git Authentication
+        run: |
+          echo "🔍 Checking Git remote URL before push:"
+          git remote -v
+
+          echo "🔍 Checking GitHub Actions Token (GH_PAT) permissions:"
+          curl -H "Authorization: token ${{ secrets.GH_PAT }}" https://api.github.com/user/repos
+
+
+
+      - name: Debug Git Remote URL Before Push
+        run: |
+          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git
+          echo "✅ Git Remote URL Updated"
+          git remote -v
+
+
+
 
       - name: Save Scanner Report Before Branch Checkout
         run: |
@@ -406,10 +424,11 @@ jobs:
           BRANCH_NAME="${{ env.PREV_BRANCH }}"
           echo "✅ Target Branch: $BRANCH_NAME"
 
-          if git rev-parse --verify --quiet "origin/$BRANCH_NAME"; then
-            echo "✅ Remote branch $BRANCH_NAME exists, checking it out..."
+          # Verify if the branch exists before switching
+          if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
+            echo "✅ Remote branch $BRANCH_NAME exists, switching..."
             git checkout -b $BRANCH_NAME origin/$BRANCH_NAME
-          elif git rev-parse --verify --quiet "$BRANCH_NAME"; then
+          elif git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
             echo "✅ Local branch $BRANCH_NAME exists, switching..."
             git checkout $BRANCH_NAME
           else
@@ -419,21 +438,18 @@ jobs:
 
           git pull origin $BRANCH_NAME --rebase
 
-          # Restore the scanner report after branch switch
           mkdir -p Artifact
           cp /tmp/artifact_backup/scanner-report.csv Artifact/scanner-report.csv
           echo "✅ Scanner report restored to Artifact folder."
 
           git add Artifact/scanner-report.csv
           git commit -m "🔄 Auto-update scanner report in Artifact folder for branch $BRANCH_NAME" || echo "No changes to commit"
-          git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git $BRANCH_NAME
+
+          # ✅ Force authentication using GH_PAT
+          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git
+          git push origin $BRANCH_NAME
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-
-
-
-
-
 
 
 
