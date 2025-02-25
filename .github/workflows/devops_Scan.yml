@@ -373,16 +373,16 @@ jobs:
       #       retention-days: 1
 
 
-      - name: Move Scanner Report to Artifact Folder
+      - name: Save Scanner Report Before Branch Checkout
         run: |
           if [ ! -f scanner-report.csv ]; then
             echo "❌ scanner-report.csv file not found! Creating an empty report."
             echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
           fi
 
-          mkdir -p Artifact
-          mv scanner-report.csv Artifact/scanner-report.csv
-          echo "✅ Scanner report moved to Artifact folder."
+          mkdir -p /tmp/artifact_backup
+          cp scanner-report.csv /tmp/artifact_backup/scanner-report.csv
+          echo "✅ Scanner report backed up in /tmp/artifact_backup/."
 
       - name: Get Previous Branch Name
         id: previous-branch
@@ -419,14 +419,17 @@ jobs:
 
           git pull origin $BRANCH_NAME --rebase
 
+          # Restore the scanner report after branch switch
           mkdir -p Artifact
-          mv scanner-report.csv Artifact/scanner-report.csv
+          cp /tmp/artifact_backup/scanner-report.csv Artifact/scanner-report.csv
+          echo "✅ Scanner report restored to Artifact folder."
 
           git add Artifact/scanner-report.csv
           git commit -m "🔄 Auto-update scanner report in Artifact folder for branch $BRANCH_NAME" || echo "No changes to commit"
           git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git $BRANCH_NAME
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
+
 
 
 
