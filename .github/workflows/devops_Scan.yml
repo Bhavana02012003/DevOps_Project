@@ -507,6 +507,46 @@ jobs:
       #       echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
       #     fi
 
+      - name: Format Scanner Report for Slack
+        id: format-report
+        run: |
+          if [ ! -s scanner-report.csv ]; then
+            echo "No scanner report available. Skipping Slack notification."
+            exit 0
+          fi
+
+          echo "Extracting first 5 rows from scanner report..."
+          echo "```" > slack_report.txt
+          echo "| Problem | Severity | File | Line | Rule | Category |" >> slack_report.txt
+          echo "|---------|----------|------|------|------|----------|" >> slack_report.txt
+          
+          awk -F',' 'NR>1 && NR<=6 { printf("| %s | %s | %s | %s | %s | %s |\n", $1, $2, $3, $4, $6, $9) }' scanner-report.csv >> slack_report.txt
+
+          echo "```" >> slack_report.txt
+          cat slack_report.txt
+
+          # Store formatted table as output
+          REPORT_TABLE=$(cat slack_report.txt | jq -sR)
+          echo "report_table=$REPORT_TABLE" >> $GITHUB_ENV
+
+      - name: Send Scanner Report Table to Slack
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
+          SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
+          REPORT_TABLE="${{ env.report_table }}"
+
+          if [[ -z "$SCANNER_REPORT_URL" ]]; then
+            MESSAGE=":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
+          else
+            MESSAGE=":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <${SCANNER_REPORT_URL}|Click here>\n\n*🔍 Scanner Report Summary:*\n${REPORT_TABLE}"
+          fi
+
+          curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+          --data "{\"channel\": \"${AUTHOR_SLACK_ID}\", \"text\": \"${MESSAGE}\" }" \
+          https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
+
   
       - name: Send Scanner Report URL to Slack
         env:
