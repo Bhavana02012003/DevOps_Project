@@ -10,8 +10,7 @@ global class Demo {  // Violates AvoidGlobalModifier
         // Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId WITH SECURITY_ENFORCED];
         Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId];
         // System.debug('Acc'+acc);
-        // System.debug('A');
-    }
+   }
 
     public void deeplyNestedIfMethod(Integer value) {  
         // Violates AvoidDeeplyNestedIfStmts (nested more than 4 levels)
@@ -30,6 +29,6 @@ global class Demo {  // Violates AvoidGlobalModifier
         // Violates ApexSOQLInjection (Unsafe SOQL query)
         String query = 'SELECT Id, Name FROM Account WHERE Name LIKE \'%' + userInput + '%\'';
         List<Account> accounts = Database.query(query);
-        System.debug(accounts);
+       //System.debug(accounts);
     }
 }

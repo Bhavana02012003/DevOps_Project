@@ -33,7 +33,7 @@ jobs:
       - name: Determine PR Status
         id: pr_status_check
         run: |
-          PR_STATUS="Pending"
+          PR_STATUS="Rejected"
           MERGED_BY=""
  
           if [[ "${{ github.event.review.state }}" == "approved" ]]; then
