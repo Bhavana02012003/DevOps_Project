@@ -375,7 +375,7 @@ jobs:
       - name: Get Previous Branch Name
         id: previous-branch
         run: |
-          git fetch --all --prune --unshallow
+          git fetch --all --prune
           git branch -a
           PREV_BRANCH=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin/ | grep -v "$(git rev-parse --abbrev-ref HEAD)" | head -n 1 | sed 's/origin\///')
 
