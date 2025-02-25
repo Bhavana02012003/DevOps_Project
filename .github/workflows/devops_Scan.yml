@@ -374,11 +374,14 @@ jobs:
 
       - name: Debug Git Authentication
         run: |
-          echo "🔍 Checking Git remote URL before push:"
+          echo "🔍 Checking Git Remote URL Before Push:"
           git remote -v
-
-          echo "🔍 Checking GitHub Actions Token (GH_PAT) permissions:"
-          curl -H "Authorization: token ${{ secrets.GH_PAT }}" https://api.github.com/user/repos
+          
+          echo "🔍 Testing GH_PAT Authentication:"
+          curl -H "Authorization: token ${{ secrets.GH_PAT }}" https://api.github.com/user
+          
+          echo "🔍 Checking Repository Access:"
+          curl -H "Authorization: token ${{ secrets.GH_PAT }}" https://api.github.com/repos/Bhavana02012003/DevOps_Project
 
 
 
@@ -424,7 +427,11 @@ jobs:
           BRANCH_NAME="${{ env.PREV_BRANCH }}"
           echo "✅ Target Branch: $BRANCH_NAME"
 
-          # Verify if the branch exists before switching
+          # Ensure correct remote URL with GH_PAT
+          git remote remove origin
+          git remote add origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git
+          echo "✅ Updated Git Remote to Use GH_PAT"
+
           if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
             echo "✅ Remote branch $BRANCH_NAME exists, switching..."
             git checkout -b $BRANCH_NAME origin/$BRANCH_NAME
@@ -445,12 +452,10 @@ jobs:
           git add Artifact/scanner-report.csv
           git commit -m "🔄 Auto-update scanner report in Artifact folder for branch $BRANCH_NAME" || echo "No changes to commit"
 
-          # ✅ Force authentication using GH_PAT
-          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git
+          # ✅ Force Git to push using GH_PAT
           git push origin $BRANCH_NAME
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-
 
 
   notify-slack:
