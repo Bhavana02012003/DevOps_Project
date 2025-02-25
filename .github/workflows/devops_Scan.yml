@@ -424,63 +424,30 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
 
 
+      - name: Install mailx
+        run: sudo apt-get install -y mailutils
 
-      - name: Get Pusher Email
+      - name: Get Pusher's Email
         id: get-pusher-email
         run: |
-          GITHUB_ACTOR="${{ github.actor }}"
-          echo "Fetching email for GitHub user: $GITHUB_ACTOR"
-
-          # 1️⃣ Try GitHub API to get the primary verified email (requires GH_PAT)
+          COMMIT_SHA=${{ github.sha }}
+          REPO=${{ github.repository }}
           PUSHER_EMAIL=$(curl -s -H "Authorization: token ${{ secrets.GH_PAT }}" \
-          "https://api.github.com/user/emails" | jq -r '.[] | select(.primary == true and .verified == true) | .email')
-
-          # 2️⃣ If API does not return an email, check the GitHub event payload
-          if [[ -z "$PUSHER_EMAIL" || "$PUSHER_EMAIL" == "null" ]]; then
-            echo "GitHub API did not return an email. Checking GitHub event payload..."
-            PUSHER_EMAIL="${{ github.event.pusher.email }}"
-          fi
-
-          # 3️⃣ If event payload also fails, use the commit author email as a last fallback
-          if [[ -z "$PUSHER_EMAIL" || "$PUSHER_EMAIL" == "null" ]]; then
-            echo "GitHub event did not return an email. Checking Git commit author..."
-            PUSHER_EMAIL=$(git log -1 --pretty=format:'%ae')
-          fi
-
-          # 4️⃣ Ensure email is valid (avoid GitHub bot noreply emails)
-          if [[ "$PUSHER_EMAIL" =~ .*noreply\.github\.com || -z "$PUSHER_EMAIL" ]]; then
-            echo "❌ Invalid email detected ($PUSHER_EMAIL). Email will not be sent."
-            PUSHER_EMAIL=""
-          fi
-
-          echo "PUSHER_EMAIL=$PUSHER_EMAIL" >> $GITHUB_ENV
-          echo "✅ Pusher Email Detected: $PUSHER_EMAIL"
-
-      - name: Install Mail Utility
-        run: |
-            sudo apt-get update
-            sudo apt-get install -y mailutils sendmail
+            "https://api.github.com/repos/${REPO}/commits/${COMMIT_SHA}" | jq -r '.commit.committer.email')
+          echo "PUSHER_EMAIL=${PUSHER_EMAIL}" >> $GITHUB_ENV
   
-      - name: Send Scanner Report via Email (Without SMTP)
-        if: env.PUSHER_EMAIL != ''
-        run: |
-          echo "Sending email to ${{ env.PUSHER_EMAIL }}..."
-
-          echo "Subject: SFDX Code Scan Report
-          To: ${{ env.PUSHER_EMAIL }}
-          From: GitHub Actions <github-actions@github.com>
-
-          Dear Developer,
-
-          The SFDX Code Scan has completed for your commit.
-
-          Please find the attached Scanner Report.
-
-          Regards,
-          DevOps Team
-          " | sendmail -t
-
-          echo "✅ Email Sent Successfully!"
+      - name: Send Email with actions-send-mail
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: 'smtp.gmail.com'
+          server_port: '587'
+          username: ${{ secrets.GMAIL_EMAIL }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          from: ${{ secrets.GMAIL_EMAIL }}
+          subject: 'SFDX Code Scan Delta Report'
+          body: 'Please find the attached SFDX Code Scan Delta Report.'
+          to: ${{ env.PUSHER_EMAIL }}, ${{ secrets.GMAIL_EMAIL }}
+          attachments: scanner-report-temp.csv
 
 
   notify-slack:
