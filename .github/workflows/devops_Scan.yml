@@ -407,19 +407,24 @@ jobs:
           echo "✅ Target Branch: $BRANCH_NAME"
 
           # Ensure correct remote URL with GH_PAT
-          git remote remove origin
+          git remote remove origin || true
           git remote add origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git
           echo "✅ Updated Git Remote to Use GH_PAT"
 
           # 🔹 Ensure the branch exists before checking it out
           if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
-            echo "✅ Remote branch $BRANCH_NAME exists, switching..."
-            git checkout -b $BRANCH_NAME origin/$BRANCH_NAME
-          elif git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
-            echo "✅ Local branch $BRANCH_NAME exists, switching..."
-            git checkout $BRANCH_NAME
+            echo "✅ Remote branch $BRANCH_NAME exists."
+
+            if git show-ref --quiet refs/heads/$BRANCH_NAME; then
+              echo "✅ Local branch $BRANCH_NAME exists, switching..."
+              git checkout $BRANCH_NAME
+            else
+              echo "🔹 Creating and tracking remote branch locally..."
+              git checkout -b $BRANCH_NAME
+              git pull origin $BRANCH_NAME || echo "⚠️ Warning: Remote branch exists but has no commits."
+            fi
           else
-            echo "❌ ERROR: Branch $BRANCH_NAME does not exist! Creating it now..."
+            echo "❌ Remote branch $BRANCH_NAME does not exist! Creating it now..."
             git checkout -b $BRANCH_NAME
             git push --set-upstream origin $BRANCH_NAME
           fi
