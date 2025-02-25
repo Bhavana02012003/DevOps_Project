@@ -424,6 +424,31 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
 
 
+
+      - name: Get Pusher Email
+        id: get-pusher-email
+        run: |
+          PUSHER_EMAIL=$(git log -1 --pretty=format:'%ae')
+          echo "PUSHER_EMAIL=$PUSHER_EMAIL" >> $GITHUB_ENV
+          echo "✅ Pusher Email Detected: $PUSHER_EMAIL"
+
+      - name: Install Mail Utility
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mailutils
+
+      - name: Send Scanner Report via Email
+        run: |
+          echo "Dear Developer,
+
+          The SFDX Code Scan has completed for your commit.
+
+          Please find the attached Scanner Report.
+
+          Regards,
+          DevOps Team" | mail -s "SFDX Code Scan Report" -A scanner-report.csv "${{ env.PUSHER_EMAIL }}"
+
+
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
         id: block-check
