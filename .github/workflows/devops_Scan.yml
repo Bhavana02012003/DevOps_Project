@@ -432,8 +432,32 @@ jobs:
         run: |
           COMMIT_SHA=${{ github.sha }}
           REPO=${{ github.repository }}
+          GITHUB_ACTOR="${{ github.actor }}"
+          echo "Fetching email for GitHub user: $GITHUB_ACTOR"
+
+          # 1️⃣ Fetch Pusher Email from GitHub API
           PUSHER_EMAIL=$(curl -s -H "Authorization: token ${{ secrets.GH_PAT }}" \
-            "https://api.github.com/repos/${REPO}/commits/${COMMIT_SHA}" | jq -r '.commit.committer.email')
+          "https://api.github.com/repos/${REPO}/commits/${COMMIT_SHA}" | jq -r '.commit.committer.email')
+
+          # 2️⃣ If API does not return an email, check the GitHub event payload
+          if [[ -z "$PUSHER_EMAIL" || "$PUSHER_EMAIL" == "null" ]]; then
+            echo "GitHub API did not return an email. Checking GitHub event payload..."
+            PUSHER_EMAIL="${{ github.event.pusher.email }}"
+          fi
+
+          # 3️⃣ If GitHub event payload also fails, use commit author email
+          if [[ -z "$PUSHER_EMAIL" || "$PUSHER_EMAIL" == "null" ]]; then
+            echo "GitHub event did not return an email. Checking Git commit author..."
+            PUSHER_EMAIL=$(git log -1 --pretty=format:'%ae')
+          fi
+
+          # 4️⃣ Ensure email is valid and not a GitHub noreply email
+          if [[ "$PUSHER_EMAIL" =~ .*noreply\.github\.com || -z "$PUSHER_EMAIL" ]]; then
+            echo "❌ Invalid or missing email detected ($PUSHER_EMAIL). Email will not be sent."
+            exit 1
+          fi
+
+          echo "✅ Pusher Email Detected: $PUSHER_EMAIL"
           echo "PUSHER_EMAIL=${PUSHER_EMAIL}" >> $GITHUB_ENV
   
       - name: Send Email with actions-send-mail
