@@ -457,22 +457,30 @@ jobs:
           echo "✅ Pusher Email Detected: $PUSHER_EMAIL"
 
       - name: Install Mail Utility
+        run: |
+            sudo apt-get update
+            sudo apt-get install -y mailutils sendmail
+  
+      - name: Send Scanner Report via Email (Without SMTP)
         if: env.PUSHER_EMAIL != ''
         run: |
-          sudo apt-get update
-          sudo apt-get install -y mailutils
+          echo "Sending email to ${{ env.PUSHER_EMAIL }}..."
 
-      - name: Send Scanner Report via Email
-        if: env.PUSHER_EMAIL != ''
-        run: |
-          echo "Dear Developer,
+          echo "Subject: SFDX Code Scan Report
+          To: ${{ env.PUSHER_EMAIL }}
+          From: GitHub Actions <github-actions@github.com>
+
+          Dear Developer,
 
           The SFDX Code Scan has completed for your commit.
 
           Please find the attached Scanner Report.
 
           Regards,
-          DevOps Team" | mail -s "SFDX Code Scan Report" -A scanner-report.csv "${{ env.PUSHER_EMAIL }}"
+          DevOps Team
+          " | sendmail -t
+
+          echo "✅ Email Sent Successfully!"
 
 
   notify-slack:
