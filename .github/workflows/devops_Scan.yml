@@ -450,6 +450,33 @@ jobs:
           attachments: scanner-report-temp.csv
 
 
+      # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
+      - name: Block PR merge if severity violations are found
+        id: block-check
+        run: |
+          if [ -f scanner-report.csv ]; then
+            severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
+            echo "Severity 3 issues count: $severity_fail_count"
+            
+            if [ "$severity_fail_count" -gt 0 ]; then
+              echo "Blocking commit due to severity 3 vulnerabilities found."
+              echo "block-status=true" >> $GITHUB_ENV
+              echo "block-status=true" >> $GITHUB_OUTPUT
+              exit 1  # ✅ Now workflow fails only at the last step
+            else
+              echo "No severity 3 vulnerabilities found. Proceeding."
+              echo "block-status=false" >> $GITHUB_ENV
+              echo "block-status=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No scanner report found."
+            echo "block-status=true" >> $GITHUB_ENV
+            echo "block-status=true" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+
+
   notify-slack:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
