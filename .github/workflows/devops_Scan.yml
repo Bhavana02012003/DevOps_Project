@@ -428,18 +428,27 @@ jobs:
       - name: Get Pusher Email
         id: get-pusher-email
         run: |
+          GITHUB_ACTOR="${{ github.actor }}"
           echo "Fetching email for GitHub user: $GITHUB_ACTOR"
 
-          # 1️⃣ First, check GitHub webhook event metadata (preferred method)
-          PUSHER_EMAIL="${{ github.event.pusher.email }}"
+          # 1️⃣ Try GitHub API to get the primary verified email (requires GH_PAT)
+          PUSHER_EMAIL=$(curl -s -H "Authorization: token ${{ secrets.GH_PAT }}" \
+          "https://api.github.com/user/emails" | jq -r '.[] | select(.primary == true and .verified == true) | .email')
 
-          # 2️⃣ If not found, fallback to commit author's email
-          if [[ -z "$PUSHER_EMAIL" ]]; then
+          # 2️⃣ If API does not return an email, check the GitHub event payload
+          if [[ -z "$PUSHER_EMAIL" || "$PUSHER_EMAIL" == "null" ]]; then
+            echo "GitHub API did not return an email. Checking GitHub event payload..."
+            PUSHER_EMAIL="${{ github.event.pusher.email }}"
+          fi
+
+          # 3️⃣ If event payload also fails, use the commit author email as a last fallback
+          if [[ -z "$PUSHER_EMAIL" || "$PUSHER_EMAIL" == "null" ]]; then
+            echo "GitHub event did not return an email. Checking Git commit author..."
             PUSHER_EMAIL=$(git log -1 --pretty=format:'%ae')
           fi
 
-          # 3️⃣ Ensure email is valid (avoid GitHub bot noreply emails)
-          if [[ "$PUSHER_EMAIL" =~ .*noreply\.github\.com ]]; then
+          # 4️⃣ Ensure email is valid (avoid GitHub bot noreply emails)
+          if [[ "$PUSHER_EMAIL" =~ .*noreply\.github\.com || -z "$PUSHER_EMAIL" ]]; then
             echo "❌ Invalid email detected ($PUSHER_EMAIL). Email will not be sent."
             PUSHER_EMAIL=""
           fi
@@ -464,7 +473,6 @@ jobs:
 
           Regards,
           DevOps Team" | mail -s "SFDX Code Scan Report" -A scanner-report.csv "${{ env.PUSHER_EMAIL }}"
-
 
 
   notify-slack:
