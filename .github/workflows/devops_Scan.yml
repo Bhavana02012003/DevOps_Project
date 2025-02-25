@@ -377,17 +377,38 @@ jobs:
         run: |
           mkdir -p Artifact
           mv scanner-report.csv Artifact/scanner-report.csv
-          echo "Scanner report moved to Artifact folder."
+          echo "✅ Scanner report moved to Artifact folder."
 
-      - name: Commit and Push Scanner Report to Main Branch
+      - name: Get Previous Branch Name
+        id: previous-branch
+        run: |
+          PREV_BRANCH=$(git for-each-ref --format='%(refname:short)' --sort=-committerdate refs/remotes/origin/ | sed -n '2p')
+          echo "Previous branch detected: $PREV_BRANCH"
+          echo "PREV_BRANCH=$PREV_BRANCH" >> $GITHUB_ENV
+
+      - name: Commit and Push Scanner Report to Previous Branch
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout main
-          git pull origin main  # Ensure the latest changes are fetched
+
+          # Get the previous branch name
+          BRANCH_NAME="${{ env.PREV_BRANCH }}"
+          echo "✅ Target Branch: $BRANCH_NAME"
+
+          # Fetch the latest changes from the previous branch
+          git fetch origin $BRANCH_NAME
+          git checkout $BRANCH_NAME
+          git pull origin $BRANCH_NAME
+
+          # Add scanner report to Artifact folder
           git add Artifact/scanner-report.csv
-          git commit -m "🔄 Update scanner report in Artifact folder" || echo "No changes to commit"
-          git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git main
+          git commit -m "🔄 Auto-update scanner report in Artifact folder for branch $BRANCH_NAME" || echo "No changes to commit"
+
+          # Push the update back to the previous branch
+          git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/Bhavana02012003/DevOps_Project.git $BRANCH_NAME
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+
 
 
 
