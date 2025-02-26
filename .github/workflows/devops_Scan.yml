@@ -474,27 +474,6 @@ jobs:
           attachments: scanner-report-temp.csv
 
 
-      - name: Extract Scanner Report Issues for Slack
-        id: extract-issues
-        run: |
-            if [ ! -s scanner-report.csv ]; then
-              echo "REPORT_TEXT=⚠️ No scanner report found!" >> $GITHUB_ENV
-              echo "report-text=⚠️ No scanner report found!" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-  
-            ISSUES=$(awk -F',' 'NR>1 { print "⚠️ *Severity:* " $2 " | *File:* " $3 " | *Line:* " $4 " | *Rule:* " $6 " | *Category:* " $9 }' scanner-report.csv | head -n 10)
-  
-            if [[ -z "$ISSUES" ]]; then
-              echo "REPORT_TEXT=✅ No issues detected in the latest scan." >> $GITHUB_ENV
-              echo "report-text=✅ No issues detected in the latest scan." >> $GITHUB_OUTPUT
-            else
-              echo "REPORT_TEXT=$ISSUES" >> $GITHUB_ENV
-              echo "report-text=$ISSUES" >> $GITHUB_OUTPUT
-            fi
-
-
-
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
         id: block-check
@@ -522,8 +501,6 @@ jobs:
 
 
 
-
-
   notify-slack:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
@@ -540,53 +517,115 @@ jobs:
           COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
           echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
 
+          # Ensure JSON format is correct
           if [[ -z "$SLACK_USER_MAP" ]]; then
             echo "ERROR: SLACK_USER_MAP secret is empty or not set."
             exit 1
           fi
 
+          # Extract Slack ID from JSON mapping
           AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
 
+          # Debugging output
+          echo "Extracted Slack ID: $AUTHOR_SLACK_ID"
+
+          # If no Slack ID is found, handle the case properly
           if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "null" ]]; then
-            echo "⚠️ No Slack ID found for author: $COMMIT_AUTHOR. Using fallback channel."
-            echo "AUTHOR_SLACK_ID=fallback" >> $GITHUB_ENV
+            echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
+            echo "AUTHOR_SLACK_ID=unknown" >> $GITHUB_ENV
           else
             echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
           fi
+
+      # - name: Download Scanner Report
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: scanner-report
+      #     path: .
+
+      # - name: Debug - Verify Downloaded Files
+      #   run: |
+      #     echo "Checking if scanner report was downloaded:"
+      #     ls -lah
+
+      # - name: Verify Scanner Report Download
+      #   run: |
+      #     if [ ! -s scanner-report.csv ]; then
+      #       echo "No scanner report found after download."
+      #       echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
+      #     else
+      #       echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
+      #     fi
 
       - name: Format Scanner Report for Slack
         id: format-report
         run: |
           if [ ! -s scanner-report.csv ]; then
-            echo "⚠️ No scanner report found. Setting default message."
-            echo "REPORT_TEXT=✅ No issues detected in the latest scan." >> $GITHUB_ENV
+            echo "No scanner report available. Skipping Slack notification."
             exit 0
           fi
 
-          # Extract issues and format them properly
-          ISSUES=$(awk -F',' 'NR>1 { print "⚠️ *Severity:* " $2 " | *File:* " $3 " | *Line:* " $4 " | *Rule:* " $6 " | *Category:* " $9 }' scanner-report.csv)
+          echo "Extracting first 5 rows from scanner report..."
+          echo "```" > slack_report.txt
+          echo "| Problem | Severity | File | Line | Rule | Category |" >> slack_report.txt
+          echo "|---------|----------|------|------|------|----------|" >> slack_report.txt
+          
+          awk -F',' 'NR>1 && NR<=6 { printf("| %s | %s | %s | %s | %s | %s |\n", $1, $2, $3, $4, $6, $9) }' scanner-report.csv >> slack_report.txt
 
-          if [[ -z "$ISSUES" ]]; then
-            echo "✅ No issues detected in the latest scan."
-            echo "REPORT_TEXT=✅ No issues detected in the latest scan." >> $GITHUB_ENV
+          echo "```" >> slack_report.txt
+          cat slack_report.txt
+
+          # Store formatted table as output
+          REPORT_TABLE=$(cat slack_report.txt | jq -sR)
+          echo "report_table=$REPORT_TABLE" >> $GITHUB_ENV
+
+      - name: Send Scanner Report Table to Slack
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
+          SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
+          REPORT_TABLE="${{ env.report_table }}"
+
+          if [[ -z "$SCANNER_REPORT_URL" ]]; then
+            MESSAGE=":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
           else
-            echo "🔍 Extracted Scanner Report Issues:"
-            echo "$ISSUES"
-
-            echo "REPORT_TEXT=$ISSUES" >> $GITHUB_ENV
+            MESSAGE=":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <${SCANNER_REPORT_URL}|Click here>\n\n*🔍 Scanner Report Summary:*\n${REPORT_TABLE}"
           fi
 
-      - name: Send Scanner Report to Slack
+          curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+          --data "{\"channel\": \"${AUTHOR_SLACK_ID}\", \"text\": \"${MESSAGE}\" }" \
+          https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
+
+  
+      - name: Send Scanner Report URL to Slack
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
+          AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
           SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
-          REPORT_TEXT="${{ needs.quality-gate-code-check.outputs.scanner-report-text }}"
-          COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
 
-          MESSAGE="📢 *SFDX Code Scan Completed!*\n👤 *Commit Author:* $COMMIT_AUTHOR\n📄 *[Download Report]($SCANNER_REPORT_URL)*\n\n${REPORT_TEXT}"
+          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
+            echo "❌ No Slack ID found for commit author, skipping message."
+            exit 0
+          fi
 
-          curl -X POST -H 'Content-type: application/json' --data "{\"text\": \"$MESSAGE\"}" "$SLACK_WEBHOOK_URL"
+          if [[ -z "$SCANNER_REPORT_URL" ]]; then
+            echo "⚠️ No scanner report found. Sending failure notification to Slack."
+            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+            --data '{
+              "channel": "'"$AUTHOR_SLACK_ID"'",
+              "text": ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
+            }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
+          else
+            echo "✅ Sending scanner report download link to Slack..."
+
+            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
+            --data '{
+              "channel": "'"$AUTHOR_SLACK_ID"'",
+              "text": ":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <'"$SCANNER_REPORT_URL"'|Click here>"
+            }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
+          fi
 
       - name: Send Scanner Report URL to Slack Channel
         env:
@@ -596,15 +635,15 @@ jobs:
           REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d'/' -f2)
           BRANCH_NAME=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
           COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
-          REPORT_TEXT="${{ env.REPORT_TEXT }}"
 
           if [[ -n "$SCANNER_REPORT_URL" ]]; then
-            MESSAGE="📢 *SFDX Code Scan Completed!*\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n📄 *[Download Report]($SCANNER_REPORT_URL)*\n\n${REPORT_TEXT}"
+            MESSAGE=":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n🔗 *[Download Scanner Report]($SCANNER_REPORT_URL)*"
           else
-            MESSAGE="⚠️ *SFDX Code Scan Failed!*\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n🚨 No report was generated."
+            MESSAGE=":x: *SFDX Code Scan Failed!*\n\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n⚠️ No scanner report was generated."
           fi
 
           curl -X POST -H 'Content-type: application/json' --data "{\"text\": \"$MESSAGE\"}" "$SLACK_WEBHOOK_URL"
+
 
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
