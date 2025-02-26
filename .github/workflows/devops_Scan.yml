@@ -567,19 +567,19 @@ jobs:
 
           echo "Extracting first 5 rows from scanner report..."
           echo "```" > slack_report.txt
-          echo "| Problem | Severity | File | Line | Rule | Category |" >> slack_report.txt
-          echo "|---------|----------|------|------|------|----------|" >> slack_report.txt
+          echo "📌 *SFDX Code Scan Report*" >> slack_report.txt
+          echo "| *Severity* | *File* | *Line* | *Rule* |" >> slack_report.txt
+          echo "|-----------|------|------|------|" >> slack_report.txt
           
-          awk -F',' 'NR>1 && NR<=6 { printf("| %s | %s | %s | %s | %s | %s |\n", $1, $2, $3, $4, $6, $9) }' scanner-report.csv >> slack_report.txt
+          awk -F',' 'NR>1 && NR<=6 { printf("| %s | %s | %s | %s |\n", $2, $3, $4, $6) }' scanner-report.csv >> slack_report.txt
 
           echo "```" >> slack_report.txt
           cat slack_report.txt
 
-          # Store formatted table as output
           REPORT_TABLE=$(cat slack_report.txt | jq -sR)
           echo "report_table=$REPORT_TABLE" >> $GITHUB_ENV
 
-      - name: Send Scanner Report Table to Slack
+      - name: Send Scanner Report to Author in Slack
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
@@ -587,11 +587,12 @@ jobs:
           SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
           REPORT_TABLE="${{ env.report_table }}"
 
-          if [[ -z "$SCANNER_REPORT_URL" ]]; then
-            MESSAGE=":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
-          else
-            MESSAGE=":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <${SCANNER_REPORT_URL}|Click here>\n\n*🔍 Scanner Report Summary:*\n${REPORT_TABLE}"
+          if [[ "$AUTHOR_SLACK_ID" == "fallback" ]]; then
+            echo "No direct Slack ID found, skipping DM."
+            exit 0
           fi
+
+          MESSAGE="📢 *SFDX Code Scan Completed for your commit!*\n\n📂 *Download Report:* <${SCANNER_REPORT_URL}|Click here>\n\n🔎 *Summary of Issues:*\n${REPORT_TABLE}"
 
           curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
           --data "{\"channel\": \"${AUTHOR_SLACK_ID}\", \"text\": \"${MESSAGE}\" }" \
