@@ -500,6 +500,26 @@ jobs:
           fi
 
 
+      - name: Extract Scanner Report Issues for Slack
+        id: extract-issues
+        run: |
+            if [ ! -s scanner-report.csv ]; then
+              echo "REPORT_TEXT=⚠️ No scanner report found!" >> $GITHUB_ENV
+              echo "report-text=⚠️ No scanner report found!" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+  
+            ISSUES=$(awk -F',' 'NR>1 { print "⚠️ *Severity:* " $2 " | *File:* " $3 " | *Line:* " $4 " | *Rule:* " $6 " | *Category:* " $9 }' scanner-report.csv | head -n 10)
+  
+            if [[ -z "$ISSUES" ]]; then
+              echo "REPORT_TEXT=✅ No issues detected in the latest scan." >> $GITHUB_ENV
+              echo "report-text=✅ No issues detected in the latest scan." >> $GITHUB_OUTPUT
+            else
+              echo "REPORT_TEXT=$ISSUES" >> $GITHUB_ENV
+              echo "report-text=$ISSUES" >> $GITHUB_OUTPUT
+            fi
+
+
 
   notify-slack:
     runs-on: ubuntu-latest
@@ -553,24 +573,15 @@ jobs:
             echo "REPORT_TEXT=$ISSUES" >> $GITHUB_ENV
           fi
 
-      - name: Send Scanner Report to Slack Channel
+      - name: Send Scanner Report to Slack
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
         run: |
           SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
-          REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d'/' -f2)
-          BRANCH_NAME=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
+          REPORT_TEXT="${{ needs.quality-gate-code-check.outputs.scanner-report-text }}"
           COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
-          REPORT_TEXT="${{ env.REPORT_TEXT }}"
 
-          if [[ -n "$SCANNER_REPORT_URL" ]]; then
-            MESSAGE="📢 *SFDX Code Scan Completed!*\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n📄 *[Download Report]($SCANNER_REPORT_URL)*\n\n${REPORT_TEXT}"
-          else
-            MESSAGE="⚠️ *SFDX Code Scan Failed!*\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n🚨 No report was generated."
-          fi
-
-          echo "Final Slack Message:"
-          echo "$MESSAGE"
+          MESSAGE="📢 *SFDX Code Scan Completed!*\n👤 *Commit Author:* $COMMIT_AUTHOR\n📄 *[Download Report]($SCANNER_REPORT_URL)*\n\n${REPORT_TEXT}"
 
           curl -X POST -H 'Content-type: application/json' --data "{\"text\": \"$MESSAGE\"}" "$SLACK_WEBHOOK_URL"
 
