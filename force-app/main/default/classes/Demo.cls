@@ -10,7 +10,7 @@ global class Demo {  // Violates AvoidGlobalModifier
         // Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId WITH SECURITY_ENFORCED];
         Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId];
         System.debug('Account'+acc);
-   }
+   } 
 
     public void deeplyNestedIfMethod(Integer value) {  
         // Violates AvoidDeeplyNestedIfStmts (nested more than 4 levels)
