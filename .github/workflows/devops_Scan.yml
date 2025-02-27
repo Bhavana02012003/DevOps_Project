@@ -482,11 +482,15 @@ jobs:
           if [ -f scanner-report.csv ]; then
             echo "Reading scanner-report.csv for severity 3 violations..."
             
-            # Debugging: Display scanner report content
+            # Debug: Show the file contents before processing
             cat scanner-report.csv
 
-            # Ensure severity 3 is counted across all files properly
-            severity_fail_count=$(awk -F',' 'NR>1 {gsub(/[^0-9]/, "", $2); if($2 == 3) count++} END {print count}' scanner-report.csv)
+            # Fix parsing and count all severity 3 issues correctly
+            severity_fail_count=$(tail -n +2 scanner-report.csv | awk -F',' '{
+              gsub(/"/, "", $2);  # Remove quotes around severity values
+              gsub(/[[:space:]]/, "", $2);  # Remove any spaces
+              if ($2 == "3") count++
+            } END {print count}')
 
             echo "Total Severity 3 Issues Found: $severity_fail_count"
 
