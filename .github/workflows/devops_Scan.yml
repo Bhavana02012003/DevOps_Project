@@ -198,23 +198,37 @@ jobs:
             exit 0
           fi
 
-          # Initialize final report with headers
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-
           for file in $files; do
             echo "Running SFDX Scanner on file: $file"
             sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
 
-            # Ensure partial report exists before processing
-            if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
-              # Append new results to final report, excluding duplicate headers
-              tail -n +2 "scanner-report-partial.csv" >> scanner-report.csv
+            # Append results to master file
+            if [ -f "scanner-report-partial.csv" ]; then
+              tail -n +2 "scanner-report-partial.csv" >> scanner-report-temp.csv
             fi
           done
 
-          # Debug final scanner report
-          echo "Final Scanner Report:"
-          cat scanner-report.csv
+          if [ -f "scanner-report-temp.csv" ]; then
+            echo "Merging scanner reports..."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+
+            while IFS=, read -r problem severity file temp_line column rule description url category engine; do
+              formatted_file_path=$(basename "$file")
+
+              extracted_line_number=$(awk -F',' -v f="$file" -v l="$temp_line" '$1 == f && $2 == l {print $2}' line_number_mapping.txt | head -n 1)
+
+              if [ -z "$extracted_line_number" ]; then
+                extracted_line_number="N/A"
+              fi
+
+              echo "✅ Extracted Actual Line: $extracted_line_number for File: \"$file\""
+
+              echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
+            done < <(tail -n +2 scanner-report-temp.csv)
+          else
+            echo "No issues detected. Creating an empty scanner report."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+          fi
           
 
       - name: Upload Scanner Report to Temporary Storage (GoFile.io)
