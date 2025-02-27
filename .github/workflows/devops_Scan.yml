@@ -207,12 +207,17 @@ jobs:
 
             # Ensure partial report exists before processing
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
-              # Append new results to final report, excluding duplicate headers
-              tail -n +2 "scanner-report-partial.csv" >> scanner-report.csv
+              echo "Appending results from scanner-report-partial.csv for file: $file"
+              
+              # Add commit data and format correctly
+              tail -n +2 "scanner-report-partial.csv" | awk -F',' -v commit_author="$COMMIT_AUTHOR" '{
+                $11 = commit_author;  # Add commit data
+                print $0
+              }' >> scanner-report.csv
             fi
           done
 
-          # Debug final scanner report
+          # Debugging: Show final scanner report
           echo "Final Scanner Report:"
           cat scanner-report.csv
           
