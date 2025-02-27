@@ -15,7 +15,7 @@ public with sharing class ScannerReportHandler {
                 createCasesFromCSV(csvContent, file.ContentDocumentId);
             }
         } catch (Exception e) {
-            System.debug('Error processing scanner report: ' + e.getMessage());
+            System.debug('Error processing scanner report::: ' + e.getMessage());
         }
     }
 
