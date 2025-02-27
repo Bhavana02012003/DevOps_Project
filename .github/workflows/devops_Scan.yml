@@ -64,106 +64,61 @@ jobs:
           echo "commit-author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
           echo "Commit Author: $COMMIT_AUTHOR"
 
-      - name: Get changed lines and create temporary files
+      - name: Detect Changed Files
         id: get-changes
         run: |
           mkdir -p temp_scanner_files
           > changed_cls_lwc_files.txt
           > line_number_mapping.txt
-      
-          echo "Checking for changed .cls and .lwc files..."
-      
-          # Get only changed files (.cls and .lwc)
-          changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
-      
+
+          changed_files=$(git diff --name-only origin/${{ github.base_ref }} HEAD -- '*.cls' '*.lwc' || true)
+
           echo "Detected changed files: $changed_files"
-      
+
           if [ -z "$changed_files" ]; then
-            echo "No .cls or .lwc files detected."
+            echo "No relevant files changed. Exiting."
             echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
             exit 0
           fi
-      
+
           for file in $changed_files; do
-            echo "Processing file: $file"
-      
-            # Extract changed lines along with their actual line numbers
-            extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
-              /^@@/ { 
-                match($0, /\+([0-9]+)/, arr);
-                line = arr[1]; next 
-              }
-              /^\+/ { 
-                if ($0 !~ /^(diff --git|index|---|\+\+\+|@@|b\/force-app)/) {
-                  print line "," substr($0, 2);
-                  line++;
-                }
-              }
-            ')
-      
-            echo "====== Extracted Lines and Line Numbers for $file ======"
-            echo "$extracted_lines"
-      
-            # Store extracted lines in a temporary file
-            echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
-      
             temp_file="temp_scanner_files/temp_${file//\//_}"
             touch "$temp_file"
-      
-            # Store line number in a variable
-            extracted_line_number=$(echo "$extracted_lines" | awk -F',' '{print $1}' | head -n 1)
-      
-            # Print the extracted line number for verification
-            echo "✅ Extracted Line Number for $file: $extracted_line_number"
-      
+
+            extracted_lines=$(git diff --unified=0 origin/${{ github.base_ref }} HEAD -- "$file" | awk '
+              /^@@/ { match($0, /\+([0-9]+)/, arr); line = arr[1]; next }
+              /^\+/ { if ($0 !~ /^(diff --git|index|---|\+\+\+|@@|b\/force-app)/) { print line "," substr($0, 2); line++; } }
+            ')
+
+            if [ -z "$extracted_lines" ]; then
+              echo "No changed lines detected in $file"
+              continue
+            fi
+
+            echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
+            echo "$file" >> changed_cls_lwc_files.txt
+
             if [[ "$file" == *.cls ]]; then
               echo "public class TempWrapperClass {" > "$temp_file"
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
-      
               while IFS=, read -r line_number line_content; do
-                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-      
-                if [[ -n "$line_content_trimmed" ]]; then
-                  formatted_line=$(echo "$line_content_trimmed" | sed 's/;;/;/g')
-                  echo "        $formatted_line" >> "$temp_file"
-                  echo "$temp_file,$line_number,$formatted_line" >> line_number_mapping.txt
-                fi
+                echo "        $line_content" >> "$temp_file"
               done < "line_number_mapping_${file//\//_}.txt"
-      
               echo "    }" >> "$temp_file"
               echo "}" >> "$temp_file"
             elif [[ "$file" == *.lwc ]]; then
               echo "<template>" > "$temp_file"
               echo "    <!-- Extracted changed lines -->" >> "$temp_file"
-      
               while IFS=, read -r line_number line_content; do
-                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-      
-                if [[ -n "$line_content_trimmed" ]]; then
-                  echo "    $line_content_trimmed" >> "$temp_file"
-                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                fi
+                echo "    $line_content" >> "$temp_file"
               done < "line_number_mapping_${file//\//_}.txt"
-      
               echo "</template>" >> "$temp_file"
             fi
-      
-            echo "$temp_file" >> changed_cls_lwc_files.txt
-            echo "Created temp file: $temp_file"
           done
-      
-          echo "====== Final Line Number Mapping ======"
-          cat line_number_mapping.txt || echo "No line number mapping available."
-      
+
           echo "Generated temp files:"
           ls -l temp_scanner_files
-      
-          if [ ! -s changed_cls_lwc_files.txt ]; then
-            echo "No temp files created. Exiting."
-            exit 0
-          fi
-      
             
       - name: Debug Extracted Line Number Mapping
         run: |
@@ -188,46 +143,33 @@ jobs:
       #       echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
       #       echo "Commit Author: $COMMIT_AUTHOR"
          
-      - name: Run SFDX Scanner on Changed Lines and Map Actual Line Numbers
+      - name: Run SFDX Scanner
         run: |
-              files=$(cat changed_cls_lwc_files.txt)
-              if [ -z "$files" ]; then
-                echo "No files to scan. Creating an empty report."
-                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-                exit 0
-              fi
-          
-              for file in $files; do
-                echo "Running SFDX Scanner on file: $file"
-                sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
-              done
-          
-              if [ -f "scanner-report-temp.csv" ]; then
-                # Append "ActualLine" column in the header
-                head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
-          
-                while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-                  # Extract the correct file path formatting
-                  formatted_file_path=$(basename "$file")
-          
-                  # Retrieve the stored extracted line number
-                  extracted_line_number=$(awk -F',' -v f="$file" '$1 == f {print $2}' line_number_mapping.txt | head -n 1)
-          
-                  # If no matching line found, set it as "N/A"
-                  if [ -z "$extracted_line_number" ]; then
-                    extracted_line_number="N/A"
-                  fi
-          
-                  # Print extracted actual line for debugging
-                  echo "✅ Extracted Actual Line: $extracted_line_number for File: \"$file\""
-          
-                  # Append actual line number to the scanner report
-                  echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
-                done < <(tail -n +2 scanner-report-temp.csv)
-              else
-                echo "No issues detected. Creating an empty scanner report."
-                echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-              fi
+          files=$(cat changed_cls_lwc_files.txt)
+          if [ -z "$files" ]; then
+            echo "No valid files to scan."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+            exit 0
+          fi
+
+          for file in $files; do
+            if [ ! -s "$file" ]; then
+              echo "Skipping empty file: $file"
+              continue
+            fi
+            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-temp.csv" || echo "Scanner failed on $file"
+          done
+
+          if [ -f "scanner-report-temp.csv" ]; then
+            head -n 1 scanner-report-temp.csv | awk -F',' '{print $0",Commit,ActualLine"}' > scanner-report.csv
+            while IFS=, read -r problem severity file temp_line column rule description url category engine; do
+              extracted_line_number=$(grep -m1 "$(basename "$file")" line_number_mapping.txt | awk -F',' '{print $2}')
+              echo "$problem,$severity,$file,$temp_line,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$extracted_line_number" >> scanner-report.csv
+            done < <(tail -n +2 scanner-report-temp.csv)
+          else
+            echo "No violations found."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+          fi
           
 
       - name: Upload Scanner Report to Temporary Storage (GoFile.io)
@@ -475,28 +417,16 @@ jobs:
 
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
-      - name: Block PR merge if severity violations are found
+      - name: Block PR if Severe Violations
         id: block-check
         run: |
-          if [ -f scanner-report.csv ]; then
-            severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
-            echo "Severity 3 issues count: $severity_fail_count"
-            
-            if [ "$severity_fail_count" -gt 0 ]; then
-              echo "Blocking commit due to severity 3 vulnerabilities found."
-              echo "block-status=true" >> $GITHUB_ENV
-              echo "block-status=true" >> $GITHUB_OUTPUT
-              exit 1  # ✅ Now workflow fails only at the last step
-            else
-              echo "No severity 3 vulnerabilities found. Proceeding."
-              echo "block-status=false" >> $GITHUB_ENV
-              echo "block-status=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "No scanner report found."
-            echo "block-status=true" >> $GITHUB_ENV
+          severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
+          if [ "$severity_fail_count" -gt 0 ]; then
+            echo "Block PR due to severity 3 violations."
             echo "block-status=true" >> $GITHUB_OUTPUT
             exit 1
+          else
+            echo "block-status=false" >> $GITHUB_OUTPUT
           fi
 
 
