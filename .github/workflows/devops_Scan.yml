@@ -480,14 +480,18 @@ jobs:
         id: block-check
         run: |
           if [ -f scanner-report.csv ]; then
-            severity_fail_count=$(awk -F',' '{gsub(/^ *| *$/, "", $2); if($2 == "\"3\"") count++} END {print count}' scanner-report.csv)
-            echo "Severity 3 issues count: $severity_fail_count"
+            echo "Reading scanner-report.csv for severity 3 violations..."
             
+            # Ensure the scanner report does not contain a header in the count
+            severity_fail_count=$(awk -F',' 'NR>1 {gsub(/"/, "", $2); if($2 == 3) count++} END {print count}' scanner-report.csv)
+
+            echo "Total Severity 3 Issues Found: $severity_fail_count"
+
             if [ "$severity_fail_count" -gt 0 ]; then
-              echo "Blocking commit due to severity 3 vulnerabilities found."
+              echo "Blocking commit due to severity 3 vulnerabilities."
               echo "block-status=true" >> $GITHUB_ENV
               echo "block-status=true" >> $GITHUB_OUTPUT
-              exit 1  # ✅ Now workflow fails only at the last step
+              exit 1
             else
               echo "No severity 3 vulnerabilities found. Proceeding."
               echo "block-status=false" >> $GITHUB_ENV
