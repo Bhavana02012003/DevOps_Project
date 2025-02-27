@@ -6,7 +6,7 @@ public with sharing class ScannerReportHandler {
                                           FROM ContentVersion
                                           WHERE ContentDocumentId IN :documentIds
                                           ORDER BY CreatedDate DESC];
-            System.debug('Files');
+            System.debug('File');
 
             for (ContentVersion file : files) {
                 // Convert Blob to String
