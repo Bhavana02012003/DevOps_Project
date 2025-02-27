@@ -399,7 +399,7 @@ jobs:
           subject: 'SFDX Code Scan Delta Report'
           body: 'Please find the attached SFDX Code Scan Delta Report.'
           to: ${{ env.PUSHER_EMAIL }}, ${{ secrets.GMAIL_EMAIL }}
-          attachments: scanner-report-temp.csv
+          attachments: scanner-report.csv  # ✅ Ensuring correct file is attached
 
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
