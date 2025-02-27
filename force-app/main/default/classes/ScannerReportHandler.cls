@@ -6,6 +6,7 @@ public with sharing class ScannerReportHandler {
                                           FROM ContentVersion
                                           WHERE ContentDocumentId IN :documentIds
                                           ORDER BY CreatedDate DESC];
+            System.debug('Files');
 
             for (ContentVersion file : files) {
                 // Convert Blob to String
@@ -15,7 +16,7 @@ public with sharing class ScannerReportHandler {
                 createCasesFromCSV(csvContent, file.ContentDocumentId);
             }
         } catch (Exception e) {
-            System.debug('Error processing scanner report::: ' + e.getMessage());
+            System.debug('Error processing scanner report: ' + e.getMessage());
         }
     }
 
