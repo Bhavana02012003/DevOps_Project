@@ -183,8 +183,10 @@ jobs:
               # Append new results to final report, excluding duplicate headers
               tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" '{
               $11 = commit_author;  # Set commit username in column 11
+              if (NF < 12) $12 = "N/A";  # Ensure ActualLine column is always present
               print $0
             }' >> scanner-report.csv
+
           fi
           done
           # Debug final scanner report
