@@ -630,3 +630,6 @@ jobs:
           else
             echo "No critical permissions assigned to non-System Administrator profiles or permission sets."
           fi
+
+
+      # extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | sed -n '/^@@/{s/@@ -[0-9,]* \+\([0-9]*\).*/\1/;h}; /^\+/ {H;g;s/\n/,/;p}')
