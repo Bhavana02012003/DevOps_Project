@@ -654,42 +654,47 @@ jobs:
     #   for file in $changed_files; do
     #       echo "Processing file: $file"
           
-    #       # Extract changed lines
+    #       # Extract changed lines and their line numbers
     #       extracted_lines=$(git diff -U0 HEAD~1 HEAD -- "$file" | grep -E "^\+" | sed 's/^+//')
-          
+  
     #       if [ -z "$extracted_lines" ]; then
-    #           echo "No valid lines found for $file. Skipping..."
+    #           echo "❌ No valid lines found for $file. Skipping..."
     #           continue
     #       fi
           
-    #       echo "====== Extracted Lines and Line Numbers for $file ======"
+    #       echo "====== Extracted Lines for $file ======"
     #       echo "$extracted_lines"
   
     #       # Store extracted lines in a temporary file
-    #       echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
+    #       extracted_file="line_number_mapping_${file//\//_}.txt"
+    #       echo "$extracted_lines" > "$extracted_file"
   
+    #       # Ensure extracted file has content
+    #       if [ ! -s "$extracted_file" ]; then
+    #           echo "⚠️ Extracted lines file is empty. Skipping file."
+    #           continue
+    #       fi
+          
     #       temp_file="temp_scanner_files/temp_${file//\//_}"
     #       > "$temp_file"  # Clear temp file before writing
           
-    #       echo "before adding it to temp class: "
-    #       cat "$temp_file"
+    #       echo "✅ Extracted file created: $extracted_file"
+    #       cat "$extracted_file"
   
     #       if [[ "$file" == *.cls ]]; then
     #           echo "public class TempWrapperClass {" > "$temp_file"
     #           echo "    public static void tempMethod() {" >> "$temp_file"
     #           echo "        /* Extracted changed lines */" >> "$temp_file"
   
-    #           while IFS=, read -r line_number line_content || [[ -n $line_number ]]; do
+    #           # Read from extracted file and write to temp file
+    #           while IFS= read -r line_content || [[ -n $line_content ]]; do
     #               line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
     #               if [[ -n "$line_content_trimmed" ]]; then
-    #                   echo "Processing Line: [$line_number] [$line_content_trimmed]"
+    #                   echo "Processing Line: [$line_content_trimmed]"
     #                   echo "        $line_content_trimmed" >> "$temp_file"
-    #                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+    #                   echo "$temp_file,$line_content_trimmed" >> line_number_mapping.txt
     #               fi
-    #           done < "line_number_mapping_${file//\//_}.txt"
-  
-    #           echo "after adding changed lines: "
-    #           cat "$temp_file"
+    #           done < "$extracted_file"
   
     #           echo "    }" >> "$temp_file"
     #           echo "}" >> "$temp_file"
@@ -698,33 +703,31 @@ jobs:
     #           echo "<template>" > "$temp_file"
     #           echo "    <!-- Extracted changed lines -->" >> "$temp_file"
               
-    #           while IFS=, read -r line_number line_content || [[ -n $line_number ]]; do
+    #           while IFS= read -r line_content || [[ -n $line_content ]]; do
     #               line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
     #               if [[ -n "$line_content_trimmed" ]]; then
     #                   echo "    $line_content_trimmed" >> "$temp_file"
-    #                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+    #                   echo "$temp_file,$line_content_trimmed" >> line_number_mapping.txt
     #               fi
-    #           done < "line_number_mapping_${file//\//_}.txt"
+    #           done < "$extracted_file"
               
     #           echo "</template>" >> "$temp_file"
     #       fi
   
-    #       echo "$temp_file" >> changed_cls_lwc_files.txt
-    #       echo "Created temp file: $temp_file"
+    #       echo "✅ Created temp file: $temp_file"
     #       cat "$temp_file"
   
     #   done
   
     #   echo "====== Final Line Number Mapping ======"
-    #   cat line_number_mapping.txt || echo "No line number mapping available."
+    #   cat line_number_mapping.txt || echo "⚠️ No line number mapping available."
       
     #   echo "Generated temp files:"
     #   ls -l temp_scanner_files
       
-    #   cat "$temp_file"
-      
     #   if [ ! -s changed_cls_lwc_files.txt ]; then
-    #       echo "No temp files created. Exiting."
+    #       echo "❌ No temp files created. Exiting."
     #       exit 0
     #   fi
+        
   
