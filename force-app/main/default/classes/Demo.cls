@@ -15,10 +15,11 @@ global class Demo {  // Violates AvoidGlobalModifier
     public void deeplyNestedIfMethod(Integer value) {  
         // Violates AvoidDeeplyNestedIfStmts (nested more than 4 levels)
         if (value > 0) {
+            System.debug('Hello');
             if (value > 10) {
                 if (value > 20) {
                     if (value > 30) {
-                        System.debug('Too much nesting Testing');
+                        //System.debug('Too much nesting Testing');
                     }
                 }
             }
