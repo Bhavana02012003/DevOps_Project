@@ -680,22 +680,25 @@ jobs:
           fi
 
 
-#       if [[ "$file" == *.cls ]]; then
+# if [[ "$file" == *.cls ]]; then
 #     echo "public class TempWrapperClass {" > "$temp_file"
 #     echo "    public static void tempMethod() {" >> "$temp_file"
 #     echo "        /* Extracted changed lines */" >> "$temp_file"
 
-#     # Read from extracted file and write to temp file
 #     while IFS= read -r line_content || [[ -n $line_content ]]; do
-#         # Trim leading/trailing spaces
 #         line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+        
+#         # Skip unnecessary lines (e.g., Git diff indicators)
+#         if [[ "$line_content_trimmed" =~ "^\\+\\+\\+" ]]; then
+#             continue
+#         fi
 
 #         if [[ -n "$line_content_trimmed" ]]; then
-#             # Ensure each line ends with a semicolon (except if it's a comment or block declaration)
-#             if [[ ! "$line_content_trimmed" =~ (//|/\*|\*/|{|})$ ]] && [[ ! "$line_content_trimmed" =~ ";$" ]]; then
+#             # Ensure we only add a semicolon if it doesn't already end with one
+#             if [[ ! "$line_content_trimmed" =~ ([{};]$) && ! "$line_content_trimmed" =~ ^(//|/\*) ]]; then
 #                 line_content_trimmed="$line_content_trimmed;"
 #             fi
-
+            
 #             echo "Processing Line: [$line_content_trimmed]"
 #             echo "        $line_content_trimmed" >> "$temp_file"
 #             echo "$temp_file,$line_content_trimmed" >> line_number_mapping.txt
