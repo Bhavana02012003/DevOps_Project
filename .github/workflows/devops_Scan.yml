@@ -407,7 +407,7 @@ jobs:
 
 
 
-      - name: Get OAuth Token for Outlook Mail API
+      - name: Get OAuth Token for Microsoft Graph API
         id: get-oauth-token
         run: |
           RESPONSE=$(curl -X POST "https://login.microsoftonline.com/${{ secrets.OUTLOOK_TENANT_ID }}/oauth2/v2.0/token" \
@@ -420,16 +420,16 @@ jobs:
           OAUTH_ACCESS_TOKEN=$(echo $RESPONSE | jq -r '.access_token')
 
           if [ "$OAUTH_ACCESS_TOKEN" == "null" ]; then
-            echo "Failed to get OAuth token"
+            echo "❌ Failed to get OAuth token. Full error response: $RESPONSE"
             exit 1
           fi
 
           echo "::add-mask::$OAUTH_ACCESS_TOKEN"
           echo "OAUTH_ACCESS_TOKEN=$OAUTH_ACCESS_TOKEN" >> $GITHUB_ENV
 
-      - name: Send Scanner Report via Outlook Mail API
+      - name: Send Email via Microsoft Graph API (OAuth)
         run: |
-          curl -X POST "https://graph.microsoft.com/v1.0/me/sendMail" \
+          curl -X POST "https://graph.microsoft.com/v1.0/users/${{ secrets.OUTLOOK_EMAIL }}/sendMail" \
             -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
@@ -448,7 +448,7 @@ jobs:
                 ]
               }
             }'
-        
+              
 
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
