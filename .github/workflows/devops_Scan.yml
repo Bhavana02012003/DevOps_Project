@@ -407,25 +407,28 @@ jobs:
 
 
 
-      - name: Get OAuth Token for Outlook SMTP
+      - name: Debug OAuth Token Request
         id: get-oauth-token
         run: |
           RESPONSE=$(curl -X POST "https://login.microsoftonline.com/${{ secrets.OUTLOOK_TENANT_ID }}/oauth2/v2.0/token" \
             -H "Content-Type: application/x-www-form-urlencoded" \
             -d "client_id=${{ secrets.OUTLOOK_CLIENT_ID }}" \
             -d "client_secret=${{ secrets.OUTLOOK_CLIENT_SECRET }}" \
-            -d "scope=https://outlook.office365.com/.default" \
+            -d "scope=https://graph.microsoft.com/.default offline_access" \
             -d "grant_type=client_credentials")
+      
+          echo "Raw Response: $RESPONSE"  # 🔹 Print the full response
       
           OAUTH_ACCESS_TOKEN=$(echo $RESPONSE | jq -r '.access_token')
       
           if [ "$OAUTH_ACCESS_TOKEN" == "null" ]; then
-            echo "Failed to get OAuth token"
+            echo "❌ Failed to get OAuth token. Full error response: $RESPONSE"
             exit 1
           fi
       
           echo "::add-mask::$OAUTH_ACCESS_TOKEN"
           echo "OAUTH_ACCESS_TOKEN=$OAUTH_ACCESS_TOKEN" >> $GITHUB_ENV
+        
       
       - name: Send Scanner Report to Outlook Email (OAuth)
         uses: dawidd6/action-send-mail@v3
