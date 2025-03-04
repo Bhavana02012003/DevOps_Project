@@ -417,6 +417,8 @@ jobs:
             -d "scope=https://graph.microsoft.com/.default" \
             -d "grant_type=client_credentials")
 
+          echo "🔹 Raw OAuth Response: $RESPONSE"  # ✅ Print the full response
+
           OAUTH_ACCESS_TOKEN=$(echo $RESPONSE | jq -r '.access_token')
 
           if [ "$OAUTH_ACCESS_TOKEN" == "null" ]; then
@@ -424,7 +426,8 @@ jobs:
             exit 1
           fi
 
-          echo "::add-mask::$OAUTH_ACCESS_TOKEN"
+          echo "✅ OAuth Token: $OAUTH_ACCESS_TOKEN"  # ✅ Print the OAuth token
+          echo "::add-mask::$OAUTH_ACCESS_TOKEN"  # ✅ Mask the token to prevent leaks
           echo "OAUTH_ACCESS_TOKEN=$OAUTH_ACCESS_TOKEN" >> $GITHUB_ENV
 
       - name: Send Email via Microsoft Graph API (OAuth)
