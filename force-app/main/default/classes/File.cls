@@ -1,10 +1,7 @@
 public with sharing class File {
-    public static void processNewFiles(List<ContentVersion> newFiles) {
-        for (ContentVersion file : newFiles) {
-            if (file.Title.startsWith('Code Scanner')) {
-                System.debug('✅ New Code Scanner file detected: ' + file.Title);
-                importVulnerabilityData(file.Id);
-            }
+    public static void processNewFiles(List<Id> contentDocIds) {
+        for (Id contentDocId : contentDocIds) {
+            importVulnerabilityData(contentDocId);
         }
     }
 
