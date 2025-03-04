@@ -407,42 +407,47 @@ jobs:
 
 
 
-      - name: Debug OAuth Token Request
+      - name: Get OAuth Token for Outlook Mail API
         id: get-oauth-token
         run: |
           RESPONSE=$(curl -X POST "https://login.microsoftonline.com/${{ secrets.OUTLOOK_TENANT_ID }}/oauth2/v2.0/token" \
             -H "Content-Type: application/x-www-form-urlencoded" \
             -d "client_id=${{ secrets.OUTLOOK_CLIENT_ID }}" \
             -d "client_secret=${{ secrets.OUTLOOK_CLIENT_SECRET }}" \
-            -d "scope=https://graph.microsoft.com/.default offline_access" \
+            -d "scope=https://graph.microsoft.com/.default" \
             -d "grant_type=client_credentials")
-      
-          echo "Raw Response: $RESPONSE"  # 🔹 Print the full response
-      
+
           OAUTH_ACCESS_TOKEN=$(echo $RESPONSE | jq -r '.access_token')
-      
+
           if [ "$OAUTH_ACCESS_TOKEN" == "null" ]; then
-            echo "❌ Failed to get OAuth token. Full error response: $RESPONSE"
+            echo "Failed to get OAuth token"
             exit 1
           fi
-      
+
           echo "::add-mask::$OAUTH_ACCESS_TOKEN"
           echo "OAUTH_ACCESS_TOKEN=$OAUTH_ACCESS_TOKEN" >> $GITHUB_ENV
-        
-      
-      - name: Send Scanner Report to Outlook Email (OAuth)
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: 'smtp.office365.com'  # ✅ Correct SMTP server for Outlook
-          server_port: '587'                    # ✅ Use port 587 (not 465)
-          username: ${{ secrets.OUTLOOK_EMAIL }}
-          password: ${{ env.OAUTH_ACCESS_TOKEN }}  # ✅ Use the dynamically fetched OAuth token
-          from: ${{ secrets.OUTLOOK_EMAIL }}
-          to: ${{ env.PUSHER_EMAIL }}, ${{ secrets.OUTLOOK_EMAIL }}
-          subject: 'SFDX Code Scan Delta Report'
-          body: 'Please find the attached SFDX Code Scan Delta Report.'
-          secure: true  # ✅ Ensure secure TLS connection
-          attachments: scanner-report.csv
+
+      - name: Send Scanner Report via Outlook Mail API
+        run: |
+          curl -X POST "https://graph.microsoft.com/v1.0/me/sendMail" \
+            -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "message": {
+                "subject": "SFDX Code Scan Delta Report",
+                "body": {
+                  "contentType": "Text",
+                  "content": "Please find the attached SFDX Code Scan Delta Report."
+                },
+                "toRecipients": [
+                  {
+                    "emailAddress": {
+                      "address": "'"${{ secrets.OUTLOOK_EMAIL }}"'"
+                    }
+                  }
+                ]
+              }
+            }'
         
 
 
