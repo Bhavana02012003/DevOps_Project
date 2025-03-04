@@ -433,15 +433,15 @@ jobs:
       - name: Send Scanner Report to Outlook Email (OAuth)
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: 'smtp.office365.com'
-          server_port: '587'
+          server_address: 'smtp.office365.com'  # ✅ Correct SMTP server for Outlook
+          server_port: '587'                    # ✅ Use port 587 (not 465)
           username: ${{ secrets.OUTLOOK_EMAIL }}
-          password: ${{ env.OAUTH_ACCESS_TOKEN }}  # Using the dynamically fetched OAuth token
+          password: ${{ env.OAUTH_ACCESS_TOKEN }}  # ✅ Use the dynamically fetched OAuth token
           from: ${{ secrets.OUTLOOK_EMAIL }}
           to: ${{ env.PUSHER_EMAIL }}, ${{ secrets.OUTLOOK_EMAIL }}
           subject: 'SFDX Code Scan Delta Report'
           body: 'Please find the attached SFDX Code Scan Delta Report.'
-          secure: true
+          secure: true  # ✅ Ensure secure TLS connection
           attachments: scanner-report.csv
         
 
