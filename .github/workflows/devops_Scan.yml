@@ -614,97 +614,56 @@ jobs:
     needs: quality-gate-code-check
     if: always()  # ✅ Ensures this job runs even if the first job fails
     steps:
-      - name: Get Current Runner Name
-        id: get-runner
-        run: |
-              echo "Runner Name: ${{ runner.name }}"
-              echo "Runner OS: ${{ runner.os }}"
-              echo "Runner Arch: ${{ runner.arch }}"
-              echo "Machine Hostname: $(hostname)"
-              echo "System Info:"
-              uname -a
-              echo "OS Release Information:"
-              cat /etc/os-release
-              echo "Ubuntu Version:"
-              lsb_release -a || echo "lsb_release command not found"
-      - name: Compare Runner Names
-        run: |
-          PREVIOUS_RUNNER="${{ needs.quality-gate-code-check.outputs.runner-name }}"
-          CURRENT_RUNNER="${{ runner.name }}"
-          echo "Previous job ran on: $PREVIOUS_RUNNER"
-          echo "Current job is running on: $CURRENT_RUNNER"
-          if [ "$PREVIOUS_RUNNER" == "$CURRENT_RUNNER" ]; then
-            echo "✅ Both jobs are running on the same agent."
-          else
-            echo "⚠️ Warning: Jobs are running on different agents."
-          fi
-          
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # ✅ Ensures we fetch the previous commit for comparison
 
-      # - name: Download Scanner Report
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: SFDX_Code_Scan_Report
-      #     path: .  # ✅ Downloads into the working directory
+      - name: Get Changed Files
+        id: get-changed-files
+        run: |
+          # Find changed profile and permission set files
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- "force-app/main/default/profiles/*.profile-meta.xml" "force-app/main/default/permissionsets/*.permissionset-meta.xml" || true)
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "✅ No profile or permission set files changed."
+            echo "PERMISSIONS_CHANGED=false" >> $GITHUB_ENV
+            exit 0
+          else
+            echo "🚨 Changed profile or permission set files detected:"
+            echo "$CHANGED_FILES"
+            echo "PERMISSIONS_CHANGED=true" >> $GITHUB_ENV
+          fi
 
-      # - name: Verify Scanner Report Download
-      #   run: |
-      #     if [ ! -f scanner-report.csv ]; then
-      #       echo "❌ Scanner report not found, creating an empty one."
-      #       echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-      #     else
-      #       echo "✅ Scanner report downloaded successfully."
-      #     fi
-
-
-      - name: Scan Profiles and Permission Sets for Critical Permissions
+      - name: Scan Profiles and Permission Sets for Critical Permission Changes
+        if: env.PERMISSIONS_CHANGED == 'true'
         run: |
           CRITICAL_PERMISSIONS=( "AssignPermissionSets" "AuthorApex" "CustomizeApplication" "FreezeUsers" "ManageEncryptionKeys" "ManageInternalUsers" "ManagePasswordPolicies" "ManageProfilesPermissionSets" "ManageRoles" "ManageSharing" "ManageUsers" "ModifyAllData" "MonitorLoginHistory" "MultiFactorAuthenticationRequired" "PasswordNeverExpires" "ResetPasswordsUnlockUsers" "ViewAllData" )
-          BLOCKED_FILES=()
-          for FILE in $(find force-app/main/default/profiles -name '*.profile-meta.xml'); do
+          
+          PERMISSION_CHANGED=0
+          
+          for FILE in $CHANGED_FILES; do
+            echo "🔍 Checking changes in: $FILE"
+            
             for PERMISSION in "${CRITICAL_PERMISSIONS[@]}"; do
-              if grep -q "$PERMISSION" "$FILE" && ! grep -q "System Administrator" "$FILE"; then
-                BLOCKED_FILES+=("$FILE")
+              ADDED=$(git diff HEAD~1 HEAD -- "$FILE" | grep -E "^\+.*<${PERMISSION}>" || true)
+              REMOVED=$(git diff HEAD~1 HEAD -- "$FILE" | grep -E "^-.*<${PERMISSION}>" || true)
+              
+              if [ ! -z "$ADDED" ]; then
+                echo "🚨 CRITICAL PERMISSION ADDED: $PERMISSION in $FILE"
+                PERMISSION_CHANGED=1
+              fi
+              
+              if [ ! -z "$REMOVED" ]; then
+                echo "⚠️ CRITICAL PERMISSION REMOVED: $PERMISSION in $FILE"
+                PERMISSION_CHANGED=1
               fi
             done
           done
-          if [ ${#BLOCKED_FILES[@]} -gt 0 ]; then
-            echo "Critical permissions found in the following files:"
-            for FILE in "${BLOCKED_FILES[@]}"; do
-              echo "$FILE"
-            done
+          
+          if [ $PERMISSION_CHANGED -eq 1 ]; then
+            echo "❌ Critical permissions were added or removed. Failing job."
             exit 1
           else
-            echo "No critical permissions assigned to non-System Administrator profiles or permission sets."
+            echo "✅ No critical permission changes detected."
           fi
-
-
-# if [[ "$file" == *.cls ]]; then
-#     echo "public class TempWrapperClass {" > "$temp_file"
-#     echo "    public static void tempMethod() {" >> "$temp_file"
-#     echo "        /* Extracted changed lines */" >> "$temp_file"
-
-#     while IFS= read -r line_content || [[ -n $line_content ]]; do
-#         line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-        
-#         # Skip unnecessary lines (e.g., Git diff indicators)
-#         if [[ "$line_content_trimmed" =~ "^\\+\\+\\+" ]]; then
-#             continue
-#         fi
-
-#         if [[ -n "$line_content_trimmed" ]]; then
-#             # Ensure we only add a semicolon if it doesn't already end with one
-#             if [[ ! "$line_content_trimmed" =~ ([{};]$) && ! "$line_content_trimmed" =~ ^(//|/\*) ]]; then
-#                 line_content_trimmed="$line_content_trimmed;"
-#             fi
-            
-#             echo "Processing Line: [$line_content_trimmed]"
-#             echo "        $line_content_trimmed" >> "$temp_file"
-#             echo "$temp_file,$line_content_trimmed" >> line_number_mapping.txt
-#         fi
-#     done < "$extracted_file"
-
-#     echo "    }" >> "$temp_file"
-#     echo "}" >> "$temp_file"
-# fi
