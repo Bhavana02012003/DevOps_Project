@@ -253,7 +253,12 @@ jobs:
       - name: Upload Scanner Report to Salesforce
         if: success()
         run: |
-            if [ -s scanner-report.csv ]; then
+            # Check if the scanner report contains violations (more than just the header)
+              violation_count=$(tail -n +2 scanner-report.csv | wc -l)
+              if [ "$violation_count" -eq 0 ]; then
+                echo "No violations found. Skipping Salesforce upload."
+                exit 0
+              fi
               response=$(curl -X POST "${{ secrets.SF_API_URL }}" \
                 -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
                 -H "Content-Type: multipart/form-data" \
