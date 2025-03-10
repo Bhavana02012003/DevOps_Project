@@ -675,7 +675,7 @@ jobs:
             [[ -z "$FILE" ]] && continue  # Skip empty lines
  
             for PERMISSION in "${CRITICAL_PERMISSIONS[@]}"; do
-              if grep -q "$PERMISSION" "$FILE" && ! grep -q "System Administrator" "$FILE"; then
+              if grep -q "$PERMISSION" "$FILE"; then
                 BLOCKED_FILES+=("$FILE")
               fi
             done
