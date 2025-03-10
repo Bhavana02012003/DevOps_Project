@@ -3,7 +3,7 @@
     <hasActivationRequired>false</hasActivationRequired>
     <label>Sample Permission Set</label>
     <userPermissions>
-        <enabled>false</enabled>
+        <enabled>true</enabled>
         <name>AssignPermissionSets</name>
     </userPermissions>
 </PermissionSet>
