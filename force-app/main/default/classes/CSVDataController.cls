@@ -1,16 +1,15 @@
 public with sharing class CSVDataController {
     public class CSVDataResponse {
-        @AuraEnabled public List<Map<String, String>> csvData;
-        @AuraEnabled public Integer clsViolationCount;
-        @AuraEnabled public Integer lwcViolationCount;
+        @AuraEnabled public List<Map<String, String>> csvData = new List<Map<String, String>>();
+        @AuraEnabled public Integer clsViolationCount = 0;
+        @AuraEnabled public Integer lwcViolationCount = 0;
+        @AuraEnabled public Integer auraViolationCount = 0;
+        @AuraEnabled public Integer objectsViolationCount = 0;
     }
 
     @AuraEnabled(cacheable=true)
     public static CSVDataResponse getCSVData(String caseId) {
         CSVDataResponse response = new CSVDataResponse();
-        response.csvData = new List<Map<String, String>>();
-        response.clsViolationCount = 0;
-        response.lwcViolationCount = 0;
 
         try {
             // Fetch the latest Attachment (CSV file) related to the case
@@ -24,7 +23,7 @@ public with sharing class CSVDataController {
 
             if (attachments.isEmpty()) {
                 System.debug('⚠️ No CSV file found for Case ID: ' + caseId);
-                return response;
+                return response; // Return empty response to prevent null reference error
             }
 
             Attachment csvFile = attachments[0];
@@ -36,7 +35,12 @@ public with sharing class CSVDataController {
             // Split lines
             List<String> lines = csvContent.split('\n');
 
-            // Parse CSV headers
+            // Ensure headers exist
+            if (lines.isEmpty()) {
+                System.debug('⚠️ CSV file is empty.');
+                return response;
+            }
+
             List<String> headers = lines[0].split(',');
 
             // Process CSV rows
@@ -46,19 +50,21 @@ public with sharing class CSVDataController {
                 if (values.size() == headers.size()) {
                     Map<String, String> rowData = new Map<String, String>();
                     for (Integer j = 0; j < headers.size(); j++) {
-                        String fieldValue = values[j].trim().replaceAll('^\"|\"$', ''); // Remove surrounding quotes
+                        String fieldValue = values[j].trim().replaceAll('^\"|\"$', ''); // Remove quotes
                         rowData.put(headers[j].trim(), fieldValue);
                     }
                     
-                    // Count Apex Class Violations (contains "default_classes")
+                    // Count violations based on file path
                     if (rowData.containsKey('File')) {
                         String filePath = rowData.get('File').trim();
                         if (filePath.contains('classes')) {
                             response.clsViolationCount++;
-                        }
-                        // Count LWC Violations (contains "default_LWC")
-                        else if (filePath.contains('lwc')) {
+                        } else if (filePath.contains('lwc')) {
                             response.lwcViolationCount++;
+                        } else if (filePath.contains('aura')) {
+                            response.auraViolationCount++;
+                        } else if (filePath.contains('objects')) {
+                            response.objectsViolationCount++;
                         }
                     }
 
@@ -66,7 +72,7 @@ public with sharing class CSVDataController {
                 }
             }
         } catch (Exception e) {
-            System.debug('❌ Error reading CSV file: ' + e.getMessage());
+            System.debug('❌ Error processing CSV: ' + e.getMessage());
         }
 
         return response;

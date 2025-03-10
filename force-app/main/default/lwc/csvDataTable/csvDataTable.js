@@ -14,13 +14,12 @@ export default class CsvDataTable extends LightningElement {
     @track isModalOpen = false;
     @track modalTitle = '';
 
-    // Pagination variables for main datatable
+    // Pagination variables
     currentPage = 1;
     totalPages = 1;
     disablePrev = true;
     disableNext = true;
 
-    // Pagination variables for modal datatable
     modalCurrentPage = 1;
     modalTotalPages = 1;
     disablePrevModal = true;
@@ -43,11 +42,16 @@ export default class CsvDataTable extends LightningElement {
 
     @wire(getCSVData, { caseId: '$recordId' })
     wiredCSVData({ error, data }) {
+        if (error) {
+            console.error('Error fetching CSV data:', error);
+            this.data = [];
+            return;
+        }
+
         if (data) {
-            this.data = data.csvData;
+            this.data = data.csvData || [];
             this.setPagination();
 
-            // Extract column headers dynamically
             if (this.data.length > 0) {
                 this.columns = Object.keys(this.data[0]).map(field => ({
                     label: field.replace(/_/g, ' '),
@@ -56,17 +60,39 @@ export default class CsvDataTable extends LightningElement {
                 }));
             }
 
-            // Prepare Summary Data
+            // Ensure all counts are valid
             this.summaryData = [
-                { category: 'Total Apex Class Violations', count: data.clsViolationCount, filterType: 'apex' },
-                { category: 'Total LWC Violations', count: data.lwcViolationCount, filterType: 'lwc' }
+                { category: 'Total Apex Class Violations', count: data.clsViolationCount || 0, filterType: 'apex' },
+                { category: 'Total LWC Violations', count: data.lwcViolationCount || 0, filterType: 'lwc' },
+                { category: 'Total Aura Violations', count: data.auraViolationCount || 0, filterType: 'aura' },
+                { category: 'Total Objects Violations', count: data.objectsViolationCount || 0, filterType: 'objects' }
             ];
-        } else if (error) {
-            this.data = [];
         }
     }
 
-    // Set Pagination for Main Table
+    // Handle Click Event for Filtering Data in Modal
+    handleRowAction(event) {
+        const row = event.detail.row;
+
+        if (row.filterType === 'apex') {
+            this.modalTitle = 'Apex Class Violations';
+            this.filteredData = this.data.filter(item => item.File && item.File.includes('classes'));
+        } else if (row.filterType === 'lwc') {
+            this.modalTitle = 'LWC Violations';
+            this.filteredData = this.data.filter(item => item.File && item.File.includes('lwc'));
+        } else if (row.filterType === 'aura') {
+            this.modalTitle = 'Aura Violations';
+            this.filteredData = this.data.filter(item => item.File && item.File.includes('aura'));
+        } else if (row.filterType === 'objects') {
+            this.modalTitle = 'Objects Violations';
+            this.filteredData = this.data.filter(item => item.File && item.File.includes('objects'));
+        }
+
+        this.setModalPagination();
+        this.isModalOpen = true;
+    }
+
+    // Ensure pagination works
     setPagination() {
         this.totalPages = Math.ceil(this.data.length / PAGE_SIZE);
         this.currentPage = 1;
@@ -82,37 +108,7 @@ export default class CsvDataTable extends LightningElement {
         this.disableNext = this.currentPage === this.totalPages;
     }
 
-    handleNextPage() {
-        if (this.currentPage < this.totalPages) {
-            this.currentPage++;
-            this.updatePaginatedData();
-        }
-    }
-
-    handlePrevPage() {
-        if (this.currentPage > 1) {
-            this.currentPage--;
-            this.updatePaginatedData();
-        }
-    }
-
-    // Handle Click Event on Count Column
-    handleRowAction(event) {
-        const row = event.detail.row;
-
-        if (row.filterType === 'apex') {
-            this.modalTitle = 'Apex Class Violations';
-            this.filteredData = this.data.filter(item => item.File && item.File.includes('classes'));
-        } else if (row.filterType === 'lwc') {
-            this.modalTitle = 'LWC Violations';
-            this.filteredData = this.data.filter(item => item.File && item.File.includes('lwc'));
-        }
-
-        this.setModalPagination();
-        this.isModalOpen = true;
-    }
-
-    // Set Pagination for Modal Table
+    // Pagination for modal
     setModalPagination() {
         this.modalTotalPages = Math.ceil(this.filteredData.length / PAGE_SIZE);
         this.modalCurrentPage = 1;
@@ -126,20 +122,6 @@ export default class CsvDataTable extends LightningElement {
 
         this.disablePrevModal = this.modalCurrentPage === 1;
         this.disableNextModal = this.modalCurrentPage === this.modalTotalPages;
-    }
-
-    handleNextModalPage() {
-        if (this.modalCurrentPage < this.modalTotalPages) {
-            this.modalCurrentPage++;
-            this.updatePaginatedFilteredData();
-        }
-    }
-
-    handlePrevModalPage() {
-        if (this.modalCurrentPage > 1) {
-            this.modalCurrentPage--;
-            this.updatePaginatedFilteredData();
-        }
     }
 
     // Close Modal
