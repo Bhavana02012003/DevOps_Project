@@ -1,7 +1,7 @@
 import { LightningElement, api, wire, track } from 'lwc';
 import getCSVData from '@salesforce/apex/CSVDataController.getCSVData';
 
-const PAGE_SIZE = 5; // Set page size to 5 rows per page
+const PAGE_SIZE = 5; // Display 5 rows per page
 
 export default class CsvDataTable extends LightningElement {
     @api recordId;
@@ -99,14 +99,13 @@ export default class CsvDataTable extends LightningElement {
     // Handle Click Event on Count Column
     handleRowAction(event) {
         const row = event.detail.row;
+
         if (row.filterType === 'apex') {
             this.modalTitle = 'Apex Class Violations';
-            this.filteredData = this.data.filter(item => item.File && item.File.endsWith('.cls'));
+            this.filteredData = this.data.filter(item => item.File && item.File.includes('classes'));
         } else if (row.filterType === 'lwc') {
             this.modalTitle = 'LWC Violations';
-            this.filteredData = this.data.filter(item => 
-                item.File && (item.File.endsWith('.html') || item.File.endsWith('.js') || item.File.endsWith('.xml'))
-            );
+            this.filteredData = this.data.filter(item => item.File && item.File.includes('lwc'));
         }
 
         this.setModalPagination();

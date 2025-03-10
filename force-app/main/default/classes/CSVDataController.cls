@@ -50,14 +50,14 @@ public with sharing class CSVDataController {
                         rowData.put(headers[j].trim(), fieldValue);
                     }
                     
-                    // Check for Apex Class violations (.cls)
+                    // Count Apex Class Violations (contains "default_classes")
                     if (rowData.containsKey('File')) {
                         String filePath = rowData.get('File').trim();
-                        if (filePath.endsWith('.cls')) {
+                        if (filePath.contains('classes')) {
                             response.clsViolationCount++;
                         }
-                        // Check for LWC Violations (.html, .js, .xml)
-                        else if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.xml')) {
+                        // Count LWC Violations (contains "default_LWC")
+                        else if (filePath.contains('lwc')) {
                             response.lwcViolationCount++;
                         }
                     }
