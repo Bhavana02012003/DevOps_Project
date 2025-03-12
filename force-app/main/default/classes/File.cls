@@ -62,6 +62,7 @@ public with sharing class File {
                 'engine' => 'engine', 
                 'commit' => 'commit', 
                 'actualline' => 'actual line' // Map `ActualLine` from CSV to `Actual_Line__c`
+                'targetbranch' => 'target branch' // New mapping for TargetBranch
             };
 
             // ✅ Ensure all required fields exist
@@ -101,6 +102,9 @@ public with sharing class File {
                 // ✅ Handle missing "ActualLine" values → Default to "NA"
                 String actualLineValue = columnMap.containsKey(fieldMappings.get('actualline')) ? columns[columnMap.get(fieldMappings.get('actualline'))].trim() : 'NA';
                 vuln.ActualLine__c = (actualLineValue == null || actualLineValue == '') ? 'NA' : actualLineValue;
+
+                // ✅ Handle the new "TargetBranch" field
+                vuln.TargetBranch__c = columnMap.containsKey(fieldMappings.get('targetbranch')) ? columns[columnMap.get(fieldMappings.get('targetbranch'))].trim() : 'N/A';
 
                 newRecords.add(vuln);
             }
