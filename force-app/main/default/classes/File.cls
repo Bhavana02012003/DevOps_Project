@@ -1,11 +1,4 @@
 public with sharing class File {
-    public static void processNewFiles(List<Id> contentDocIds) {
-        for (Id contentDocId : contentDocIds) {
-            importVulnerabilityData(contentDocId);
-        }
-    }
-
-    @AuraEnabled
     public static void importVulnerabilityData(Id contentDocId) {
         try {
             // ✅ Fetch ContentVersion using ContentDocumentId
@@ -37,7 +30,7 @@ public with sharing class File {
                 return;
             }
 
-            // ✅ Extract headers & normalize
+            // ✅ Extract headers & normalize (trim & lowercase)
             List<String> headers = parseCSVLine(lines[0]);
             Map<String, Integer> columnMap = new Map<String, Integer>();
 
@@ -48,12 +41,12 @@ public with sharing class File {
 
             System.debug('🔍 Available columns in CSV: ' + columnMap.keySet());
 
-            // ✅ Required Fields (Fix "ActualLine" and Map "TempLine" to "Line__c")
+            // ✅ Required Fields Mapping (Ensure exact column names)
             Map<String, String> fieldMappings = new Map<String, String>{
                 'problem' => 'problem', 
                 'severity' => 'severity', 
                 'file' => 'file', 
-                'templine' => 'line', // Map `TempLine` from CSV to `Line__c` in Salesforce
+                'templine' => 'line', 
                 'column' => 'column', 
                 'rule' => 'rule',
                 'description' => 'description', 
@@ -61,13 +54,13 @@ public with sharing class File {
                 'category' => 'category', 
                 'engine' => 'engine', 
                 'commit' => 'commit', 
-                'actualline' => 'actual line' // Map `ActualLine` from CSV to `Actual_Line__c`
-                'targetbranch' => 'target branch' // New mapping for TargetBranch
+                'actualline' => 'actual line', 
+                'targetbranch' => 'target branch'
             };
 
             // ✅ Ensure all required fields exist
             for (String field : fieldMappings.keySet()) {
-                if (!columnMap.containsKey(field)) {
+                if (!columnMap.containsKey(field.toLowerCase())) { // Normalize case
                     System.debug('❌ Missing required column: ' + field);
                     return;
                 }
@@ -81,44 +74,59 @@ public with sharing class File {
 
                 if (columns.size() < headers.size()) {
                     System.debug('⚠️ Skipping malformed row: ' + lines[i]);
-                    continue; // Skip malformed lines
+                    continue;
                 }
 
                 Vulnerability__c vuln = new Vulnerability__c();
 
                 // ✅ Defensive check: Ensure column index exists before accessing it
-                vuln.Problem__c = columnMap.containsKey(fieldMappings.get('problem')) ? columns[columnMap.get(fieldMappings.get('problem'))].trim() : 'N/A';
-                vuln.Severity__c = columnMap.containsKey(fieldMappings.get('severity')) ? columns[columnMap.get(fieldMappings.get('severity'))].trim() : 'N/A';
-                vuln.File__c = columnMap.containsKey(fieldMappings.get('file')) ? columns[columnMap.get(fieldMappings.get('file'))].trim() : 'N/A';
-                vuln.Line__c = columnMap.containsKey(fieldMappings.get('templine')) ? columns[columnMap.get(fieldMappings.get('templine'))].trim() : 'N/A'; // Using "TempLine" as "Line__c"
-                vuln.Column__c = columnMap.containsKey(fieldMappings.get('column')) ? columns[columnMap.get(fieldMappings.get('column'))].trim() : 'N/A';
-                vuln.Rule__c = columnMap.containsKey(fieldMappings.get('rule')) ? columns[columnMap.get(fieldMappings.get('rule'))].trim() : 'N/A';
-                vuln.Description__c = columnMap.containsKey(fieldMappings.get('description')) ? columns[columnMap.get(fieldMappings.get('description'))].trim() : 'N/A';
-                vuln.URL__c = columnMap.containsKey(fieldMappings.get('url')) ? columns[columnMap.get(fieldMappings.get('url'))].trim() : 'N/A';
-                vuln.Category__c = columnMap.containsKey(fieldMappings.get('category')) ? columns[columnMap.get(fieldMappings.get('category'))].trim() : 'N/A';
-                vuln.Engine__c = columnMap.containsKey(fieldMappings.get('engine')) ? columns[columnMap.get(fieldMappings.get('engine'))].trim() : 'N/A';
-                vuln.Commit__c = columnMap.containsKey(fieldMappings.get('commit')) ? columns[columnMap.get(fieldMappings.get('commit'))].trim() : 'N/A';
+                vuln.Problem__c = getColumnValue(columns, columnMap, fieldMappings, 'problem');
+                vuln.Severity__c = getColumnValue(columns, columnMap, fieldMappings, 'severity');
+                vuln.File__c = getColumnValue(columns, columnMap, fieldMappings, 'file');
+                vuln.Line__c = getColumnValue(columns, columnMap, fieldMappings, 'templine'); // Using "TempLine" as "Line__c"
+                vuln.Column__c = getColumnValue(columns, columnMap, fieldMappings, 'column');
+                vuln.Rule__c = getColumnValue(columns, columnMap, fieldMappings, 'rule');
+                vuln.Description__c = getColumnValue(columns, columnMap, fieldMappings, 'description');
+                vuln.URL__c = getColumnValue(columns, columnMap, fieldMappings, 'url');
+                vuln.Category__c = getColumnValue(columns, columnMap, fieldMappings, 'category');
+                vuln.Engine__c = getColumnValue(columns, columnMap, fieldMappings, 'engine');
+                vuln.Commit__c = getColumnValue(columns, columnMap, fieldMappings, 'commit');
 
-                // ✅ Handle missing "ActualLine" values → Default to "NA"
-                String actualLineValue = columnMap.containsKey(fieldMappings.get('actualline')) ? columns[columnMap.get(fieldMappings.get('actualline'))].trim() : 'NA';
-                vuln.ActualLine__c = (actualLineValue == null || actualLineValue == '') ? 'NA' : actualLineValue;
+                // ✅ Handle missing "ActualLine" values
+                vuln.ActualLine__c = getColumnValue(columns, columnMap, fieldMappings, 'actualline');
 
-                // ✅ Handle the new "TargetBranch" field
-                vuln.TargetBranch__c = columnMap.containsKey(fieldMappings.get('targetbranch')) ? columns[columnMap.get(fieldMappings.get('targetbranch'))].trim() : 'N/A';
+                // ✅ Handle "TargetBranch"
+                vuln.TargetBranch__c = getColumnValue(columns, columnMap, fieldMappings, 'targetbranch');
+
+                System.debug('✅ Created Vulnerability Record: ' + vuln);
 
                 newRecords.add(vuln);
             }
 
-            // ✅ Insert records in bulk
+            // Insert records and capture errors
             if (!newRecords.isEmpty()) {
-                insert newRecords;
-                System.debug(newRecords.size() + ' ✅ Vulnerability records created.');
+                try {
+                    insert newRecords;
+                    System.debug(newRecords.size() + ' ✅ Vulnerability records created.');
+                } catch (DMLException e) {
+                    System.debug('❌ Error inserting records: ' + e.getMessage());
+                }
             } else {
                 System.debug('⚠️ No valid records found.');
             }
         } catch (Exception e) {
             System.debug('❌ Error processing file: ' + e.getMessage());
         }
+    }
+
+    // ✅ Helper Method to Get Column Value Safely
+    public static String getColumnValue(List<String> columns, Map<String, Integer> columnMap, Map<String, String> fieldMappings, String field) {
+        Integer index = columnMap.get(fieldMappings.get(field).toLowerCase());
+        if (index != null && index < columns.size()) {
+            String value = columns[index].trim();
+            return (value == null || value == '') ? 'N/A' : value; // Prevents null assignments
+        }
+        return 'N/A';
     }
 
     // ✅ CSV Parsing Function (Handles Quoted Values)
@@ -131,16 +139,15 @@ public with sharing class File {
             String currentChar = csvLine.substring(i, i + 1);
 
             if (currentChar == '"') {
-                insideQuote = !insideQuote; // Toggle inside/outside quote state
+                insideQuote = !insideQuote;
             } else if (currentChar == ',' && !insideQuote) {
                 columns.add(currentValue.trim());
-                currentValue = ''; // Reset for next value
+                currentValue = '';
             } else {
                 currentValue += currentChar;
             }
         }
 
-        // Add the last value
         columns.add(currentValue.trim());
         return columns;
     }
