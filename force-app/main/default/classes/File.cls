@@ -48,12 +48,12 @@ public with sharing class File {
 
             System.debug('🔍 Available columns in CSV: ' + columnMap.keySet());
 
-            // ✅ Required Fields Mapping
+            // ✅ Required Fields (Fix "ActualLine" and Map "TempLine" to "Line__c")
             Map<String, String> fieldMappings = new Map<String, String>{
                 'problem' => 'problem', 
                 'severity' => 'severity', 
                 'file' => 'file', 
-                'templine' => 'line', // Map `TempLine` from CSV to `Line__c`
+                //'templine' => 'line', // Map `TempLine` from CSV to `Line__c` in Salesforce
                 'column' => 'column', 
                 'rule' => 'rule',
                 'description' => 'description', 
@@ -62,7 +62,9 @@ public with sharing class File {
                 'engine' => 'engine', 
                 'commit' => 'commit', 
                 'actualline' => 'actual line', // Map `ActualLine` from CSV to `Actual_Line__c`
-                'targetbranch' => 'target branch' // New mapping for TargetBranch
+                'TargetBranch' => 'TargetBranch',  // Ensure exact match with CSV header
+                'templine' => 'line'  // Map TempLine to Line__c
+
             };
 
             // ✅ Ensure all required fields exist
@@ -90,7 +92,7 @@ public with sharing class File {
                 vuln.Problem__c = columnMap.containsKey(fieldMappings.get('problem')) ? columns[columnMap.get(fieldMappings.get('problem'))].trim() : 'N/A';
                 vuln.Severity__c = columnMap.containsKey(fieldMappings.get('severity')) ? columns[columnMap.get(fieldMappings.get('severity'))].trim() : 'N/A';
                 vuln.File__c = columnMap.containsKey(fieldMappings.get('file')) ? columns[columnMap.get(fieldMappings.get('file'))].trim() : 'N/A';
-                vuln.Line__c = columnMap.containsKey(fieldMappings.get('templine')) ? columns[columnMap.get(fieldMappings.get('templine'))].trim() : 'N/A'; // Using "TempLine" as "Line__c"
+                // vuln.Line__c = columnMap.containsKey(fieldMappings.get('templine')) ? columns[columnMap.get(fieldMappings.get('templine'))].trim() : 'N/A'; // Using "TempLine" as "Line__c"
                 vuln.Column__c = columnMap.containsKey(fieldMappings.get('column')) ? columns[columnMap.get(fieldMappings.get('column'))].trim() : 'N/A';
                 vuln.Rule__c = columnMap.containsKey(fieldMappings.get('rule')) ? columns[columnMap.get(fieldMappings.get('rule'))].trim() : 'N/A';
                 vuln.Description__c = columnMap.containsKey(fieldMappings.get('description')) ? columns[columnMap.get(fieldMappings.get('description'))].trim() : 'N/A';
@@ -104,7 +106,27 @@ public with sharing class File {
                 vuln.ActualLine__c = (actualLineValue == null || actualLineValue == '') ? 'NA' : actualLineValue;
 
                 // ✅ Handle the new "TargetBranch" field
-                vuln.TargetBranch__c = columnMap.containsKey(fieldMappings.get('targetbranch')) ? columns[columnMap.get(fieldMappings.get('targetbranch'))].trim() : 'N/A';
+                //vuln.TargetBranch__c = columnMap.containsKey(fieldMappings.get('targetbranch')) ? columns[columnMap.get(fieldMappings.get('targetbranch'))].trim() : 'N/A';
+
+                // Assign Line__c from TempLine
+                if (columnMap.containsKey('TempLine')) {
+                    String lineValue = columns[columnMap.get('TempLine')].trim();
+                    vuln.Line__c = (lineValue != null && lineValue != '') ? lineValue : 'N/A';
+                } else {
+                    vuln.Line__c = 'N/A';
+                }
+
+                // Assign TargetBranch__c correctly
+                if (columnMap.containsKey('TargetBranch')) {
+                    String branchValue = columns[columnMap.get('TargetBranch')].trim();
+                    vuln.TargetBranch__c = (branchValue != null && branchValue != '') ? branchValue : 'N/A';
+                } else {
+                    vuln.TargetBranch__c = 'N/A';
+                }
+
+                // Debug the extracted values
+                System.debug('✅ Extracted Line: ' + vuln.Line__c);
+                System.debug('✅ Extracted TargetBranch: ' + vuln.TargetBranch__c);
 
                 newRecords.add(vuln);
             }
