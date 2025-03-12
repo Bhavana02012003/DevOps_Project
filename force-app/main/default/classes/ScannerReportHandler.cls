@@ -33,24 +33,22 @@ public with sharing class ScannerReportHandler {
 
             ContentVersion fileVersion = fileVersions[0];
 
-            // Ensure the file is a CSV before creating an attachment
+            // Ensure the file is a CSV before storing in Attachments
             if (fileVersion.FileExtension != 'csv') {
                 System.debug('⚠️ Skipping non-CSV file: ' + fileVersion.Title);
                 return;
             }
 
-            System.debug('✅ CSV File Found! Creating attachment...');
+            System.debug('✅ CSV File Found! Converting to Attachment...');
 
-            // Ensure the file name has a .csv extension
+            // Convert file data into a Blob
+            Blob fileBlob = fileVersion.VersionData;
             String fileName = fileVersion.Title;
             if (!fileName.toLowerCase().endsWith('.csv')) {
                 fileName += '.csv';
             }
 
-            // Convert file data into a Blob
-            Blob fileBlob = fileVersion.VersionData;
-
-            // **Create an Attachment Record and Attach to Case**
+            // **Create an Attachment Record**
             Attachment attachment = new Attachment();
             attachment.Name = fileName;
             attachment.Body = fileBlob; // Store CSV content correctly
@@ -58,11 +56,10 @@ public with sharing class ScannerReportHandler {
             attachment.ContentType = 'text/csv'; // Ensure correct MIME type
 
             insert attachment;
-
             System.debug('✅ CSV Attachment successfully created and linked to Case ID: ' + caseId);
 
         } catch (Exception e) {
-            System.debug('❌ Error creating CSV attachment: ' + e.getMessage());
+            System.debug('❌ Error linking file to Case Attachments: ' + e.getMessage());
         }
     }
 
