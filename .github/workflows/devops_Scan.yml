@@ -72,7 +72,7 @@ jobs:
           FILE_TITLE="Code Scanner Delta Report_${REPO_NAME}_${BRANCH_NAME}_${COMMIT_LABEL}"
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
           echo "TARGET_BRANCH=${BRANCH_NAME}" >> $GITHUB_ENV  # Store the Target Branch
-          
+
       - name: Get changed lines and create temporary files
         id: get-changes
         run: |
@@ -275,7 +275,14 @@ jobs:
               -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
               -F "VersionData=@scanner-report.csv;type=text/csv")
 
-            contentVersionId=$(echo "$response" | jq -r '.id // empty')
+            contentVersionId=$(echo "$response" | jq -r '.id // empty' 2>/dev/null || echo "null")
+
+            if [[ "$contentVersionId" == "null" || -z "$contentVersionId" ]]; then
+              echo "❌ Error: Failed to extract ContentVersion ID from response."
+              echo "Full API Response: $response"
+              exit 1
+            fi
+
 
             if [ -z "$contentVersionId" ]; then
               echo "Error: Failed to upload file."
@@ -362,7 +369,13 @@ jobs:
 
           git pull origin $BRANCH_NAME --rebase
           mkdir -p Artifact
-          cp /tmp/artifact_backup/${{ env.REPORT_FILE }} Artifact/${{ env.REPORT_FILE }}
+          if [ -f "/tmp/artifact_backup/${{ env.REPORT_FILE }}" ]; then
+            cp "/tmp/artifact_backup/${{ env.REPORT_FILE }}" "Artifact/${{ env.REPORT_FILE }}"
+            echo "✅ Scanner report copied to Artifact/${{ env.REPORT_FILE }}."
+          else
+            echo "❌ No scanner report found in /tmp/artifact_backup/. Skipping copy step."
+          fi
+
           echo "✅ Scanner report restored to Artifact/${{ env.REPORT_FILE }}."
 
           git add Artifact/${{ env.REPORT_FILE }}
