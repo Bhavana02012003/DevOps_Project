@@ -19,7 +19,7 @@ public with sharing class ScannerReportHandler {
 
             // Retrieve the stored ContentVersion file
             List<ContentVersion> fileVersions = [
-                SELECT Id, VersionData, Title, FileExtension
+                SELECT Id, VersionData, Title, FileExtension, ContentDocumentId
                 FROM ContentVersion 
                 WHERE ContentDocumentId = :caseRecord.ContentDocumentId__c 
                 ORDER BY CreatedDate DESC 
@@ -39,7 +39,7 @@ public with sharing class ScannerReportHandler {
                 return;
             }
 
-            System.debug('✅ File found! Creating attachment...');
+            System.debug('✅ CSV File Found! Creating attachment...');
 
             // Ensure the file name has a .csv extension
             String fileName = fileVersion.Title;
@@ -50,7 +50,7 @@ public with sharing class ScannerReportHandler {
             // Convert file data into a Blob
             Blob fileBlob = fileVersion.VersionData;
 
-            // **Create the Attachment Record**
+            // **Create an Attachment Record and Attach to Case**
             Attachment attachment = new Attachment();
             attachment.Name = fileName;
             attachment.Body = fileBlob; // Store CSV content correctly
@@ -66,7 +66,7 @@ public with sharing class ScannerReportHandler {
         }
     }
 
-    // ✅ Fix: Add the `processFiles` method to avoid the error in the trigger
+    // ✅ Fix: Ensure processFiles(Set<Id>) method exists
     public static void processFiles(Set<Id> contentDocumentIds) {
         System.debug('🔍 Processing Scanner Report Files for ContentDocumentIds: ' + contentDocumentIds);
 
