@@ -65,4 +65,45 @@ public with sharing class ScannerReportHandler {
             System.debug('❌ Error creating CSV attachment: ' + e.getMessage());
         }
     }
+
+    // ✅ Fix: Add the `processFiles` method to avoid the error in the trigger
+    public static void processFiles(Set<Id> contentDocumentIds) {
+        System.debug('🔍 Processing Scanner Report Files for ContentDocumentIds: ' + contentDocumentIds);
+
+        if (contentDocumentIds.isEmpty()) {
+            System.debug('⚠️ No ContentDocumentIds provided. Skipping processing.');
+            return;
+        }
+
+        // Fetch ContentVersion records for processing
+        List<ContentVersion> contentVersions = [ 
+            SELECT Id, ContentDocumentId, Title, VersionData 
+            FROM ContentVersion 
+            WHERE ContentDocumentId IN :contentDocumentIds
+        ];
+
+        if (contentVersions.isEmpty()) {
+            System.debug('⚠️ No matching ContentVersion records found.');
+            return;
+        }
+
+        List<Case> casesToInsert = new List<Case>();
+
+        for (ContentVersion cv : contentVersions) {
+            if (cv.Title.contains('Code Scanner')) {
+                Case newCase = new Case();
+                newCase.ContentDocumentId__c = cv.ContentDocumentId;
+                newCase.File_Name__c = cv.Title;
+                newCase.Status = 'New';
+                casesToInsert.add(newCase);
+            }
+        }
+
+        if (!casesToInsert.isEmpty()) {
+            insert casesToInsert;
+            System.debug('✅ Inserted ' + casesToInsert.size() + ' new Case records.');
+        } else {
+            System.debug('ℹ️ No new Cases to insert.');
+        }
+    }
 }
