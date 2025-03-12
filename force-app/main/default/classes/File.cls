@@ -48,12 +48,12 @@ public with sharing class File {
 
             System.debug('🔍 Available columns in CSV: ' + columnMap.keySet());
 
-            // ✅ Required Fields (Fix "ActualLine" and Map "TempLine" to "Line__c")
+            // ✅ Required Fields Mapping
             Map<String, String> fieldMappings = new Map<String, String>{
                 'problem' => 'problem', 
                 'severity' => 'severity', 
                 'file' => 'file', 
-                'templine' => 'line', // Map `TempLine` from CSV to `Line__c` in Salesforce
+                'templine' => 'line', // Map `TempLine` from CSV to `Line__c`
                 'column' => 'column', 
                 'rule' => 'rule',
                 'description' => 'description', 
@@ -61,7 +61,7 @@ public with sharing class File {
                 'category' => 'category', 
                 'engine' => 'engine', 
                 'commit' => 'commit', 
-                'actualline' => 'actual line' // Map `ActualLine` from CSV to `Actual_Line__c`
+                'actualline' => 'actual line', // Map `ActualLine` from CSV to `Actual_Line__c`
                 'targetbranch' => 'target branch' // New mapping for TargetBranch
             };
 
