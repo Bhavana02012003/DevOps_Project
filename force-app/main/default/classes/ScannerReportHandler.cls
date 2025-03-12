@@ -48,6 +48,18 @@ public with sharing class ScannerReportHandler {
                 fileName += '.csv';
             }
 
+            // **Check if an attachment already exists to avoid duplicates**
+            List<Attachment> existingAttachments = [
+                SELECT Id FROM Attachment 
+                WHERE ParentId = :caseRecord.Id 
+                AND Name = :fileName
+            ];
+
+            if (!existingAttachments.isEmpty()) {
+                System.debug('⚠️ Attachment already exists for this Case. Skipping creation.');
+                return;
+            }
+
             // **Create an Attachment Record**
             Attachment attachment = new Attachment();
             attachment.Name = fileName;
