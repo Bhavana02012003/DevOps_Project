@@ -170,32 +170,33 @@ jobs:
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
             echo "No files to scan. Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
             exit 0
           fi
-          # Initialize final report with headers
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+          # Initialize final report with headers including TargetBranch
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
 
           UNWANTED_PATH="/home/runner/work/DevOps_Project/DevOps_Project/temp_scanner_files/"
 
           for file in $files; do
             echo "Running SFDX Scanner on file: $file"
             sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
-            
+
             # Ensure partial report exists before processing
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
               # Append new results to final report, excluding duplicate headers
-              tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v unwanted_path="$UNWANTED_PATH" '{
+              tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
                 $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
                 $11 = commit_author;  # Set commit username in column 11
                 if (NF < 12) $12 = "N/A";  # Ensure ActualLine column is always present
+                $13 = target_branch; # Add the TargetBranch column
                 print $0
               }' >> scanner-report.csv
             fi
           done
           
           # Debug final scanner report
-          echo "Final Scanner Report:"
+          echo "Final Scanner Report with TargetBranch:"
           cat scanner-report.csv
           
       - name: Upload Scanner Report to Temporary Storage (GoFile.io)
@@ -255,6 +256,7 @@ jobs:
           COMMIT_LABEL=$(git log -1 --pretty=format:'%s')
           FILE_TITLE="Code Scanner Delta Report_${REPO_NAME}_${BRANCH_NAME}_${COMMIT_LABEL}"
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
+          echo "TARGET_BRANCH=${BRANCH_NAME}" >> $GITHUB_ENV  # Store the Target Branch
       - name: Upload Scanner Report to Salesforce
         if: success()
         run: |
