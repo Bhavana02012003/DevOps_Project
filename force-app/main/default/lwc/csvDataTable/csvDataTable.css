@@ -1,0 +1,9 @@
+.modal-scroll {
+        max-height: 70vh; /* Makes the modal scrollable if content is large */
+        overflow-y: auto;
+}
+
+.modal-datatable {
+        height: auto; /* Ensures table expands naturally */
+        max-height: 60vh; /* Limits height to prevent overflow */
+}

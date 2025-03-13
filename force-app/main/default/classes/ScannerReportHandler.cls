@@ -1,51 +1,118 @@
 public with sharing class ScannerReportHandler {
-    public static void processFiles(Set<Id> documentIds) {
+    @AuraEnabled
+    public static void createAttachmentForCase(String caseId) {
         try {
-            // Fetch the latest ContentVersion associated with the ContentDocuments
-            List<ContentVersion> files = [SELECT Id, VersionData, ContentDocumentId
-                                          FROM ContentVersion
-                                          WHERE ContentDocumentId IN :documentIds
-                                          ORDER BY CreatedDate DESC];
-            System.debug('File');
+            System.debug('📂 Fetching Case ID: ' + caseId);
 
-            for (ContentVersion file : files) {
-                // Convert Blob to String
-                String csvContent = file.VersionData.toString();
-                
-                // Parse CSV and create Cases
-                createCasesFromCSV(csvContent, file.ContentDocumentId);
+            // Step 1: Fetch the related Case record
+            Case caseRecord = [
+                SELECT Id, ContentDocumentId__c, File_Name__c 
+                FROM Case 
+                WHERE Id = :caseId 
+                LIMIT 1
+            ];
+
+            if (caseRecord.ContentDocumentId__c == null) {
+                System.debug('⚠️ No file associated with this case.');
+                return;
             }
+
+            // Step 2: Fetch the latest ContentVersion file
+            List<ContentVersion> fileVersions = [
+                SELECT Id, VersionData, Title, FileExtension, ContentDocumentId
+                FROM ContentVersion 
+                WHERE ContentDocumentId = :caseRecord.ContentDocumentId__c 
+                ORDER BY CreatedDate DESC 
+                LIMIT 1
+            ];
+
+            if (fileVersions.isEmpty()) {
+                System.debug('⚠️ No ContentVersion file found for ContentDocumentId: ' + caseRecord.ContentDocumentId__c);
+                return;
+            }
+
+            ContentVersion fileVersion = fileVersions[0];
+
+            // Step 3: Ensure the file is a CSV before storing in Attachments
+            if (fileVersion.FileExtension != 'csv') {
+                System.debug('⚠️ Skipping non-CSV file: ' + fileVersion.Title);
+                return;
+            }
+
+            System.debug('✅ CSV File Found! Converting to Attachment...');
+
+            // Step 4: Convert ContentVersion to Attachment
+            Blob fileBlob = fileVersion.VersionData;
+            String fileName = fileVersion.Title;
+            if (!fileName.toLowerCase().endsWith('.csv')) {
+                fileName += '.csv';
+            }
+
+            // Check if an attachment already exists for this case
+            List<Attachment> existingAttachments = [
+                SELECT Id FROM Attachment 
+                WHERE ParentId = :caseRecord.Id 
+                AND Name = :fileName
+            ];
+
+            if (!existingAttachments.isEmpty()) {
+                System.debug('⚠️ Attachment already exists for this Case. Skipping creation.');
+                return;
+            }
+
+            // Step 5: **Manually create and insert the Attachment**
+            Attachment newAttachment = new Attachment();
+            newAttachment.Name = fileName;
+            newAttachment.Body = fileBlob;
+            newAttachment.ParentId = caseRecord.Id;
+            newAttachment.ContentType = 'text/csv';
+
+            insert newAttachment;
+            System.debug('✅ CSV Attachment successfully created and linked to Case ID: ' + caseId);
+
         } catch (Exception e) {
-            System.debug('Error processing scanner report: ' + e.getMessage());
+            System.debug('❌ Error linking file to Case Attachments: ' + e.getMessage());
         }
     }
 
-    private static void createCasesFromCSV(String csvContent, Id documentId) {
-        List<Case> caseList = new List<Case>();
-        List<String> lines = csvContent.split('\n');
+    // ✅ Fix: Ensure processFiles(Set<Id>) method exists
+    public static void processFiles(Set<Id> contentDocumentIds) {
+        System.debug('🔍 Processing Scanner Report Files for ContentDocumentIds: ' + contentDocumentIds);
 
-        for (Integer i = 1; i < lines.size(); i++) { // Skipping header row
-            List<String> values = lines[i].split(',');
-
-            if (values.size() < 6) continue; // Ensure enough columns exist
-
-            Case newCase = new Case();
-            newCase.Subject = 'Scanner Report Violation: ' + values[0]; // Problem Column
-            newCase.Description = 'Severity: ' + values[1] +
-                                  '\nFile: ' + values[2] +
-                                  '\nLine: ' + values[3] +
-                                  '\nRule: ' + values[4] +
-                                  '\nDescription: ' + values[5];
-            newCase.Priority = values[1] == 'High' ? 'High' : 'Medium'; // Map Severity to Case Priority
-            newCase.Status = 'New';
-            newCase.Origin = 'Automation';
-            newCase.Scanner_Report_File_ID__c = documentId; // Store the file ID as a reference
-
-            caseList.add(newCase);
+        if (contentDocumentIds.isEmpty()) {
+            System.debug('⚠️ No ContentDocumentIds provided. Skipping processing.');
+            return;
         }
 
-        if (!caseList.isEmpty()) {
-            insert caseList;
+        // Fetch ContentVersion records for processing
+        List<ContentVersion> contentVersions = [ 
+            SELECT Id, ContentDocumentId, Title, VersionData 
+            FROM ContentVersion 
+            WHERE ContentDocumentId IN :contentDocumentIds
+        ];
+
+        if (contentVersions.isEmpty()) {
+            System.debug('⚠️ No matching ContentVersion records found.');
+            return;
+        }
+
+        List<Case> casesToInsert = new List<Case>();
+
+        for (ContentVersion cv : contentVersions) {
+            if (cv.Title.contains('Code Scanner')) {
+                Case newCase = new Case();
+                newCase.ContentDocumentId__c = cv.ContentDocumentId;
+                newCase.File_Name__c = cv.Title;
+                newCase.Status = 'New';
+                casesToInsert.add(newCase);
+            }
+        }
+
+        if (!casesToInsert.isEmpty()) {
+            insert casesToInsert;
+            System.debug('✅ Inserted ' + casesToInsert.size() + ' new Case records.');
+        } else {
+            System.debug('ℹ️ No new Cases to insert.');
         }
     }
 }
