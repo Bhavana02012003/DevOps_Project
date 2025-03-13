@@ -1,1 +1,3 @@
+
 [{"engine":"pmd-custom","fileName":"C:\\Users\\gvsmo\\AppData\\Local\\Temp\\tmp.pLmUG3x3CS\\temp_force-app_main_default_classes_Demo.cls","violations":[{"line":13,"column":25,"endLine":13,"endColumn":66,"severity":3,"ruleName":"AvoidDebugStatements","category":"Performance","url":"https://docs.pmd-code.org/pmd-doc-7.6.0/pmd_rules_apex_performance.html#avoiddebugstatements","message":"\r\nAvoid Debug Statements\r\n"}]}]
+
