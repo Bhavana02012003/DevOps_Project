@@ -1,0 +1,2 @@
+Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine
+"1","3","/home/runner/work/DevOps_Project/DevOps_Project/temp_scanner_files/temp_force-app_main_default_classes_ScannerReportHandler.cls","4","9","AvoidDebugStatements","Avoid Debug Statements","https://docs.pmd-code.org/pmd-doc-7.10.0/pmd_rules_apex_performance.html#avoiddebugstatements","Performance","pmd-custom",Bhavana02012003,N/A
