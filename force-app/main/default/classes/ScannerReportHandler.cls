@@ -4,7 +4,7 @@ public with sharing class ScannerReportHandler {
         try {
             System.debug('📂 Fetching Case ID: ' + caseId);
 
-            // Fetch the related Case record
+            // Step 1: Fetch the related Case record
             Case caseRecord = [
                 SELECT Id, ContentDocumentId__c, File_Name__c 
                 FROM Case 
@@ -17,7 +17,7 @@ public with sharing class ScannerReportHandler {
                 return;
             }
 
-            // Retrieve the stored ContentVersion file
+            // Step 2: Fetch the latest ContentVersion file
             List<ContentVersion> fileVersions = [
                 SELECT Id, VersionData, Title, FileExtension, ContentDocumentId
                 FROM ContentVersion 
@@ -33,7 +33,7 @@ public with sharing class ScannerReportHandler {
 
             ContentVersion fileVersion = fileVersions[0];
 
-            // Ensure the file is a CSV before storing in Attachments
+            // Step 3: Ensure the file is a CSV before storing in Attachments
             if (fileVersion.FileExtension != 'csv') {
                 System.debug('⚠️ Skipping non-CSV file: ' + fileVersion.Title);
                 return;
@@ -41,14 +41,14 @@ public with sharing class ScannerReportHandler {
 
             System.debug('✅ CSV File Found! Converting to Attachment...');
 
-            // Convert file data into a Blob
+            // Step 4: Convert ContentVersion to Attachment
             Blob fileBlob = fileVersion.VersionData;
             String fileName = fileVersion.Title;
             if (!fileName.toLowerCase().endsWith('.csv')) {
                 fileName += '.csv';
             }
 
-            // **Check if an attachment already exists to avoid duplicates**
+            // Check if an attachment already exists for this case
             List<Attachment> existingAttachments = [
                 SELECT Id FROM Attachment 
                 WHERE ParentId = :caseRecord.Id 
@@ -60,14 +60,14 @@ public with sharing class ScannerReportHandler {
                 return;
             }
 
-            // **Create an Attachment Record**
-            Attachment attachment = new Attachment();
-            attachment.Name = fileName;
-            attachment.Body = fileBlob; // Store CSV content correctly
-            attachment.ParentId = caseRecord.Id; // Attach to Case record
-            attachment.ContentType = 'text/csv'; // Ensure correct MIME type
+            // Step 5: **Manually create and insert the Attachment**
+            Attachment newAttachment = new Attachment();
+            newAttachment.Name = fileName;
+            newAttachment.Body = fileBlob;
+            newAttachment.ParentId = caseRecord.Id;
+            newAttachment.ContentType = 'text/csv';
 
-            insert attachment;
+            insert newAttachment;
             System.debug('✅ CSV Attachment successfully created and linked to Case ID: ' + caseId);
 
         } catch (Exception e) {
