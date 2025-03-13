@@ -63,15 +63,28 @@ jobs:
           echo "commit-author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
           echo "Commit Author: $COMMIT_AUTHOR"
 
-      - name: Get Repository and Branch Info
+      - name: Get Repository and Branch Info (Handle Merged Report)
         id: get-info
         run: |
           REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d'/' -f2)
           BRANCH_NAME=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
+
+          # Get the latest commit message to determine filename consistency
           COMMIT_LABEL=$(git log -1 --pretty=format:'%s')
-          FILE_TITLE="Code Scanner Delta Report_${REPO_NAME}_${BRANCH_NAME}_${COMMIT_LABEL}"
+
+          if git log -1 --pretty=%B | grep -iq "Merge pull request"; then
+            echo "✅ This push is from a PR merge."
+            FILE_TITLE="Code Scanner Delta Report_${REPO_NAME}_${BRANCH_NAME}_${COMMIT_LABEL}_Merged"
+            echo "IS_MERGED_PR=true" >> $GITHUB_ENV
+          else
+            echo "❌ This push is NOT from a PR merge."
+            FILE_TITLE="Code Scanner Delta Report_${REPO_NAME}_${BRANCH_NAME}_${COMMIT_LABEL}"
+            echo "IS_MERGED_PR=false" >> $GITHUB_ENV
+          fi
+
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
-          echo "TARGET_BRANCH=${BRANCH_NAME}" >> $GITHUB_ENV  # Store the Target Branch
+          echo "TARGET_BRANCH=${BRANCH_NAME}" >> $GITHUB_ENV
+          echo "Final Filename: ${FILE_TITLE}"
           
       - name: Get changed lines and create temporary files
         id: get-changes
@@ -260,38 +273,54 @@ jobs:
           echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> $GITHUB_ENV
           echo "Successfully authenticated with Salesforce."
       
-      - name: Upload Scanner Report to Salesforce
-        if: success()
+      - name: Upload Scanner Report (Before PR Merge)
+        if: env.IS_MERGED_PR == 'false'
         run: |
-            # Check if the scanner report contains violations (more than just the header)
-            violation_count=$(tail -n +2 scanner-report.csv | wc -l)
-            if [ "$violation_count" -eq 0 ]; then
-              echo "✅ No violations found. Skipping Salesforce upload."
+            if [ -s scanner-report.csv ]; then
+              response=$(curl -X POST "https://sprintparkllc4-dev-ed.develop.my.salesforce.com/services/data/v61.0/sobjects/ContentVersion" \
+                -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+                -H "Content-Type: multipart/form-data" \
+                -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
+                -F "VersionData=@scanner-report.csv;type=text/csv")
+        
+              contentVersionId=$(echo "$response" | jq -r '.id // empty')
+        
+              if [ -z "$contentVersionId" ]; then
+                echo "Error: Failed to upload file."
+                exit 1
+              fi
+        
+              echo "✅ Successfully uploaded feature branch scanner report to Salesforce with filename: ${{ env.FILE_TITLE }}"
+            else
+              echo "No scanner report generated, skipping upload."
               exit 0
             fi
 
-            echo "🔄 Uploading scanner report to Salesforce..."
 
-            # Send file to Salesforce
-            response=$(curl -X POST "${{ secrets.SF_API_URL }}" \
-              -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
-              -H "Content-Type: multipart/form-data" \
-              -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
-              -F "VersionData=@scanner-report.csv;type=text/csv")
 
-            # 🔍 Debug: Print the full API response
-            echo "📢 Salesforce API Response: $response"
-
-            # Extract the ID safely (handles both array & object responses)
-            contentVersionId=$(echo "$response" | jq -r 'if type=="array" then .[0].id else .id end' 2>/dev/null || echo "null")
-
-            if [[ "$contentVersionId" == "null" || -z "$contentVersionId" ]]; then
-              echo "❌ Error: Failed to extract ContentVersion ID from response."
-              echo "🔴 Full API Response: $response"  # Log full response for debugging
-              exit 1
+      - name: Upload Scanner Report (After PR Merge)
+        if: env.IS_MERGED_PR == 'true'
+        run: |
+            if [ -s scanner-report.csv ]; then
+              response=$(curl -X POST "https://sprintparkllc4-dev-ed.develop.my.salesforce.com/services/data/v61.0/sobjects/ContentVersion" \
+                -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+                -H "Content-Type: multipart/form-data" \
+                -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
+                -F "VersionData=@scanner-report.csv;type=text/csv")
+        
+              contentVersionId=$(echo "$response" | jq -r '.id // empty')
+        
+              if [ -z "$contentVersionId" ]; then
+                echo "Error: Failed to upload file."
+                exit 1
+              fi
+        
+              echo "✅ Successfully uploaded merged scanner report to Salesforce with filename: ${{ env.FILE_TITLE }}"
+            else
+              echo "No scanner report generated, skipping upload."
+              exit 0
             fi
-
-            echo "✅ Successfully uploaded scanner report to Salesforce. ContentVersionId: $contentVersionId"
+    
         
       # - name: Get Commit Author  # ✅ Fetch the commit author
       #   id: commit-author
