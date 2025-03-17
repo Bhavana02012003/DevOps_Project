@@ -20,7 +20,7 @@ public with sharing class ScannerReportHandler {
 
         // Fetch ContentVersion records for processing
         List<ContentVersion> contentVersions = [ 
-            SELECT Id, ContentDocumentId, Title, VersionData 
+            SELECT Id, ContentDocumentId, Title 
             FROM ContentVersion 
             WHERE ContentDocumentId IN :contentDocumentIds
         ];
@@ -32,38 +32,69 @@ public with sharing class ScannerReportHandler {
         }
 
         List<Case> casesToInsert = new List<Case>();
+        Map<Id, Id> caseToFileMap = new Map<Id, Id>(); // Store Case ID -> ContentDocumentId mapping
 
         for (ContentVersion cv : contentVersions) {
-            if (cv.Title.contains('Code Scanner')) {
+            System.debug('📂 Processing File: ' + cv.Title + ' | ContentDocumentId: ' + cv.ContentDocumentId);
+
+            if (cv.Title.contains('Code Scanner') || cv.Title.contains('Code Scanner Delta')) {
+                System.debug('✅ File Matches Condition: ' + cv.Title);
+
                 Case newCase = new Case();
-                newCase.ContentDocumentId__c = cv.ContentDocumentId;
                 newCase.File_Name__c = cv.Title;
                 newCase.Status = 'New';
+
                 casesToInsert.add(newCase);
+                caseToFileMap.put(cv.ContentDocumentId, null); // Placeholder
             }
         }
 
         if (!casesToInsert.isEmpty()) {
-            insert casesToInsert;
-            System.debug('✅ Inserted ' + casesToInsert.size() + ' new Case records.');
+            try {
+                insert casesToInsert;
+                System.debug('✅ Successfully inserted ' + casesToInsert.size() + ' Case records.');
 
-            // Step 2: Link files to the newly created cases
-            List<ContentDocumentLink> linksToInsert = new List<ContentDocumentLink>();
+                // Map newly created Cases to their corresponding ContentDocumentId
+                Integer index = 0;
+                for (Case createdCase : casesToInsert) {
+                    Id docId = contentVersions[index].ContentDocumentId;
+                    caseToFileMap.put(docId, createdCase.Id);
+                    index++;
+                }
 
-            for (Case createdCase : casesToInsert) {
-                System.debug('📂 Case Created: ' + createdCase.Id + ' | File: ' + createdCase.File_Name__c);
+            } catch (DmlException e) {
+                System.debug('❌ Error inserting Cases: ' + e.getMessage());
+                isProcessing = false;
+                return;
+            }
+        } else {
+            System.debug('⚠️ No Cases to insert.');
+            isProcessing = false;
+            return;
+        }
 
-                // Check if ContentDocumentLink already exists
+        // ✅ Step 2: Ensure Files Are Linked to Cases
+        List<ContentDocumentLink> linksToInsert = new List<ContentDocumentLink>();
+
+        for (Id contentDocId : caseToFileMap.keySet()) {
+            Id caseId = caseToFileMap.get(contentDocId);
+
+            if (caseId != null) {
+                System.debug('🔗 Checking ContentDocumentLink for Case: ' + caseId + ' | File: ' + contentDocId);
+
+                // Ensure ContentDocumentLink does not already exist
                 List<ContentDocumentLink> existingLinks = [
                     SELECT Id FROM ContentDocumentLink 
-                    WHERE LinkedEntityId = :createdCase.Id 
-                    AND ContentDocumentId = :createdCase.ContentDocumentId__c
+                    WHERE LinkedEntityId = :caseId 
+                    AND ContentDocumentId = :contentDocId
                 ];
 
                 if (existingLinks.isEmpty()) {
+                    System.debug('✅ Creating ContentDocumentLink for Case: ' + caseId + ' | File: ' + contentDocId);
+
                     ContentDocumentLink link = new ContentDocumentLink();
-                    link.ContentDocumentId = createdCase.ContentDocumentId__c;
-                    link.LinkedEntityId = createdCase.Id;
+                    link.ContentDocumentId = contentDocId;
+                    link.LinkedEntityId = caseId;
                     link.ShareType = 'V'; // Viewer access
                     link.Visibility = 'AllUsers';
 
@@ -72,13 +103,18 @@ public with sharing class ScannerReportHandler {
                     System.debug('⚠️ File already linked to this Case. Skipping.');
                 }
             }
+        }
 
-            if (!linksToInsert.isEmpty()) {
+        // Insert ContentDocumentLinks to link files to Cases
+        if (!linksToInsert.isEmpty()) {
+            try {
                 insert linksToInsert;
-                System.debug('✅ Successfully linked files to Case records.');
+                System.debug('✅ Successfully linked ' + linksToInsert.size() + ' files to Case records.');
+            } catch (DmlException e) {
+                System.debug('❌ Error linking files to Case: ' + e.getMessage());
             }
         } else {
-            System.debug('ℹ️ No new Cases to insert.');
+            System.debug('⚠️ No new files to link.');
         }
 
         isProcessing = false; // Reset flag after execution
