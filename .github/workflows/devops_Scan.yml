@@ -72,7 +72,6 @@ jobs:
           FILE_TITLE="Code Scanner Delta Report_${REPO_NAME}_${BRANCH_NAME}_${COMMIT_LABEL}"
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
           echo "TARGET_BRANCH=${BRANCH_NAME}" >> $GITHUB_ENV  # Store the Target Branch
-          
       - name: Get changed lines and create temporary files
         id: get-changes
         run: |
@@ -290,7 +289,6 @@ jobs:
               echo "🔴 Full API Response: $response"  # Log full response for debugging
               exit 1
             fi
-
             echo "✅ Successfully uploaded scanner report to Salesforce. ContentVersionId: $contentVersionId"
         
       # - name: Get Commit Author  # ✅ Fetch the commit author
@@ -343,6 +341,7 @@ jobs:
           mkdir -p /tmp/artifact_backup
           cp scanner-report.csv /tmp/artifact_backup/${{ env.REPORT_FILE }}
           echo "✅ Scanner report backed up in /tmp/artifact_backup/${{ env.REPORT_FILE }}."
+
       - name: Backup Scanner Report
         if: always()
         run: |
@@ -368,12 +367,10 @@ jobs:
             git checkout -b $BRANCH_NAME
             git push --set-upstream origin $BRANCH_NAME
           fi
-
           git pull origin $BRANCH_NAME --rebase
           mkdir -p Artifact
           cp /tmp/artifact_backup/${{ env.REPORT_FILE }} Artifact/${{ env.REPORT_FILE }}
           echo "✅ Scanner report restored to Artifact/${{ env.REPORT_FILE }}."
-
           git add Artifact/${{ env.REPORT_FILE }}
           git commit -m "🔄 Auto-update scanner report (${REPORT_FILE}) in Artifact folder for branch $BRANCH_NAME" || echo "No changes to commit"
           git push origin $BRANCH_NAME
@@ -425,8 +422,6 @@ jobs:
           to: ${{ env.PUSHER_EMAIL }}, ${{ secrets.GMAIL_EMAIL }}
           attachments: scanner-report.csv  # ✅ Ensuring correct file is attached
 
-
-
       - name: Get OAuth Token for Microsoft Graph API
         id: get-oauth-token
         run: |
@@ -472,8 +467,6 @@ jobs:
               }
             }'
               
-
-
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
         id: block-check
