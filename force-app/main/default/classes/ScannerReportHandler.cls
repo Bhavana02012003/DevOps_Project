@@ -1,43 +1,37 @@
 public with sharing class ScannerReportHandler {
-    private static Set<Id> processedDocumentIds = new Set<Id>();
+    private static Boolean isProcessing = false; // Prevent recursive execution
 
+    @future
     public static void processFiles(Set<Id> contentDocumentIds) {
+        if (isProcessing) {
+            System.debug('⚠️ Process already running. Skipping to prevent recursion.');
+            return;
+        }
+
+        isProcessing = true; // Set flag to prevent recursion
+
         System.debug('🔍 Processing Scanner Report Files for ContentDocumentIds: ' + contentDocumentIds);
 
         if (contentDocumentIds.isEmpty()) {
             System.debug('⚠️ No ContentDocumentIds provided. Skipping processing.');
+            isProcessing = false;
             return;
         }
-
-        // Prevent recursive trigger execution
-        Set<Id> newDocumentsToProcess = new Set<Id>();
-        for (Id docId : contentDocumentIds) {
-            if (!processedDocumentIds.contains(docId)) {
-                newDocumentsToProcess.add(docId);
-            }
-        }
-
-        if (newDocumentsToProcess.isEmpty()) {
-            System.debug('⚠️ All ContentDocumentIds have already been processed. Skipping.');
-            return;
-        }
-
-        processedDocumentIds.addAll(newDocumentsToProcess);
 
         // Fetch ContentVersion records for processing
         List<ContentVersion> contentVersions = [ 
             SELECT Id, ContentDocumentId, Title, VersionData 
             FROM ContentVersion 
-            WHERE ContentDocumentId IN :newDocumentsToProcess
+            WHERE ContentDocumentId IN :contentDocumentIds
         ];
 
         if (contentVersions.isEmpty()) {
             System.debug('⚠️ No matching ContentVersion records found.');
+            isProcessing = false;
             return;
         }
 
         List<Case> casesToInsert = new List<Case>();
-        Map<Id, String> caseFileMapping = new Map<Id, String>();
 
         for (ContentVersion cv : contentVersions) {
             if (cv.Title.contains('Code Scanner') || cv.Title.contains('Code Scanner Delta')) {
@@ -46,8 +40,6 @@ public with sharing class ScannerReportHandler {
                 newCase.File_Name__c = cv.Title;
                 newCase.Status = 'New';
                 casesToInsert.add(newCase);
-
-                caseFileMapping.put(cv.ContentDocumentId, cv.Title);
             }
         }
 
@@ -88,5 +80,7 @@ public with sharing class ScannerReportHandler {
         } else {
             System.debug('ℹ️ No new Cases to insert.');
         }
+
+        isProcessing = false; // Reset flag after execution
     }
 }
