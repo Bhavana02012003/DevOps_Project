@@ -6,13 +6,15 @@
                 data={summaryData}
                 columns={summaryColumns}
                 hide-checkbox-column="true"
-                onrowaction={handleRowAction}>
+                onrowaction={openSummaryModal}>
             </lightning-datatable>
+        </template>
+        <template if:false={summaryData}>
+            <p class="slds-text-color_error slds-text-align_center slds-m-around_medium">No Violation Summary available.</p>
         </template>
     </lightning-card>
 
-    <!-- Main Data Table (CSV Data) -->
-    <lightning-card title="CSV File Data" icon-name="custom:custom63">
+    <lightning-card title="CSV File Data (From Case Files)" icon-name="custom:custom63">
         <template if:true={paginatedData}>
             <lightning-datatable key-field="Id" data={paginatedData} columns={columns} hide-checkbox-column="true"></lightning-datatable>
             <div class="slds-m-top_medium slds-align_absolute-center">
@@ -20,6 +22,9 @@
                 <span class="slds-m-horizontal_medium">Page {currentPage} of {totalPages}</span>
                 <lightning-button label="Next" onclick={handleNextPage} disabled={disableNext}></lightning-button>
             </div>
+        </template>
+        <template if:false={paginatedData}>
+            <p class="slds-text-color_error slds-text-align_center slds-m-around_medium">No CSV data available.</p>
         </template>
     </lightning-card>
 
@@ -35,13 +40,12 @@
                         onclick={closeModal}>
                     </lightning-button-icon>
                 </header>
-                <div class="slds-modal__content slds-p-around_medium modal-scroll">
-                    <template if:true={paginatedFilteredData}>
-                        <lightning-datatable key-field="Id"
-                            data={paginatedFilteredData}
-                            columns={columns}
-                            hide-checkbox-column="true">
-                        </lightning-datatable>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <template if:true={modalData}>
+                        <lightning-datatable key-field="Id" data={modalData} columns={columns} hide-checkbox-column="true"></lightning-datatable>
+                    </template>
+                    <template if:false={modalData}>
+                        <p class="slds-text-color_error slds-text-align_center slds-m-around_medium">No data found for this category.</p>
                     </template>
                 </div>
                 <footer class="slds-modal__footer">
