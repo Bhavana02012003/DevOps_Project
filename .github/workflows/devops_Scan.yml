@@ -329,8 +329,10 @@ jobs:
           echo "PREV_BRANCH=$PREV_BRANCH" >> $GITHUB_ENV
       - name: Generate Unique File Name for Scanner Report
         run: |
-          TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
-          REPORT_FILE="scanner-report-${TIMESTAMP}.csv"
+          # TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+          # REPORT_FILE="scanner-report-${TIMESTAMP}.csv"
+          COMMIT_LABEL=$(git log -1 --pretty=format:'%s' | tr ' ' '_')
+          REPORT_FILE="${COMMIT_LABEL}.csv"
           echo "REPORT_FILE=$REPORT_FILE" >> $GITHUB_ENV
           echo "✅ Generated unique file name: $REPORT_FILE"
       - name: Save Scanner Report Before Branch Checkout
