@@ -34,7 +34,7 @@ public with sharing class ScannerReportHandler {
         List<Case> casesToInsert = new List<Case>();
 
         for (ContentVersion cv : contentVersions) {
-            if (cv.Title.contains('Code Scanner') || cv.Title.contains('Code Scanner Delta')) {
+            if (cv.Title.contains('Code Scanner')) {
                 Case newCase = new Case();
                 newCase.ContentDocumentId__c = cv.ContentDocumentId;
                 newCase.File_Name__c = cv.Title;
