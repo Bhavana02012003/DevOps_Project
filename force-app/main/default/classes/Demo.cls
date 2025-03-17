@@ -9,7 +9,7 @@ global class Demo {  // Violates AvoidGlobalModifier
         String hardcodedId = '0019000000XXXXXXX';  // Violates AvoidHardcodingId
         // Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId WITH SECURITY_ENFORCED];
         Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId];
-        System.debug('Account'+acc);
+        System.debug('Acc'+acc);
    } 
 
     public void deeplyNestedIfMethod(Integer value) {  
@@ -30,6 +30,6 @@ global class Demo {  // Violates AvoidGlobalModifier
         // Violates ApexSOQLInjection (Unsafe SOQL query)
         String query = 'SELECT Id, Name FROM Account WHERE Name LIKE \'%' + userInput + '%\'';
         List<Account> accounts = Database.query(query);
-       //System.debug(accounts);
+       System.debug(accounts);
     }
 }
