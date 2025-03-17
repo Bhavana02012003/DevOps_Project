@@ -12,56 +12,50 @@ public with sharing class CaseDataController {
         CSVDataResponse response = new CSVDataResponse();
 
         try {
-            System.debug('🔍 Fetching ContentDocumentId for Case ID: ' + caseId);
+            System.debug('🔍 Fetching latest CSV file from Case ID: ' + caseId);
 
-            // Step 1: Get ContentDocumentId from ContentDocumentLink
+            // Step 1: Get latest ContentDocumentId from Case's Files Related List
             List<ContentDocumentLink> contentLinks = [
                 SELECT ContentDocumentId 
                 FROM ContentDocumentLink 
                 WHERE LinkedEntityId = :caseId
+                ORDER BY ContentDocumentId DESC
+                LIMIT 1
             ];
 
             if (contentLinks.isEmpty()) {
-                System.debug('⚠️ No ContentDocumentLink found for Case ID: ' + caseId);
+                System.debug('⚠️ No files found in Case Related List.');
                 return response;
             }
 
-            Set<Id> contentDocumentIds = new Set<Id>();
-            for (ContentDocumentLink link : contentLinks) {
-                contentDocumentIds.add(link.ContentDocumentId);
-            }
+            Id contentDocumentId = contentLinks[0].ContentDocumentId;
+            System.debug('✅ Found ContentDocumentId: ' + contentDocumentId);
 
-            System.debug('✅ Found ContentDocumentIds: ' + contentDocumentIds);
-
-            // Step 2: Get latest CSV ContentVersion using ContentDocumentIds
+            // Step 2: Get latest ContentVersion (CSV file)
             List<ContentVersion> contentVersions = [
                 SELECT Id, VersionData, Title 
                 FROM ContentVersion
-                WHERE ContentDocumentId IN :contentDocumentIds
-                AND Title LIKE '%.csv'
+                WHERE ContentDocumentId = :contentDocumentId
+                AND FileType = 'CSV'
                 ORDER BY CreatedDate DESC 
                 LIMIT 1
             ];
 
             if (contentVersions.isEmpty()) {
-                System.debug('⚠️ No CSV file found for Case ID: ' + caseId);
+                System.debug('⚠️ No CSV file found.');
                 return response;
             }
 
             ContentVersion csvFile = contentVersions[0];
             System.debug('✅ Found CSV file: ' + csvFile.Title);
 
-            // Read the CSV file content
+            // Step 3: Read CSV content
             Blob csvBlob = csvFile.VersionData;
             String csvContent = csvBlob.toString();
 
-            // Print CSV Content for Debugging
-            System.debug('📂 CSV File Content: ' + csvContent);
-
-            // Split lines
+            // Step 4: Parse CSV content
             List<String> lines = csvContent.split('\n');
 
-            // Ensure headers exist
             if (lines.isEmpty()) {
                 System.debug('⚠️ CSV file is empty.');
                 return response;
@@ -78,8 +72,7 @@ public with sharing class CaseDataController {
                 if (values.size() == headers.size()) {
                     Map<String, String> rowData = new Map<String, String>();
                     for (Integer j = 0; j < headers.size(); j++) {
-                        String fieldValue = values[j].trim().replaceAll('^\"|\"$', ''); // Remove quotes
-                        rowData.put(headers[j].trim(), fieldValue);
+                        rowData.put(headers[j].trim(), values[j].trim());
                     }
 
                     // Count violations based on file path
@@ -100,7 +93,7 @@ public with sharing class CaseDataController {
                 }
             }
 
-            System.debug('✅ Successfully processed CSV data. Returning response.');
+            System.debug('✅ Successfully processed CSV data.');
 
         } catch (Exception e) {
             System.debug('❌ Error processing CSV: ' + e.getMessage());

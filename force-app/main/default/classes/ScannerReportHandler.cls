@@ -19,7 +19,7 @@ public with sharing class ScannerReportHandler {
 
             // Step 2: Fetch the latest ContentVersion file
             List<ContentVersion> fileVersions = [
-                SELECT Id, VersionData, Title, FileExtension, ContentDocumentId
+                SELECT Id, Title, FileExtension, ContentDocumentId
                 FROM ContentVersion 
                 WHERE ContentDocumentId = :caseRecord.ContentDocumentId__c 
                 ORDER BY CreatedDate DESC 
@@ -33,45 +33,38 @@ public with sharing class ScannerReportHandler {
 
             ContentVersion fileVersion = fileVersions[0];
 
-            // Step 3: Ensure the file is a CSV before storing in Attachments
+            // Step 3: Ensure the file is a CSV before linking to Case
             if (fileVersion.FileExtension != 'csv') {
                 System.debug('⚠️ Skipping non-CSV file: ' + fileVersion.Title);
                 return;
             }
 
-            System.debug('✅ CSV File Found! Converting to Attachment...');
+            System.debug('✅ CSV File Found! Linking to Case Files...');
 
-            // Step 4: Convert ContentVersion to Attachment
-            Blob fileBlob = fileVersion.VersionData;
-            String fileName = fileVersion.Title;
-            if (!fileName.toLowerCase().endsWith('.csv')) {
-                fileName += '.csv';
-            }
-
-            // Check if an attachment already exists for this case
-            List<Attachment> existingAttachments = [
-                SELECT Id FROM Attachment 
-                WHERE ParentId = :caseRecord.Id 
-                AND Name = :fileName
+            // Step 4: Check if a ContentDocumentLink already exists for this Case
+            List<ContentDocumentLink> existingLinks = [
+                SELECT Id FROM ContentDocumentLink 
+                WHERE LinkedEntityId = :caseRecord.Id 
+                AND ContentDocumentId = :fileVersion.ContentDocumentId
             ];
 
-            if (!existingAttachments.isEmpty()) {
-                System.debug('⚠️ Attachment already exists for this Case. Skipping creation.');
+            if (!existingLinks.isEmpty()) {
+                System.debug('⚠️ File is already linked to the Case. Skipping.');
                 return;
             }
 
-            // Step 5: **Manually create and insert the Attachment**
-            Attachment newAttachment = new Attachment();
-            newAttachment.Name = fileName;
-            newAttachment.Body = fileBlob;
-            newAttachment.ParentId = caseRecord.Id;
-            newAttachment.ContentType = 'text/csv';
+            // Step 5: Create ContentDocumentLink to associate the file with the Case
+            ContentDocumentLink newLink = new ContentDocumentLink();
+            newLink.ContentDocumentId = fileVersion.ContentDocumentId;
+            newLink.LinkedEntityId = caseRecord.Id;
+            newLink.ShareType = 'V'; // Viewer access
+            newLink.Visibility = 'AllUsers'; // Ensure visibility to all users
 
-            insert newAttachment;
-            System.debug('✅ CSV Attachment successfully created and linked to Case ID: ' + caseId);
+            insert newLink;
+            System.debug('✅ File successfully linked to Case Files related list.');
 
         } catch (Exception e) {
-            System.debug('❌ Error linking file to Case Attachments: ' + e.getMessage());
+            System.debug('❌ Error linking file to Case Files: ' + e.getMessage());
         }
     }
 
