@@ -177,6 +177,18 @@ jobs:
       #       COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
       #       echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
       #       echo "Commit Author: $COMMIT_AUTHOR"
+
+      - name: Debug ESLint Scanner Report
+        run: |
+          echo "Checking ESLint violations..."
+          cat scanner-report-partial.csv || echo "❌ No LWC violations found!"
+
+      - name: Run ESLint Manually (Debugging)
+        run: |
+          echo "Running ESLint on LWC files..."
+          npx eslint temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js --config force-app/main/default/lwc/.eslintrc.json || true
+
+
          
       - name: Run SFDX Scanner on Changed Lines
         run: |
@@ -200,24 +212,39 @@ jobs:
 
             elif [[ "$file" == *.js || "$file" == *.html ]]; then
               # Run SFDX Scanner for LWC using ESLint
-              sf scanner:run --target "$file" --engine eslint --ruleset ".eslintrc.json" --format "csv" --outfile "scanner-report-partial.csv" || echo "Scanner run failed for $file"
+              sf scanner:run --target "temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js" --engine eslint --category "Design,Best Practices,Security,Performance,Documentation" --format "csv" --outfile "scanner-report-partial.csv"
             fi
 
-            # Ensure partial report exists before processing
-            if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
-              # Append new results to final report, excluding duplicate headers
-              tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
-                $3 = gensub(unwanted_path, "", "g", $3);
-                $11 = commit_author;
-                if (NF < 12) $12 = "N/A";
-                $13 = target_branch;
-                print $0
-              }' >> scanner-report.csv
-            fi
-          done
+           # Ensure partial reports exist before processing
+          if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
+            echo "✅ Found scanner-report-partial.csv, merging into final report..."
+            tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
+              $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
+              $11 = commit_author;  # Set commit username in column 11
+              if (NF < 12) $12 = "N/A";  # Ensure ActualLine column is always present
+              $13 = target_branch;  # Add the TargetBranch column
+              print $0
+            }' >> scanner-report.csv
+          else
+            echo "⚠️ No Apex violations found in scanner-report-partial.csv"
+          fi
 
-          # Debug final scanner report
-          echo "Final Combined Scanner Report with TargetBranch:"
+          # Ensure LWC scanner report exists before processing
+          if [ -f "scanner-report-lwc.csv" ] && [ -s "scanner-report-lwc.csv" ]; then
+            echo "✅ Found scanner-report-lwc.csv, merging into final report..."
+            tail -n +2 "scanner-report-lwc.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
+              $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
+              $11 = commit_author;  # Set commit username in column 11
+              if (NF < 12) $12 = "N/A";  # Ensure ActualLine column is always present
+              $13 = target_branch;  # Add the TargetBranch column
+              print $0
+            }' >> scanner-report.csv
+          else
+            echo "⚠️ No LWC violations found in scanner-report-lwc.csv"
+          fi
+
+          # Debug final merged report
+          echo "🔍 Final Combined Scanner Report:"
           cat scanner-report.csv
           
       - name: Upload Scanner Report to Temporary Storage (GoFile.io)
