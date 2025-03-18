@@ -183,10 +183,10 @@ jobs:
           echo "Checking ESLint violations..."
           cat scanner-report-partial.csv || echo "❌ No LWC violations found!"
 
-      - name: Run ESLint Manually (Debugging)
+      - name: Run ESLint on LWC Files
         run: |
           echo "Running ESLint on LWC files..."
-          npx eslint temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js --config force-app/main/default/lwc/.eslintrc.json || true
+          npx eslint temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js --config force-app/main/default/lwc/eslint.config.js --fix || true
 
 
          
@@ -212,12 +212,21 @@ jobs:
 
             elif [[ "$file" == *.js || "$file" == *.html ]]; then
               # Run SFDX Scanner for LWC using ESLint
-              sf scanner:run --target "temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js" --engine eslint --category "Design,Best Practices,Security,Performance,Documentation" --format "csv" --outfile "scanner-report-partial.csv"
+              echo "🔍 Running ESLint Scanner on LWC..."
+              sf scanner:run --target "force-app/main/default/lwc/" --engine eslint --category "Design,Best Practices,Security,Performance,Documentation" --format "csv" --outfile "scanner-report-lwc.csv" || echo "⚠️ ESLint scan failed!"
+
+              echo "🔍 Checking ESLint Scanner Report..."
+              cat scanner-report-lwc.csv || echo "❌ No LWC violations found!"
             fi
 
-           # Ensure partial reports exist before processing
+           echo "🔄 Merging Scanner Reports..."
+
+          # Initialize final report with headers
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+
+          # Merge Apex Scanner Report (scanner-report-partial.csv)
           if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
-            echo "✅ Found scanner-report-partial.csv, merging into final report..."
+            echo "✅ Found Apex scanner report, merging..."
             tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
               $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
               $11 = commit_author;  # Set commit username in column 11
@@ -226,12 +235,12 @@ jobs:
               print $0
             }' >> scanner-report.csv
           else
-            echo "⚠️ No Apex violations found in scanner-report-partial.csv"
+            echo "⚠️ No Apex violations found!"
           fi
 
-          # Ensure LWC scanner report exists before processing
+          # Merge LWC Scanner Report (scanner-report-lwc.csv)
           if [ -f "scanner-report-lwc.csv" ] && [ -s "scanner-report-lwc.csv" ]; then
-            echo "✅ Found scanner-report-lwc.csv, merging into final report..."
+            echo "✅ Found LWC scanner report, merging..."
             tail -n +2 "scanner-report-lwc.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
               $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
               $11 = commit_author;  # Set commit username in column 11
@@ -240,7 +249,7 @@ jobs:
               print $0
             }' >> scanner-report.csv
           else
-            echo "⚠️ No LWC violations found in scanner-report-lwc.csv"
+            echo "⚠️ No LWC violations found!"
           fi
 
           # Debug final merged report
