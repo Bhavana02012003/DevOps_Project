@@ -54,6 +54,11 @@ jobs:
 
       - name: Verify Salesforce CLI Installation
         run: sf --version
+      
+      - name: Install ESLint and Salesforce LWC Plugin
+        run: |
+          echo "🔹 Installing ESLint and @salesforce/lwc plugin..."
+          npm install eslint @salesforce/eslint-plugin-lwc --save-dev
 
       - name: Get Commit Author
         id: commit-author
@@ -185,7 +190,7 @@ jobs:
 
       - name: Run ESLint on LWC Files
         run: |
-          echo "Running ESLint on LWC files..."
+          echo "🔍 Running ESLint Scanner on LWC files..."
           npx eslint temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js --config force-app/main/default/lwc/eslint.config.js --fix || true
 
 
@@ -219,35 +224,60 @@ jobs:
               cat scanner-report-lwc.csv || echo "❌ No LWC violations found!"
             fi
 
-           echo "🔄 Merging Scanner Reports..."
+          #  echo "🔄 Merging Scanner Reports..."
+
+          # # Initialize final report with headers
+          # echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+
+          # # Merge Apex Scanner Report (scanner-report-partial.csv)
+          # if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
+          #   echo "✅ Found Apex scanner report, merging..."
+          #   tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
+          #     $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
+          #     $11 = commit_author;  # Set commit username in column 11
+          #     if (NF < 12) $12 = "N/A";  # Ensure ActualLine column is always present
+          #     $13 = target_branch;  # Add the TargetBranch column
+          #     print $0
+          #   }' >> scanner-report.csv
+          # else
+          #   echo "⚠️ No Apex violations found!"
+          # fi
+
+          # # Merge LWC Scanner Report (scanner-report-lwc.csv)
+          # if [ -f "scanner-report-lwc.csv" ] && [ -s "scanner-report-lwc.csv" ]; then
+          #   echo "✅ Found LWC scanner report, merging..."
+          #   tail -n +2 "scanner-report-lwc.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
+          #     $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
+          #     $11 = commit_author;  # Set commit username in column 11
+          #     if (NF < 12) $12 = "N/A";  # Ensure ActualLine column is always present
+          #     $13 = target_branch;  # Add the TargetBranch column
+          #     print $0
+          #   }' >> scanner-report.csv
+          # else
+          #   echo "⚠️ No LWC violations found!"
+          # fi
+
+          # # Debug final merged report
+          # echo "🔍 Final Combined Scanner Report:"
+          # cat scanner-report.csv
+
+          echo "🔄 Merging Scanner Reports..."
 
           # Initialize final report with headers
           echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
 
-          # Merge Apex Scanner Report (scanner-report-partial.csv)
+          # Merge Apex Scanner Report
           if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
             echo "✅ Found Apex scanner report, merging..."
-            tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
-              $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
-              $11 = commit_author;  # Set commit username in column 11
-              if (NF < 12) $12 = "N/A";  # Ensure ActualLine column is always present
-              $13 = target_branch;  # Add the TargetBranch column
-              print $0
-            }' >> scanner-report.csv
+            tail -n +2 "scanner-report-partial.csv" >> scanner-report.csv
           else
             echo "⚠️ No Apex violations found!"
           fi
 
-          # Merge LWC Scanner Report (scanner-report-lwc.csv)
+          # Merge LWC Scanner Report
           if [ -f "scanner-report-lwc.csv" ] && [ -s "scanner-report-lwc.csv" ]; then
             echo "✅ Found LWC scanner report, merging..."
-            tail -n +2 "scanner-report-lwc.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
-              $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
-              $11 = commit_author;  # Set commit username in column 11
-              if (NF < 12) $12 = "N/A";  # Ensure ActualLine column is always present
-              $13 = target_branch;  # Add the TargetBranch column
-              print $0
-            }' >> scanner-report.csv
+            tail -n +2 "scanner-report-lwc.csv" >> scanner-report.csv
           else
             echo "⚠️ No LWC violations found!"
           fi
