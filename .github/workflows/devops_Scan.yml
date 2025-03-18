@@ -57,8 +57,8 @@ jobs:
       
       - name: Install ESLint and LWC Plugin
         run: |
-          echo "🔹 Installing ESLint and LWC Plugin..."
-          npm install eslint@8 @lwc/eslint-plugin-lwc @salesforce/eslint-config-lwc eslint-plugin-import --save-dev
+          echo "🔹 Installing ESLint and required plugins..."
+          npm install eslint@8.57.1 @salesforce/eslint-plugin-lwc @salesforce/eslint-config-lwc --save-dev
 
       - name: Get Commit Author
         id: commit-author
@@ -196,7 +196,14 @@ jobs:
       - name: Run ESLint on LWC Files
         run: |
           echo "🔍 Running ESLint Scanner on LWC files..."
-          npx eslint temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js --config force-app/main/default/lwc/eslint.config.mjs --fix || true
+          npx eslint "force-app/main/default/lwc/**/*.js" --config "force-app/main/default/lwc/eslint.config.js" --fix || true
+
+
+      - name: Debug ESLint Configuration
+        run: |
+          echo "🔍 Checking ESLint configuration..."
+          npx eslint --print-config force-app/main/default/lwc/demo/demo.js || echo "❌ Failed to load ESLint config"
+        
 
 
          
