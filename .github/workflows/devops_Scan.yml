@@ -82,10 +82,10 @@ jobs:
           > scanner-report-temp.csv
           echo "Checking for changed .cls and .lwc files..."
           # Get only changed files (.cls and .lwc)
-          changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.lwc' || true)
+          changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' || true)
           echo "Detected changed files: $changed_files"
           if [ -z "$changed_files" ]; then
-            echo "No .cls or .lwc files detected."
+            echo "No .cls, .js, or .html files detected."
             echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
             exit 0
           fi
@@ -114,43 +114,45 @@ jobs:
             echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
             temp_file="temp_scanner_files/temp_${file//\//_}"
             touch "$temp_file"
-            # Write extracted lines into a valid structure based on file type
             if [[ "$file" == *.cls ]]; then
               echo "public class TempWrapperClass {" > "$temp_file"
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
               while IFS=, read -r line_number line_content; do
-                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                if [[ -n "$line_content_trimmed" ]]; then
-                  echo "        $line_content_trimmed" >> "$temp_file"
-                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                trimmed_content=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                if [[ -n "$trimmed_content" ]]; then
+                  echo "        $trimmed_content" >> "$temp_file"
+                  echo "$temp_file,$line_number,$trimmed_content" >> line_number_mapping.txt
                 fi
               done < "line_number_mapping_${file//\//_}.txt"
               echo "    }" >> "$temp_file"
               echo "}" >> "$temp_file"
-            elif [[ "$file" == *.lwc ]]; then
+
+            elif [[ "$file" == *.js || "$file" == *.html ]]; then
               echo "<template>" > "$temp_file"
               echo "    <!-- Extracted changed lines -->" >> "$temp_file"
               while IFS=, read -r line_number line_content; do
-                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                if [[ -n "$line_content_trimmed" ]]; then
-                  echo "    $line_content_trimmed" >> "$temp_file"
-                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                trimmed_content=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                if [[ -n "$trimmed_content" ]]; then
+                  echo "    $trimmed_content" >> "$temp_file"
+                  echo "$temp_file,$line_number,$trimmed_content" >> line_number_mapping.txt
                 fi
               done < "line_number_mapping_${file//\//_}.txt"
               echo "</template>" >> "$temp_file"
             fi
+
             echo "$temp_file" >> changed_cls_lwc_files.txt
             echo "Created temp file: $temp_file"
           done
+
           echo "====== Final Line Number Mapping ======"
           cat line_number_mapping.txt || echo "No line number mapping available."
-          echo "Generated temp files:"
-          ls -l temp_scanner_files
+
           if [ ! -s changed_cls_lwc_files.txt ]; then
             echo "No temp files created. Exiting."
             exit 0
           fi
+
       
             
       - name: Debug Extracted Line Number Mapping
@@ -191,23 +193,31 @@ jobs:
 
           for file in $files; do
             echo "Running SFDX Scanner on file: $file"
-            sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+            
+            if [[ "$file" == *.cls ]]; then
+              # Run SFDX Scanner for Apex classes using the custom PMD ruleset
+              sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+
+            elif [[ "$file" == *.js || "$file" == *.html ]]; then
+              # Run SFDX Scanner for LWC using ESLint
+              sf scanner:run --target "$file" --engine eslint --ruleset ".eslintrc.json" --format "csv" --outfile "scanner-report-partial.csv" || echo "Scanner run failed for $file"
+            fi
 
             # Ensure partial report exists before processing
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
               # Append new results to final report, excluding duplicate headers
               tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
-                $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
-                $11 = commit_author;  # Set commit username in column 11
-                if (NF < 12) $12 = "N/A";  # Ensure ActualLine column is always present
-                $13 = target_branch; # Add the TargetBranch column
+                $3 = gensub(unwanted_path, "", "g", $3);
+                $11 = commit_author;
+                if (NF < 12) $12 = "N/A";
+                $13 = target_branch;
                 print $0
               }' >> scanner-report.csv
             fi
           done
-          
+
           # Debug final scanner report
-          echo "Final Scanner Report with TargetBranch:"
+          echo "Final Combined Scanner Report with TargetBranch:"
           cat scanner-report.csv
           
       - name: Upload Scanner Report to Temporary Storage (GoFile.io)
