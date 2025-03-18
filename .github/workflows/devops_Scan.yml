@@ -55,10 +55,10 @@ jobs:
       - name: Verify Salesforce CLI Installation
         run: sf --version
       
-      - name: Install ESLint and Salesforce LWC Plugin
+      - name: Install ESLint and LWC Plugin
         run: |
-          echo "🔹 Installing ESLint and @salesforce/lwc plugin..."
-          npm install eslint @salesforce/eslint-plugin-lwc --save-dev
+          echo "🔹 Installing ESLint and @lwc/eslint-plugin-lwc..."
+          npm install eslint@8 @lwc/eslint-plugin-lwc @salesforce/eslint-config-lwc --save-dev
 
       - name: Get Commit Author
         id: commit-author
@@ -187,6 +187,12 @@ jobs:
         run: |
           echo "Checking ESLint violations..."
           cat scanner-report-partial.csv || echo "❌ No LWC violations found!"
+
+      - name: Verify Installed ESLint Plugins
+        run: |
+          echo "🔍 Checking installed ESLint plugins..."
+          npx eslint --print-config force-app/main/default/lwc/demo/demo.js
+
 
       - name: Run ESLint on LWC Files
         run: |
