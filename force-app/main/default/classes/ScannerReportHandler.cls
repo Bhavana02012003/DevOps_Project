@@ -20,7 +20,7 @@ public with sharing class ScannerReportHandler {
 
         // Fetch ContentVersion records for processing
         List<ContentVersion> contentVersions = [ 
-            SELECT Id, ContentDocumentId, Title 
+            SELECT Id, ContentDocumentId, Title, PathOnClient 
             FROM ContentVersion 
             WHERE ContentDocumentId IN :contentDocumentIds
         ];
@@ -45,9 +45,13 @@ public with sharing class ScannerReportHandler {
                 newCase.Status = 'New';
 
                 // Read CSV content and map TargetBranch to Target Environment
-                String csvContent;
                 try {
-                    csvContent = cv.VersionData.toString();
+                    // Fetch the actual file content as Blob
+                    ContentVersion cvWithData = [SELECT VersionData FROM ContentVersion WHERE Id = :cv.Id LIMIT 1];
+                    Blob csvBlob = cvWithData.VersionData;
+                    String csvContent = csvBlob.toString();
+                    System.debug('✅ CSV Content: ' + csvContent);
+
                     List<String> csvLines = csvContent.split('\n');
                     if (csvLines.size() > 1) {
                         String headerLine = csvLines[0];
@@ -59,7 +63,7 @@ public with sharing class ScannerReportHandler {
                                 List<String> values = csvLines[i].split(',');
 
                                 if (values.size() > targetBranchIndex) {
-                                    String targetBranchValue = values[targetBranchIndex];
+                                    String targetBranchValue = values[targetBranchIndex].trim();
                                     System.debug('🔗 Mapping TargetBranch: ' + targetBranchValue);
                                     newCase.Target_Environment__c = targetBranchValue;
                                     break; // Map the first occurrence
@@ -70,7 +74,6 @@ public with sharing class ScannerReportHandler {
                 } catch (Exception e) {
                     System.debug('❌ Error reading CSV content: ' + e.getMessage());
                 }
-
 
                 casesToInsert.add(newCase);
                 caseToFileMap.put(cv.ContentDocumentId, null); // Placeholder
