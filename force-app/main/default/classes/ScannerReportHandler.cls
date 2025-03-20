@@ -44,6 +44,34 @@ public with sharing class ScannerReportHandler {
                 newCase.File_Name__c = cv.Title;
                 newCase.Status = 'New';
 
+                // Read CSV content and map TargetBranch to Target Environment
+                String csvContent;
+                try {
+                    csvContent = cv.VersionData.toString();
+                    List<String> csvLines = csvContent.split('\n');
+                    if (csvLines.size() > 1) {
+                        String headerLine = csvLines[0];
+                        List<String> headers = headerLine.split(',');
+
+                        Integer targetBranchIndex = headers.indexOf('TargetBranch');
+                        if (targetBranchIndex != -1) {
+                            for (Integer i = 1; i < csvLines.size(); i++) {
+                                List<String> values = csvLines[i].split(',');
+
+                                if (values.size() > targetBranchIndex) {
+                                    String targetBranchValue = values[targetBranchIndex];
+                                    System.debug('🔗 Mapping TargetBranch: ' + targetBranchValue);
+                                    newCase.Target_Environment__c = targetBranchValue;
+                                    break; // Map the first occurrence
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    System.debug('❌ Error reading CSV content: ' + e.getMessage());
+                }
+
+
                 casesToInsert.add(newCase);
                 caseToFileMap.put(cv.ContentDocumentId, null); // Placeholder
             }
