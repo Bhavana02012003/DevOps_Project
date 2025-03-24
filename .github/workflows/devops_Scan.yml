@@ -133,7 +133,7 @@ jobs:
                   if [[ "$line_content_trimmed" =~ ^else ]]; then
                       # Check if the previous line is not an 'if' statement or is empty
                       if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*{ ]]; then
-                          echo "        if (true) {" >> "$temp_file"
+                          echo "        if (true) {}" >> "$temp_file"
                           echo "        $line_content_trimmed" >> "$temp_file"
                           previous_line="$line_content_trimmed"
                           continue
