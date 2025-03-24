@@ -120,11 +120,16 @@ jobs:
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
               while IFS=, read -r line_number line_content; do
-                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                if [[ -n "$line_content_trimmed" ]]; then
-                  echo "        $line_content_trimmed" >> "$temp_file"
-                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                fi
+                  line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                  if [[ -n "$line_content_trimmed" ]]; then
+                      # Wrap 'else' blocks with a dummy 'if' statement to ensure valid syntax
+                      if [[ "$line_content_trimmed" == "else{"* ]]; then
+                          echo "        if (true) $line_content_trimmed" >> "$temp_file"
+                      else
+                          echo "        $line_content_trimmed" >> "$temp_file"
+                      fi
+                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  fi
               done < "line_number_mapping_${file//\//_}.txt"
               echo "    }" >> "$temp_file"
               echo "}" >> "$temp_file"
