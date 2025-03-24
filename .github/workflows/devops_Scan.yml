@@ -120,7 +120,6 @@ jobs:
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
 
-              # Variable to track the previous line
               previous_line=""
 
               while IFS=, read -r line_number line_content; do
@@ -129,18 +128,54 @@ jobs:
                   # Print the line being processed for debugging
                   echo "Processing line: $line_content_trimmed"
 
-                  # Handle isolated 'else' without a preceding 'if'
+                  # Handle "else" without preceding "if"
                   if [[ "$line_content_trimmed" =~ ^else ]]; then
-                      # Check if the previous line is not an 'if' statement or is empty
-                      if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*{ ]]; then
+                      if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                          # Add a dummy "if (true) {}" block
                           echo "        if (true) {}" >> "$temp_file"
-                          echo "        $line_content_trimmed" >> "$temp_file"
-                          previous_line="$line_content_trimmed"
-                          continue
                       fi
                   fi
 
-                  # Handle normal lines
+                  # Handle "catch" without preceding "try"
+                  if [[ "$line_content_trimmed" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                      if [[ ! "$previous_line" =~ ^try[[:space:]]*\{ ]]; then
+                          # Add a dummy "try" block
+                          echo "        try {}" >> "$temp_file"
+                      fi
+                  fi
+
+                  # Handle "finally" without preceding "try-catch"
+                  if [[ "$line_content_trimmed" =~ ^finally[[:space:]]*\{ ]]; then
+                      if [[ ! "$previous_line" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                          # Add a dummy "try-catch" block
+                          echo "        try {} catch (Exception e) {}" >> "$temp_file"
+                      fi
+                  fi
+
+                  # Handle "for" and "while" without a body
+                  if [[ "$line_content_trimmed" =~ ^(for|while)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                      echo "        $line_content_trimmed" >> "$temp_file"
+                      echo "        {}" >> "$temp_file"
+                      previous_line="$line_content_trimmed"
+                      continue
+                  fi
+
+                  # Handle "if" without a body
+                  if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                      echo "        $line_content_trimmed" >> "$temp_file"
+                      echo "        {}" >> "$temp_file"
+                      previous_line="$line_content_trimmed"
+                      continue
+                  fi
+
+                  # Handle standalone brackets and braces
+                  if [[ "$line_content_trimmed" =~ ^[{}]+$ ]]; then
+                      echo "        $line_content_trimmed" >> "$temp_file"
+                      previous_line="$line_content_trimmed"
+                      continue
+                  fi
+
+                  # Handle generic lines
                   echo "        $line_content_trimmed" >> "$temp_file"
                   previous_line="$line_content_trimmed"
 
