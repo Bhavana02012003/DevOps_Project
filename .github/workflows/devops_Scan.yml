@@ -115,21 +115,33 @@ jobs:
             temp_file="temp_scanner_files/temp_${file//\//_}"
             touch "$temp_file"
             # Write extracted lines into a valid structure based on file type
-            if [[ "$file" == *.cls ]]; then
+           if [[ "$file" == *.cls ]]; then
               echo "public class TempWrapperClass {" > "$temp_file"
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
+              hasIfStatement=false
               while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                  if [[ -n "$line_content_trimmed" ]]; then
-                      # Wrap 'else' blocks with a dummy 'if' statement to ensure valid syntax
-                      if [[ "$line_content_trimmed" == "else{"* ]]; then
-                          echo "        if (true) $line_content_trimmed" >> "$temp_file"
-                      else
-                          echo "        $line_content_trimmed" >> "$temp_file"
-                      fi
-                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+
+                  # Detect if the line is an "if" statement
+                  if [[ "$line_content_trimmed" == "if("* ]]; then
+                      hasIfStatement=true
                   fi
+
+                  # If an "else" is found without a preceding "if", add a dummy "if (true)" statement
+                  if [[ "$line_content_trimmed" == "else"* && "$hasIfStatement" == "false" ]]; then
+                      echo "        if (true) $line_content_trimmed" >> "$temp_file"
+                  else
+                      echo "        $line_content_trimmed" >> "$temp_file"
+                  fi
+
+                  # Reset the flag when encountering "else" or end of block
+                  if [[ "$line_content_trimmed" == *"}"* ]]; then
+                      hasIfStatement=false
+                  fi
+
+                  # Write to the line number mapping
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
               done < "line_number_mapping_${file//\//_}.txt"
               echo "    }" >> "$temp_file"
               echo "}" >> "$temp_file"
