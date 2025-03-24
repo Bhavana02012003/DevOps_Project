@@ -493,21 +493,21 @@ jobs:
         run: |
           if [ -f scanner-report.csv ]; then
             echo "Reading scanner-report.csv for severity violations..."
-            
+
             # Debugging: Display the entire scanner report
             cat scanner-report.csv
+
+            # Count Apex severity 3 violations
+            apex_severity_count=$(awk -F',' 'NR>1 && gsub(/"/, "", $2) == 3 && $3 ~ /\.cls$/ {count++} END {print count+0}' scanner-report.csv)
+            echo "Apex Severity 3 Issues: $apex_severity_count"
             
-            # Counting Apex Severity 3 Issues
-            apex_severity_fail_count=$(grep -E '"3","[^"]*","[^"]*\.cls",' scanner-report.csv | wc -l)
-            echo "Apex Severity 3 Issues: $apex_severity_fail_count"
+            # Count LWC severity 2 or higher violations
+            lwc_severity_count=$(awk -F',' 'NR>1 && gsub(/"/, "", $2) >= 2 && ($3 ~ /\.js$/ || $3 ~ /\.html$/ || $3 ~ /\.lwc$/) {count++} END {print count+0}' scanner-report.csv)
+            echo "LWC Severity 2 or Higher Issues: $lwc_severity_count"
             
-            # Counting LWC Severity 2 or Higher Issues (for .js, .html, and .lwc files)
-            lwc_severity_fail_count=$(grep -E '"[23]","[^"]*","[^"]*\.(js|html|lwc)",' scanner-report.csv | wc -l)
-            echo "LWC Severity 2 or Higher Issues: $lwc_severity_fail_count"
-            
-            # Fail the PR if either count is greater than 0
-            if [ "$apex_severity_fail_count" -gt 0 ] || [ "$lwc_severity_fail_count" -gt 0 ]; then
-              echo "Blocking commit due to severity violations (Apex: 3, LWC: 2+)."
+            # Check if any severity violations exist
+            if [ "$apex_severity_count" -gt 0 ] || [ "$lwc_severity_count" -gt 0 ]; then
+              echo "Blocking commit due to severity violations."
               echo "block-status=true" >> $GITHUB_ENV
               echo "block-status=true" >> $GITHUB_OUTPUT
               exit 1
