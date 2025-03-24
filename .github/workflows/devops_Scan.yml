@@ -119,30 +119,32 @@ jobs:
               echo "public class TempWrapperClass {" > "$temp_file"
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
-              hasIfStatement=false
+              previous_line_was_if=false
               while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-                  # Check for valid syntax with if/else
+                  # Check if the line is an "if" statement
                   if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*{ ]]; then
                       echo "        $line_content_trimmed" >> "$temp_file"
-                      hasIfStatement=true
+                      previous_line_was_if=true
                   elif [[ "$line_content_trimmed" =~ ^else[[:space:]]*{ ]]; then
-                      if [ "$hasIfStatement" = false ]; then
-                          # Wrap with a valid if statement
-                          echo "        if (true) $line_content_trimmed" >> "$temp_file"
+                      if [ "$previous_line_was_if" = false ]; then
+                          # Add a dummy "if" to ensure the syntax is correct
+                          echo "        if (true) {" >> "$temp_file"
+                          echo "        $line_content_trimmed" >> "$temp_file"
                       else
                           echo "        $line_content_trimmed" >> "$temp_file"
                       fi
-                      hasIfStatement=false
+                      previous_line_was_if=false
                   else
                       # Normal lines, just add them
                       echo "        $line_content_trimmed" >> "$temp_file"
+                      previous_line_was_if=false
                   fi
 
                   # Check for closing braces to reset the flag
                   if [[ "$line_content_trimmed" == "}" ]]; then
-                      hasIfStatement=false
+                      previous_line_was_if=false
                   fi
 
                   # Write to the line number mapping
