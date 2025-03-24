@@ -123,30 +123,39 @@ jobs:
               while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-                  # Check if the line contains an "if" statement
-                  if [[ "$line_content_trimmed" == "if("* ]]; then
+                  # Check for valid syntax with if/else
+                  if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*{ ]]; then
+                      echo "        $line_content_trimmed" >> "$temp_file"
                       hasIfStatement=true
-                      echo "        $line_content_trimmed" >> "$temp_file"
-                      continue
-                  fi
-
-                  # If an "else" block is found without a preceding "if", add a dummy "if (true)" statement
-                  if [[ "$line_content_trimmed" == "else"* && "$hasIfStatement" == "false" ]]; then
-                      echo "        if (true) $line_content_trimmed" >> "$temp_file"
+                  elif [[ "$line_content_trimmed" =~ ^else[[:space:]]*{ ]]; then
+                      if [ "$hasIfStatement" = false ]; then
+                          # Wrap with a valid if statement
+                          echo "        if (true) $line_content_trimmed" >> "$temp_file"
+                      else
+                          echo "        $line_content_trimmed" >> "$temp_file"
+                      fi
+                      hasIfStatement=false
                   else
+                      # Normal lines, just add them
                       echo "        $line_content_trimmed" >> "$temp_file"
                   fi
 
-                  # Reset the flag when encountering "else" or end of block
-                  if [[ "$line_content_trimmed" == *"}"* ]]; then
+                  # Check for closing braces to reset the flag
+                  if [[ "$line_content_trimmed" == "}" ]]; then
                       hasIfStatement=false
                   fi
 
                   # Write to the line number mapping
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
               done < "line_number_mapping_${file//\//_}.txt"
+
               echo "    }" >> "$temp_file"
               echo "}" >> "$temp_file"
+
+              # Print the entire generated file for debugging
+              echo "====== Generated Temp Apex File Content ======"
+              cat "$temp_file"
+              echo "====== End of Temp Apex File Content ======"
             elif [[ "$file" == *.js ]]; then
               echo "// LWC JavaScript File" > "$temp_file"
               while IFS=, read -r line_number line_content; do
