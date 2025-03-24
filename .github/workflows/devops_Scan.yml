@@ -498,14 +498,14 @@ jobs:
             cat scanner-report.csv
 
             # Counting Apex Severity 3 Issues
-            apex_severity_fail_count=$(awk -F',' 'NR>1 {
+            apex_severity_fail_count=$(awk -F',' 'BEGIN {count=0} NR>1 {
               gsub(/[^0-9]/, "", $2);  # Remove non-numeric characters
               if ($2 == "3" && $3 ~ /\.cls$/) count++
             } END {print count}' scanner-report.csv)
             echo "Apex Severity 3 Issues: $apex_severity_fail_count"
 
             # Counting LWC Severity 2 or Higher Issues (for .js, .html, and .lwc files)
-            lwc_severity_fail_count=$(awk -F',' 'NR>1 {
+            lwc_severity_fail_count=$(awk -F',' 'BEGIN {count=0} NR>1 {
               gsub(/[^0-9]/, "", $2);  # Remove non-numeric characters
               if (($2 == "2" || $2 == "3") && ($3 ~ /\.js$/ || $3 ~ /\.html$/ || $3 ~ /\.lwc$/)) count++
             } END {print count}' scanner-report.csv)
