@@ -20,7 +20,7 @@ global class Demo {  // Violates AvoidGlobalModifier
                     if (value > 30) {
                         System.debug('Too much nesting Testing!');
                     }
-                    else{
+                    else {
                         System.debug('Else');
                     }
                 }
