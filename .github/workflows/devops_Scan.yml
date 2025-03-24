@@ -498,11 +498,19 @@ jobs:
             cat scanner-report.csv
 
             # Count Apex severity 3 violations
-            apex_severity_count=$(awk -F',' 'NR>1 && gsub(/"/, "", $2) == 3 && $3 ~ /\.cls$/ {count++} END {print count+0}' scanner-report.csv)
+            apex_severity_count=$(awk -F',' 'NR>1 {
+              severity = $2; gsub(/"/, "", severity); 
+              file = $3; gsub(/"/, "", file); 
+              if (severity == 3 && file ~ /\.cls$/) count++
+            } END {print count+0}' scanner-report.csv)
             echo "Apex Severity 3 Issues: $apex_severity_count"
             
             # Count LWC severity 2 or higher violations
-            lwc_severity_count=$(awk -F',' 'NR>1 && gsub(/"/, "", $2) >= 2 && ($3 ~ /\.js$/ || $3 ~ /\.html$/ || $3 ~ /\.lwc$/) {count++} END {print count+0}' scanner-report.csv)
+            lwc_severity_count=$(awk -F',' 'NR>1 {
+              severity = $2; gsub(/"/, "", severity); 
+              file = $3; gsub(/"/, "", file); 
+              if (severity >= 2 && (file ~ /\.js$/ || file ~ /\.html$/ || file ~ /\.lwc$/)) count++
+            } END {print count+0}' scanner-report.csv)
             echo "LWC Severity 2 or Higher Issues: $lwc_severity_count"
             
             # Check if any severity violations exist
@@ -522,7 +530,6 @@ jobs:
             echo "block-status=true" >> $GITHUB_OUTPUT
             exit 1
           fi
-
   notify-slack:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
