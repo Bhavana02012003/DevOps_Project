@@ -120,23 +120,53 @@ jobs:
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
 
+              # Track whether we have seen an 'if' before the 'else'
+              previous_was_if=false
               while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-                  # Check if the line is an "else" statement and add a dummy "if" before it
-                  if [[ "$line_content_trimmed" =~ ^else[[:space:]]*{ ]]; then
-                      echo "        if (true) {" >> "$temp_file"
-                      echo "            // Dummy if block for valid syntax" >> "$temp_file"
-                      echo "        }" >> "$temp_file"
+                  # Log the line content for debugging
+                  echo "Processing line: $line_content_trimmed"
+
+                  # Check if the line is an 'if' statement
+                  if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*{ ]]; then
+                      echo "Detected 'if' statement: $line_content_trimmed"
                       echo "        $line_content_trimmed" >> "$temp_file"
+                      previous_was_if=true
+                  elif [[ "$line_content_trimmed" =~ ^else[[:space:]]*{ ]]; then
+                      # Handle standalone 'else' blocks
+                      if [ "$previous_was_if" = false ]; then
+                          echo "Handling standalone 'else' block, adding dummy 'if' before it."
+                          echo "        if (true) {" >> "$temp_file"
+                      fi
+                      echo "        $line_content_trimmed" >> "$temp_file"
+                      previous_was_if=false  # Reset the flag after processing 'else'
+                  elif [[ "$line_content_trimmed" =~ ^else[[:space:]]*if[[:space:]]*\(.*\)[[:space:]]*{ ]]; then
+                      # Handle 'else if' blocks
+                      if [ "$previous_was_if" = false ]; then
+                          echo "Handling 'else if' block, adding dummy 'if' before it."
+                          echo "        if (true) {" >> "$temp_file"
+                      fi
+                      echo "        $line_content_trimmed" >> "$temp_file"
+                      previous_was_if=false  # Reset the flag after processing 'else if'
                   else
+                      # Normal line, just add it
+                      echo "Normal line: $line_content_trimmed"
                       echo "        $line_content_trimmed" >> "$temp_file"
+                      previous_was_if=false  # Reset the flag for other lines
+                  fi
+
+                  # Close the dummy 'if' block after processing the line
+                  if [ "$line_content_trimmed" == "}" ] && [ "$previous_was_if" = false ]; then
+                      echo "        }" >> "$temp_file"
+                      previous_was_if=false
                   fi
 
                   # Write to the line number mapping
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
               done < "line_number_mapping_${file//\//_}.txt"
 
+              # Properly close the method and class
               echo "    }" >> "$temp_file"
               echo "}" >> "$temp_file"
 

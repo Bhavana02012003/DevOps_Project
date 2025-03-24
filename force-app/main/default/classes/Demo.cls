@@ -24,6 +24,10 @@ global class Demo {  // Violates AvoidGlobalModifier
                         System.debug('Else block');
                     }
                 }
+                else
+                {
+                    System.debug('Else');
+                }
             }
         }
     }
