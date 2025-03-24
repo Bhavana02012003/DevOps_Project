@@ -130,22 +130,19 @@ jobs:
                       previous_line_was_if=true
                   elif [[ "$line_content_trimmed" =~ ^else[[:space:]]*{ ]]; then
                       if [ "$previous_line_was_if" = false ]; then
-                          # Add a dummy "if (true)" block before the "else"
+                          # Add a dummy "if" to ensure the syntax is correct
                           echo "        if (true) {" >> "$temp_file"
-                          echo "        $line_content_trimmed" >> "$temp_file"
-                          previous_line_was_if=true
-                      else
-                          echo "        $line_content_trimmed" >> "$temp_file"
                       fi
+                      echo "        $line_content_trimmed" >> "$temp_file"
+                      previous_line_was_if=false
                   else
                       # Normal lines, just add them
                       echo "        $line_content_trimmed" >> "$temp_file"
                       previous_line_was_if=false
                   fi
 
-                  # Close the dummy "if" block if necessary
-                  if [ "$previous_line_was_if" = true ] && [[ "$line_content_trimmed" == "}" ]]; then
-                      echo "        }" >> "$temp_file"
+                  # Check for closing braces to reset the flag
+                  if [[ "$line_content_trimmed" == "}" ]]; then
                       previous_line_was_if=false
                   fi
 

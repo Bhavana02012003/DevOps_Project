@@ -30,5 +30,8 @@ global class Demo {  // Violates AvoidGlobalModifier
         String query = 'SELECT Id, Name FROM Account WHERE Name LIKE \'%' + userInput + '%\'';
         List<Account> accounts = Database.query(query);
        System.debug(accounts);
+       else{
+        System.debug('Else');
+       }
     }
 }
