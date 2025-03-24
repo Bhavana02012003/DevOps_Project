@@ -120,7 +120,6 @@ jobs:
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
               previous_line_was_if=false
-              dummy_if_inserted=false
 
               while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
@@ -129,35 +128,30 @@ jobs:
                   if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*{ ]]; then
                       echo "        $line_content_trimmed" >> "$temp_file"
                       previous_line_was_if=true
-                      dummy_if_inserted=false
                   elif [[ "$line_content_trimmed" =~ ^else[[:space:]]*{ ]]; then
                       if [ "$previous_line_was_if" = false ]; then
-                          # Add a dummy "if" statement before the "else" if not preceded by "if"
+                          # Add a dummy "if (true)" block before the "else"
                           echo "        if (true) {" >> "$temp_file"
-                          dummy_if_inserted=true
+                          echo "        $line_content_trimmed" >> "$temp_file"
+                          previous_line_was_if=true
+                      else
+                          echo "        $line_content_trimmed" >> "$temp_file"
                       fi
-                      echo "        $line_content_trimmed" >> "$temp_file"
-                      previous_line_was_if=false
                   else
                       # Normal lines, just add them
                       echo "        $line_content_trimmed" >> "$temp_file"
                       previous_line_was_if=false
                   fi
 
-                  # If a dummy "if (true)" block was opened, ensure it gets closed
-                  if [ "$dummy_if_inserted" = true ] && [[ "$line_content_trimmed" == "}" ]]; then
+                  # Close the dummy "if" block if necessary
+                  if [ "$previous_line_was_if" = true ] && [[ "$line_content_trimmed" == "}" ]]; then
                       echo "        }" >> "$temp_file"
-                      dummy_if_inserted=false
+                      previous_line_was_if=false
                   fi
 
                   # Write to the line number mapping
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
               done < "line_number_mapping_${file//\//_}.txt"
-
-              # Ensure any open dummy "if" block is closed at the end
-              if [ "$dummy_if_inserted" = true ]; then
-                  echo "        }" >> "$temp_file"
-              fi
 
               echo "    }" >> "$temp_file"
               echo "}" >> "$temp_file"
