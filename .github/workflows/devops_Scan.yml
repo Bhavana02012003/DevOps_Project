@@ -128,15 +128,19 @@ jobs:
                   if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*{ ]]; then
                       echo "        $line_content_trimmed" >> "$temp_file"
                       previous_line_was_if=true
+
+                  # Check if the line is an "else" statement
                   elif [[ "$line_content_trimmed" =~ ^else[[:space:]]*{ ]]; then
                       if [ "$previous_line_was_if" = false ]; then
-                          # Add a dummy "if" to ensure the syntax is correct
+                          # Add a dummy "if" statement to ensure syntax correctness
                           echo "        if (true) {" >> "$temp_file"
+                          echo "        }" >> "$temp_file"
                       fi
                       echo "        $line_content_trimmed" >> "$temp_file"
                       previous_line_was_if=false
+
+                  # Handle regular lines
                   else
-                      # Normal lines, just add them
                       echo "        $line_content_trimmed" >> "$temp_file"
                       previous_line_was_if=false
                   fi
