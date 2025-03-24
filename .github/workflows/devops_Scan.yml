@@ -80,8 +80,8 @@ jobs:
           > changed_cls_lwc_files.txt
           > line_number_mapping.txt
           > scanner-report-temp.csv
-          echo "Checking for changed .cls and .lwc files..."
-          # Get only changed files (.cls and .lwc)
+          echo "Checking for changed .cls, .js, .html, and .lwc files..."
+          # Get only changed files (.cls, .js, .html, .lwc)
           changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' '*.lwc' || true)
           echo "Detected changed files: $changed_files"
           if [ -z "$changed_files" ]; then
@@ -129,23 +129,23 @@ jobs:
               echo "    }" >> "$temp_file"
               echo "}" >> "$temp_file"
             elif [[ "$file" == *.js ]]; then
-                echo "/* LWC JavaScript File */" > "$temp_file"
-                while IFS=, read -r line_number line_content; do
-                    line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                    if [[ -n "$line_content_trimmed" ]]; then
-                        echo "$line_content_trimmed" >> "$temp_file"
-                        echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    fi
-                done < "line_number_mapping_${file//\//_}.txt"
+              echo "// LWC JavaScript File" > "$temp_file"
+              while IFS=, read -r line_number line_content; do
+                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                if [[ -n "$line_content_trimmed" ]]; then
+                  echo "$line_content_trimmed" >> "$temp_file"
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                fi
+              done < "line_number_mapping_${file//\//_}.txt"
             elif [[ "$file" == *.html ]]; then
-                echo "<!-- LWC HTML File -->" > "$temp_file"
-                while IFS=, read -r line_number line_content; do
-                    line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                    if [[ -n "$line_content_trimmed" ]]; then
-                        echo "$line_content_trimmed" >> "$temp_file"
-                        echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    fi
-                done < "line_number_mapping_${file//\//_}.txt"
+              echo "<!-- LWC HTML File -->" > "$temp_file"
+              while IFS=, read -r line_number line_content; do
+                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                if [[ -n "$line_content_trimmed" ]]; then
+                  echo "$line_content_trimmed" >> "$temp_file"
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                fi
+              done < "line_number_mapping_${file//\//_}.txt"
             fi
             echo "$temp_file" >> changed_cls_lwc_files.txt
             echo "Created temp file: $temp_file"
@@ -216,7 +216,7 @@ jobs:
                 }' >> scanner-report.csv
             fi
           done
-          
+
           # Debug final scanner report
           echo "Final Scanner Report with TargetBranch:"
           cat scanner-report.csv
