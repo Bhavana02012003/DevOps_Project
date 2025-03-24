@@ -20,9 +20,7 @@ global class Demo {  // Violates AvoidGlobalModifier
                     if (value > 30) {
                         System.debug('Too much nesting Testing!');
                     }
-                    else {
-                        System.debug('Else');
-                    }
+
                 }
             }
         }
@@ -33,8 +31,5 @@ global class Demo {  // Violates AvoidGlobalModifier
         String query = 'SELECT Id, Name FROM Account WHERE Name LIKE \'%' + userInput + '%\'';
         List<Account> accounts = Database.query(query);
        System.debug(accounts);
-       else{
-        System.debug('Else');
-       }
     }
 }
