@@ -119,35 +119,18 @@ jobs:
               echo "public class TempWrapperClass {" > "$temp_file"
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "        /* Extracted changed lines */" >> "$temp_file"
-              previous_line_was_if=false
 
               while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-                  # Check if the line is an "if" statement
-                  if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*{ ]]; then
+                  # Check if the line is an "else" statement and add a dummy "if" before it
+                  if [[ "$line_content_trimmed" =~ ^else[[:space:]]*{ ]]; then
+                      echo "        if (true) {" >> "$temp_file"
+                      echo "            // Dummy if block for valid syntax" >> "$temp_file"
+                      echo "        }" >> "$temp_file"
                       echo "        $line_content_trimmed" >> "$temp_file"
-                      previous_line_was_if=true
-
-                  # Check if the line is an "else" statement
-                  elif [[ "$line_content_trimmed" =~ ^else[[:space:]]*{ ]]; then
-                      if [ "$previous_line_was_if" = false ]; then
-                          # Add a dummy "if" statement to ensure syntax correctness
-                          echo "        if (true) {" >> "$temp_file"
-                          echo "        }" >> "$temp_file"
-                      fi
-                      echo "        $line_content_trimmed" >> "$temp_file"
-                      previous_line_was_if=false
-
-                  # Handle regular lines
                   else
                       echo "        $line_content_trimmed" >> "$temp_file"
-                      previous_line_was_if=false
-                  fi
-
-                  # Check for closing braces to reset the flag
-                  if [[ "$line_content_trimmed" == "}" ]]; then
-                      previous_line_was_if=false
                   fi
 
                   # Write to the line number mapping
