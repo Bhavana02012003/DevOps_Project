@@ -1,7 +1,7 @@
 import { LightningElement } from 'lwc';
 
 export default class Demo extends LightningElement {
-    myVa2r; // ❌ `no-unused-vars`: Variable is declared but not used
+    myVar; // ❌ `no-unused-vars`: Variable is declared but not used
 
     connectedCallback() {
         console.log('Component Loaded'); // ❌ `no-console`: `console.log()` is not allowed
@@ -11,7 +11,7 @@ export default class Demo extends LightningElement {
             console.warn("Warning: Variable is null");
         }
 
-        if (this.myVar2) console.log("No curly brackets found"); // ❌ `curly`: Requires curly brackets `{}` for if statements
+        if (this.myVar) console.log("No curly brackets found"); // ❌ `curly`: Requires curly brackets `{}` for if statements
 
         this.testFunction();
     }
