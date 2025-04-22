@@ -1,0 +1,48 @@
+- name: Run SFDX Scanner on Changed Lines
+  run: |
+    files=$(cat changed_cls_lwc_files.txt)
+    if [ -z "$files" ]; then
+      echo "No files to scan. Creating an empty report."
+      echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+      exit 0
+    fi
+
+    # Initialize final report with headers
+    echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+    UNWANTED_PATH="/home/runner/_work/ESOSCSFDXTest/ESOSCSFDXTest/temp_scanner_files"
+
+    for file in $files; do
+      echo "Running SFDX Scanner on file: $file"
+
+      if [[ "$file" == *.cls ]]; then
+        sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+
+      elif [[ "$file" == *.js ]]; then
+        # Move LWC JS file to valid structure so scanner works
+        mkdir -p force-app/main/default/lwc/tmpLwcComponent
+        newPath="force-app/main/default/lwc/tmpLwcComponent/tmpLwcComponent.js"
+        cp "$file" "$newPath"
+
+        # Run the scanner on the new valid path
+        sf scanner:run --target "$newPath" --format "csv" --outfile "scanner-report-partial.csv" || echo "Scanner run failed for $file"
+
+        # Clean up afterwards
+        rm -f "$newPath"
+
+      else
+        echo "Unsupported file type: $file"
+      fi
+
+      # Process partial report
+      if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
+        tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="${{ env.GITHUB_USERNAME }}" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
+          $11 = commit_author;
+          if (NF < 12) $12 = "N/A";
+          $13 = target_branch;
+          print $0
+        }' >> scanner-report.csv
+      fi
+    done
+
+    echo "Final Scanner Report with TargetBranch:"
+    cat scanner-report.csv
