@@ -347,11 +347,13 @@ jobs:
           mkdir -p /tmp/artifact_backup
           cp scanner-report.csv /tmp/artifact_backup/${{ env.REPORT_FILE }}
           echo "✅ Scanner report backed up in /tmp/artifact_backup/${{ env.REPORT_FILE }}."
+
       - name: Discard uncommitted changes (force clean)
         run: |
           git reset --hard
           git clean -fd
           git checkout Scanner_Reports
+
       - name: Commit and Push Scanner Report to `Scanner_Reports` Branch
         if: always()
         run: |
@@ -382,6 +384,11 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
 
+      - name: Restore scanner-report.csv for Blocking Step
+        if: always()
+        run: |
+          echo "Restoring scanner-report.csv to $GITHUB_WORKSPACE for blocking step"
+          cp /tmp/artifact_backup/${{ env.REPORT_FILE }} "$GITHUB_WORKSPACE/scanner-report.csv"
 
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
