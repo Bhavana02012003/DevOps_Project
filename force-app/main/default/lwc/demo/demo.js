@@ -1,7 +1,7 @@
 import { LightningElement } from 'lwc';
 
 export default class Demo extends LightningElement {
-    myVar; // ❌ `no-unused-vars`: Variable is declared but not used
+    myVar1; // ❌ `no-unused-vars`: Variable is declared but not used
 
     connectedCallback() {
         console.log('Component Loaded'); // ❌ `no-console`: `console.log()` is not allowed
