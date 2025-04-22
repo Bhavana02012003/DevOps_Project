@@ -1,48 +1,41 @@
-- name: Run SFDX Scanner on Changed Lines
+- name: Block PR merge if severity violations are found
+  id: block-check
   run: |
-    files=$(cat changed_cls_lwc_files.txt)
-    if [ -z "$files" ]; then
-      echo "No files to scan. Creating an empty report."
-      echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
-      exit 0
-    fi
+    REPORT_FILE="$GITHUB_WORKSPACE/scanner-report.csv"
 
-    # Initialize final report with headers
-    echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
-    UNWANTED_PATH="/home/runner/_work/ESOSCSFDXTest/ESOSCSFDXTest/temp_scanner_files"
+    if [ -f "$REPORT_FILE" ]; then
+      echo "Reading $REPORT_FILE for severity violations..."
+      cat "$REPORT_FILE"
 
-    for file in $files; do
-      echo "Running SFDX Scanner on file: $file"
+      # Apex severity 3
+      apex_severity_count=$(awk -F',' 'NR>1 {
+        severity = $2; gsub(/"/, "", severity); 
+        file = $3; gsub(/"/, "", file); 
+        if (severity == 3 && file ~ /\.cls$/) count++
+      } END {print count+0}' "$REPORT_FILE")
+      echo "Apex Severity 3 Issues: $apex_severity_count"
 
-      if [[ "$file" == *.cls ]]; then
-        sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+      # LWC severity 2+
+      lwc_severity_count=$(awk -F',' 'NR>1 {
+        severity = $2; gsub(/"/, "", severity); 
+        file = $3; gsub(/"/, "", file); 
+        if (severity >= 2 && (file ~ /\.js$/ || file ~ /\.html$/ || file ~ /\.lwc$/)) count++
+      } END {print count+0}' "$REPORT_FILE")
+      echo "LWC Severity 2 or Higher Issues: $lwc_severity_count"
 
-      elif [[ "$file" == *.js ]]; then
-        # Move LWC JS file to valid structure so scanner works
-        mkdir -p force-app/main/default/lwc/tmpLwcComponent
-        newPath="force-app/main/default/lwc/tmpLwcComponent/tmpLwcComponent.js"
-        cp "$file" "$newPath"
-
-        # Run the scanner on the new valid path
-        sf scanner:run --target "$newPath" --format "csv" --outfile "scanner-report-partial.csv" || echo "Scanner run failed for $file"
-
-        # Clean up afterwards
-        rm -f "$newPath"
-
+      if [ "$apex_severity_count" -gt 0 ] || [ "$lwc_severity_count" -gt 0 ]; then
+        echo "Blocking commit due to severity violations."
+        echo "block-status=true" >> $GITHUB_ENV
+        echo "block-status=true" >> $GITHUB_OUTPUT
+        exit 1
       else
-        echo "Unsupported file type: $file"
+        echo "No severity violations found. Proceeding."
+        echo "block-status=false" >> $GITHUB_ENV
+        echo "block-status=false" >> $GITHUB_OUTPUT
       fi
-
-      # Process partial report
-      if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
-        tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="${{ env.GITHUB_USERNAME }}" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
-          $11 = commit_author;
-          if (NF < 12) $12 = "N/A";
-          $13 = target_branch;
-          print $0
-        }' >> scanner-report.csv
-      fi
-    done
-
-    echo "Final Scanner Report with TargetBranch:"
-    cat scanner-report.csv
+    else
+      echo "No scanner report found at $REPORT_FILE."
+      echo "block-status=true" >> $GITHUB_ENV
+      echo "block-status=true" >> $GITHUB_OUTPUT
+      exit 1
+    fi
