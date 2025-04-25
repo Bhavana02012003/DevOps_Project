@@ -24,28 +24,13 @@ global class Demo {  // Violates AvoidGlobalModifier
                         System.debug('Too much nesting Testing!');
                     }
                     else{
-                        System.debug('Else Statement');
+                        System.debug('Else block');
                     }
                 }
             }
         }
     }
-
-    public void sampleTestMethod(Integer num) {  
-        // Violates AvoidDeeplyNestedIfStmts (nested more than 4 levels)
-        if (num > 0) {
-            if (num > 10) {
-                if (num > 20) {
-                    if (num > 30) {
-                        System.debug('Testing!');
-                    }
-                    else{
-                        System.debug('Else Statement');
-                    }
-                }
-            }
-        }
-    }
+    
 
     public void soqlInjection(String userInput) {  
         // Violates ApexSOQLInjection (Unsafe SOQL query)

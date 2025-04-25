@@ -117,21 +117,46 @@ jobs:
             # Write extracted lines into a valid structure based on file type
             if [[ "$file" == *.cls ]]; then
               echo "public class TempWrapperClass {" > "$temp_file"
-              echo "    public static void tempMethod() {" >> "$temp_file"
-              echo "        /* Extracted changed lines */" >> "$temp_file"
 
+              inside_method=0
+              has_temp_method_started=0
               previous_line=""
 
               while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-                  # Print the line being processed for debugging
                   echo "Processing line: $line_content_trimmed"
+
+                  # Detect method declaration (public/private/protected ...)
+                  if [[ "$line_content_trimmed" =~ ^(public|private|protected)[[:space:]]+(virtual|override|static)?[[:space:]]*([a-zA-Z0-9_<>]+)[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*\(.*\)[[:space:]]*\{?$ ]]; then
+                      echo "    $line_content_trimmed" >> "$temp_file"
+                      inside_method=1
+                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                      continue
+                  fi
+
+                  # If inside a method block, just indent and continue
+                  if [[ "$inside_method" -eq 1 ]]; then
+                      echo "        $line_content_trimmed" >> "$temp_file"
+                      if [[ "$line_content_trimmed" == *"}" ]]; then
+                          inside_method=0
+                      fi
+                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                      continue
+                  fi
+
+                  # Lazy start of tempMethod only when needed
+                  if [[ "$has_temp_method_started" -eq 0 ]]; then
+                      echo "    public static void tempMethod() {" >> "$temp_file"
+                      echo "        /* Extracted changed lines */" >> "$temp_file"
+                      has_temp_method_started=1
+                  fi
+
+                  # === Your Original Logic Preserved Below ===
 
                   # Handle "else" without preceding "if"
                   if [[ "$line_content_trimmed" =~ ^else ]]; then
                       if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                          # Add a dummy "if (true) {}" block
                           echo "        if (true) {}" >> "$temp_file"
                       fi
                   fi
@@ -139,7 +164,6 @@ jobs:
                   # Handle "catch" without preceding "try"
                   if [[ "$line_content_trimmed" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                       if [[ ! "$previous_line" =~ ^try[[:space:]]*\{ ]]; then
-                          # Add a dummy "try" block
                           echo "        try {}" >> "$temp_file"
                       fi
                   fi
@@ -147,7 +171,6 @@ jobs:
                   # Handle "finally" without preceding "try-catch"
                   if [[ "$line_content_trimmed" =~ ^finally[[:space:]]*\{ ]]; then
                       if [[ ! "$previous_line" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                          # Add a dummy "try-catch" block
                           echo "        try {} catch (Exception e) {}" >> "$temp_file"
                       fi
                   fi
@@ -157,6 +180,7 @@ jobs:
                       echo "        $line_content_trimmed" >> "$temp_file"
                       echo "        {}" >> "$temp_file"
                       previous_line="$line_content_trimmed"
+                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                       continue
                   fi
 
@@ -165,6 +189,7 @@ jobs:
                       echo "        $line_content_trimmed" >> "$temp_file"
                       echo "        {}" >> "$temp_file"
                       previous_line="$line_content_trimmed"
+                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                       continue
                   fi
 
@@ -172,25 +197,30 @@ jobs:
                   if [[ "$line_content_trimmed" =~ ^[{}]+$ ]]; then
                       echo "        $line_content_trimmed" >> "$temp_file"
                       previous_line="$line_content_trimmed"
+                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                       continue
                   fi
 
                   # Handle generic lines
                   echo "        $line_content_trimmed" >> "$temp_file"
                   previous_line="$line_content_trimmed"
-
-                  # Write to the line number mapping
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+
               done < "line_number_mapping_${file//\//_}.txt"
 
-              # Close the method and class
-              echo "    }" >> "$temp_file"
+              # Close tempMethod only if it was started
+              if [[ "$has_temp_method_started" -eq 1 ]]; then
+                  echo "    }" >> "$temp_file"
+              fi
+
+              # Close class
               echo "}" >> "$temp_file"
 
-              # Print the entire generated file for debugging
+              # Print debug
               echo "====== Generated Temp Apex File Content ======"
               cat "$temp_file"
               echo "====== End of Temp Apex File Content ======"
+
             elif [[ "$file" == *.js ]]; then
               echo "// LWC JavaScript File" > "$temp_file"
               while IFS=, read -r line_number line_content; do
