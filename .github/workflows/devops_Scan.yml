@@ -118,17 +118,16 @@ jobs:
             if [[ "$file" == *.cls ]]; then
               echo "public class TempWrapperClass {" > "$temp_file"
 
+              previous_line=""
               inside_method=0
               has_temp_method_started=0
-              previous_line=""
-              open_brace_count=1  # we already wrote 1 '{' for the class
+              open_brace_count=1  # class already opened
 
               while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-
                   echo "Processing line: $line_content_trimmed"
 
-                  # Detect method declaration
+                  # Detect method declarations
                   if [[ "$line_content_trimmed" =~ ^(public|private|protected)[[:space:]]+(virtual|override|static)?[[:space:]]*([a-zA-Z0-9_<>]+)[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*\(.*\)[[:space:]]*\{?$ ]]; then
                       echo "    $line_content_trimmed" >> "$temp_file"
                       inside_method=1
@@ -139,14 +138,16 @@ jobs:
 
                   if [[ "$inside_method" -eq 1 ]]; then
                       echo "        $line_content_trimmed" >> "$temp_file"
-                      if [[ "$line_content_trimmed" == *"}" ]]; then
-                          inside_method=0
-                          ((open_brace_count--))
-                      fi
                       echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                      # Detect closing brace
+                      if [[ "$line_content_trimmed" == *"}" ]]; then
+                          ((open_brace_count--))
+                          inside_method=0
+                      fi
                       continue
                   fi
 
+                  # Start tempMethod block only once
                   if [[ "$has_temp_method_started" -eq 0 ]]; then
                       echo "    public static void tempMethod() {" >> "$temp_file"
                       echo "        /* Extracted changed lines */" >> "$temp_file"
@@ -154,47 +155,48 @@ jobs:
                       ((open_brace_count++))
                   fi
 
-                  # Handle orphan "else"
+                  # Handle "else" without preceding "if"
                   if [[ "$line_content_trimmed" =~ ^else ]]; then
                       if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                           echo "        if (true) {}" >> "$temp_file"
                       fi
                   fi
 
-                  # Handle orphan "catch"
+                  # Handle "catch" without try
                   if [[ "$line_content_trimmed" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                       if [[ ! "$previous_line" =~ ^try[[:space:]]*\{ ]]; then
                           echo "        try {}" >> "$temp_file"
                       fi
                   fi
 
-                  # Handle orphan "finally"
+                  # Handle "finally" without try-catch
                   if [[ "$line_content_trimmed" =~ ^finally[[:space:]]*\{ ]]; then
                       if [[ ! "$previous_line" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                           echo "        try {} catch (Exception e) {}" >> "$temp_file"
                       fi
                   fi
 
-                  # Handle if/while/for blocks
+                  # Handle for/while blocks
                   if [[ "$line_content_trimmed" =~ ^(for|while)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                       echo "        $line_content_trimmed" >> "$temp_file"
                       echo "        {}" >> "$temp_file"
-                      previous_line="$line_content_trimmed"
                       ((open_brace_count++))
+                      previous_line="$line_content_trimmed"
                       echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                       continue
                   fi
 
+                  # Handle if blocks
                   if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                       echo "        $line_content_trimmed" >> "$temp_file"
                       echo "        {}" >> "$temp_file"
-                      previous_line="$line_content_trimmed"
                       ((open_brace_count++))
+                      previous_line="$line_content_trimmed"
                       echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                       continue
                   fi
 
-                  # Handle braces
+                  # Handle just braces
                   if [[ "$line_content_trimmed" =~ ^[{}]+$ ]]; then
                       echo "        $line_content_trimmed" >> "$temp_file"
                       [[ "$line_content_trimmed" == *"{"* ]] && ((open_brace_count++))
@@ -204,26 +206,27 @@ jobs:
                       continue
                   fi
 
-                  # Default generic line
+                  # Default line
                   echo "        $line_content_trimmed" >> "$temp_file"
                   previous_line="$line_content_trimmed"
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
 
               done < "line_number_mapping_${file//\//_}.txt"
 
-              # Close tempMethod block if opened
+              # Close tempMethod if started
               if [[ "$has_temp_method_started" -eq 1 ]]; then
                   echo "    }" >> "$temp_file"
                   ((open_brace_count--))
               fi
 
-              # Close the class only once
+              # Close class
               echo "}" >> "$temp_file"
               ((open_brace_count--))
 
+              # Final check
               if [[ "$open_brace_count" -ne 0 ]]; then
-                  echo "❌ Brace mismatch: $open_brace_count unmatched braces remain."
-                  echo "======= Generated File ======="
+                  echo "❌ Error: Unmatched braces. Remaining count: $open_brace_count"
+                  echo "======== Final Output ========"
                   cat "$temp_file"
                   exit 1
               fi
