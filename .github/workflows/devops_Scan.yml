@@ -119,116 +119,112 @@ jobs:
               echo "public class TempWrapperClass {" > "$temp_file"
 
               previous_line=""
-              inside_method=0
-              has_temp_method_started=0
-              open_brace_count=1  # class already opened
+              in_method=0
+              brace_depth=1 # class opened
+              temp_method_started=0
+              method_buffer=""
+              method_brace_depth=0
 
               while IFS=, read -r line_number line_content; do
-                  line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                  echo "Processing line: $line_content_trimmed"
+                line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                echo "Processing line: $line_content_trimmed"
 
-                  # Detect method declarations
-                  if [[ "$line_content_trimmed" =~ ^(public|private|protected)[[:space:]]+(virtual|override|static)?[[:space:]]*([a-zA-Z0-9_<>]+)[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*\(.*\)[[:space:]]*\{?$ ]]; then
-                      echo "    $line_content_trimmed" >> "$temp_file"
-                      inside_method=1
-                      ((open_brace_count++))
-                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                      continue
-                  fi
+                # 👇 Detect full method declaration
+                if [[ "$line_content_trimmed" =~ ^(public|private|protected)[[:space:]]+.*\(.*\)[[:space:]]*\{[[:space:]]*$ ]]; then
+                  in_method=1
+                  method_buffer="    $line_content_trimmed"$'\n'
+                  method_brace_depth=1
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  continue
+                fi
 
-                  if [[ "$inside_method" -eq 1 ]]; then
-                      echo "        $line_content_trimmed" >> "$temp_file"
-                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                      # Detect closing brace
-                      if [[ "$line_content_trimmed" == *"}" ]]; then
-                          ((open_brace_count--))
-                          inside_method=0
-                      fi
-                      continue
-                  fi
-
-                  # Start tempMethod block only once
-                  if [[ "$has_temp_method_started" -eq 0 ]]; then
-                      echo "    public static void tempMethod() {" >> "$temp_file"
-                      echo "        /* Extracted changed lines */" >> "$temp_file"
-                      has_temp_method_started=1
-                      ((open_brace_count++))
-                  fi
-
-                  # Handle "else" without preceding "if"
-                  if [[ "$line_content_trimmed" =~ ^else ]]; then
-                      if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                          echo "        if (true) {}" >> "$temp_file"
-                      fi
-                  fi
-
-                  # Handle "catch" without try
-                  if [[ "$line_content_trimmed" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                      if [[ ! "$previous_line" =~ ^try[[:space:]]*\{ ]]; then
-                          echo "        try {}" >> "$temp_file"
-                      fi
-                  fi
-
-                  # Handle "finally" without try-catch
-                  if [[ "$line_content_trimmed" =~ ^finally[[:space:]]*\{ ]]; then
-                      if [[ ! "$previous_line" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                          echo "        try {} catch (Exception e) {}" >> "$temp_file"
-                      fi
-                  fi
-
-                  # Handle for/while blocks
-                  if [[ "$line_content_trimmed" =~ ^(for|while)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                      echo "        $line_content_trimmed" >> "$temp_file"
-                      echo "        {}" >> "$temp_file"
-                      ((open_brace_count++))
-                      previous_line="$line_content_trimmed"
-                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                      continue
-                  fi
-
-                  # Handle if blocks
-                  if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                      echo "        $line_content_trimmed" >> "$temp_file"
-                      echo "        {}" >> "$temp_file"
-                      ((open_brace_count++))
-                      previous_line="$line_content_trimmed"
-                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                      continue
-                  fi
-
-                  # Handle just braces
-                  if [[ "$line_content_trimmed" =~ ^[{}]+$ ]]; then
-                      echo "        $line_content_trimmed" >> "$temp_file"
-                      [[ "$line_content_trimmed" == *"{"* ]] && ((open_brace_count++))
-                      [[ "$line_content_trimmed" == *"}"* ]] && ((open_brace_count--))
-                      previous_line="$line_content_trimmed"
-                      echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                      continue
-                  fi
-
-                  # Default line
-                  echo "        $line_content_trimmed" >> "$temp_file"
-                  previous_line="$line_content_trimmed"
+                if [[ "$in_method" -eq 1 ]]; then
+                  method_buffer+="        $line_content_trimmed"$'\n'
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
 
+                  [[ "$line_content_trimmed" == *"{"* ]] && ((method_brace_depth++))
+                  [[ "$line_content_trimmed" == *"}"* ]] && ((method_brace_depth--))
+
+                  if [[ "$method_brace_depth" -eq 0 ]]; then
+                    # ✅ Method complete — write it directly into the class
+                    echo "$method_buffer" >> "$temp_file"
+                    in_method=0
+                    method_buffer=""
+                  fi
+                  continue
+                fi
+
+                # 🔁 Fallback: place into tempMethod
+                if [[ "$temp_method_started" -eq 0 ]]; then
+                  echo "    public static void tempMethod() {" >> "$temp_file"
+                  echo "        /* Extracted logic */" >> "$temp_file"
+                  ((brace_depth++))
+                  temp_method_started=1
+                fi
+
+                # Your original handling (preserved)
+                if [[ "$line_content_trimmed" =~ ^else ]]; then
+                  if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                    echo "        if (true) {}" >> "$temp_file"
+                  fi
+                fi
+
+                if [[ "$line_content_trimmed" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                  if [[ ! "$previous_line" =~ ^try[[:space:]]*\{ ]]; then
+                    echo "        try {}" >> "$temp_file"
+                  fi
+                fi
+
+                if [[ "$line_content_trimmed" =~ ^finally[[:space:]]*\{ ]]; then
+                  if [[ ! "$previous_line" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                    echo "        try {} catch (Exception e) {}" >> "$temp_file"
+                  fi
+                fi
+
+                if [[ "$line_content_trimmed" =~ ^(for|while)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                  echo "        $line_content_trimmed" >> "$temp_file"
+                  echo "        {}" >> "$temp_file"
+                  ((brace_depth++))
+                  previous_line="$line_content_trimmed"
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  continue
+                fi
+
+                if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                  echo "        $line_content_trimmed" >> "$temp_file"
+                  echo "        {}" >> "$temp_file"
+                  ((brace_depth++))
+                  previous_line="$line_content_trimmed"
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  continue
+                fi
+
+                if [[ "$line_content_trimmed" =~ ^[{}]+$ ]]; then
+                  echo "        $line_content_trimmed" >> "$temp_file"
+                  [[ "$line_content_trimmed" == *"{"* ]] && ((brace_depth++))
+                  [[ "$line_content_trimmed" == *"}"* ]] && ((brace_depth--))
+                  previous_line="$line_content_trimmed"
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  continue
+                fi
+
+                echo "        $line_content_trimmed" >> "$temp_file"
+                previous_line="$line_content_trimmed"
+                echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
               done < "line_number_mapping_${file//\//_}.txt"
 
-              # Close tempMethod if started
-              if [[ "$has_temp_method_started" -eq 1 ]]; then
-                  echo "    }" >> "$temp_file"
-                  ((open_brace_count--))
+              if [[ "$temp_method_started" -eq 1 ]]; then
+                echo "    }" >> "$temp_file"
+                ((brace_depth--))
               fi
 
-              # Close class
               echo "}" >> "$temp_file"
-              ((open_brace_count--))
+              ((brace_depth--))
 
-              # Final check
-              if [[ "$open_brace_count" -ne 0 ]]; then
-                  echo "❌ Error: Unmatched braces. Remaining count: $open_brace_count"
-                  echo "======== Final Output ========"
-                  cat "$temp_file"
-                  exit 1
+              if [[ "$brace_depth" -ne 0 ]]; then
+                echo "❌ Error: Unmatched braces. Remaining count: $brace_depth"
+                cat "$temp_file"
+                exit 1
               fi
 
               echo "====== Generated Temp Apex File Content ======"

@@ -31,7 +31,9 @@ global class Demo {  // Violates AvoidGlobalModifier
         }
     }
 
-    
+    public void sampleTestMethod(Integer num) {  
+        System.debug('Testing new method');
+    }
 
     public void soqlInjection(String userInput) {  
         // Violates ApexSOQLInjection (Unsafe SOQL query)
