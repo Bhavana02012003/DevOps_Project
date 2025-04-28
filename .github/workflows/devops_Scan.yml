@@ -119,7 +119,7 @@ jobs:
                   echo "Processing line: $line_content_trimmed"
         
                   # Detect class
-                  if [[ "$line_content_trimmed" =~ ^(public|global|private|protected)[[:space:]]+(with[[:space:]]+sharing[[:space:]]+|without[[:space:]]+sharing[[:space:]]+)?(class|interface|enum)[[:space:]]+ ]]; then
+                  if [[ "$line_content_trimmed" =~ ^(public|private|protected|global)[[:space:]]+[a-zA-Z0-9_\<\>\[\]]+[[:space:]]+[a-zA-Z0-9_]+\([^\)]*\)[[:space:]]*\{ ]]; then
                     echo "    $line_content_trimmed" >> "$temp_file"
                     previous_line="$line_content_trimmed"
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
