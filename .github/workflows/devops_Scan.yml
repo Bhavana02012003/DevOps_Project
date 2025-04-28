@@ -113,40 +113,49 @@ jobs:
                 echo "public class TempWrapperClass {" > "$temp_file"
                 echo "" >> "$temp_file"
         
-                temp_method_open=0
-                brace_depth=1 # TempWrapperClass {
+                inside_temp_method=0
         
                 while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
         
-                  if [[ "$line_content_trimmed" =~ ^(public|global|private|protected)[[:space:]]+(with[[:space:]]+sharing[[:space:]]+|without[[:space:]]+sharing[[:space:]]+)?(class|interface|enum)[[:space:]]+ ]]; then
-                    # Detected class/interface/enum
-                    if [[ "$temp_method_open" -eq 1 ]]; then
-                      echo "    }" >> "$temp_file"
-                      ((brace_depth--))
-                      temp_method_open=0
+                  # If line is a class, interface or enum
+                  if echo "$line_content_trimmed" | grep -qE '^(public|private|protected|global)[[:space:]]+(with[[:space:]]+sharing[[:space:]]+|without[[:space:]]+sharing[[:space:]]+)?(class|interface|enum)[[:space:]]+'; then
+                    if [[ "$inside_temp_method" -eq 1 ]]; then
+                      echo "        }" >> "$temp_file"
+                      inside_temp_method=0
                     fi
                     echo "    $line_content_trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                  else
-                    # Open tempMethod if not yet
-                    if [[ "$temp_method_open" -eq 0 ]]; then
-                      echo "    public static void tempMethod() {" >> "$temp_file"
-                      ((brace_depth++))
-                      temp_method_open=1
+                    continue
+                  fi
+        
+                  # If line is a method
+                  if echo "$line_content_trimmed" | grep -qE '^(public|private|protected|global)[[:space:]]+[a-zA-Z0-9_<>\[\]]+[[:space:]]+[a-zA-Z0-9_]+\s*\([^)]*\)\s*\{'; then
+                    if [[ "$inside_temp_method" -eq 1 ]]; then
+                      echo "        }" >> "$temp_file"
+                      inside_temp_method=0
                     fi
                     echo "        $line_content_trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    continue
                   fi
+        
+                  # Normal code, needs to be inside tempMethod
+                  if [[ "$inside_temp_method" -eq 0 ]]; then
+                    echo "        public static void tempMethod() {" >> "$temp_file"
+                    inside_temp_method=1
+                  fi
+        
+                  echo "            $line_content_trimmed" >> "$temp_file"
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+        
                 done < "line_number_mapping_${file//\//_}.txt"
         
-                if [[ "$temp_method_open" -eq 1 ]]; then
-                  echo "    }" >> "$temp_file"
-                  ((brace_depth--))
+                if [[ "$inside_temp_method" -eq 1 ]]; then
+                  echo "        }" >> "$temp_file"
                 fi
         
                 echo "}" >> "$temp_file"
-                ((brace_depth--))
         
                 echo "====== Generated Temp Apex File Content ======"
                 cat "$temp_file"
