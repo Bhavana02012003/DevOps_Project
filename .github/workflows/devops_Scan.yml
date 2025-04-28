@@ -104,9 +104,6 @@ jobs:
                 continue
               fi
         
-              echo "====== Extracted Lines and Line Numbers for $file ======"
-              echo "$extracted_lines"
-        
               echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
               temp_file="temp_scanner_files/temp_${file//\//_}"
               touch "$temp_file"
@@ -116,13 +113,15 @@ jobs:
         
                 previous_line=""
                 temp_method_started=0
-                brace_depth=1  # TempWrapperClass {
+                inside_method=0
+                method_brace_depth=0
+                brace_depth=1  # TempWrapperClass opened
         
                 while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing line: $line_content_trimmed"
         
-                  # ✅ 1. If it's a class/interface/enum declaration, add directly inside TempWrapperClass
+                  # ✅ 1. Class/interface/enum detection
                   if [[ "$line_content_trimmed" =~ ^(public|global|private|protected)[[:space:]]+(with[[:space:]]+sharing[[:space:]]+|without[[:space:]]+sharing[[:space:]]+)?(class|interface|enum)[[:space:]]+ ]]; then
                     echo "    $line_content_trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
@@ -130,7 +129,33 @@ jobs:
                     continue
                   fi
         
-                  # ✅ 2. Otherwise, start a tempMethod if not already
+                  # ✅ 2. Method or constructor detection
+                  if [[ "$line_content_trimmed" =~ ^(public|private|protected)[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                    echo "    $line_content_trimmed" >> "$temp_file"
+                    inside_method=1
+                    method_brace_depth=1
+                    previous_line="$line_content_trimmed"
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    continue
+                  fi
+        
+                  # ✅ 3. If inside a method (constructor/method body capturing)
+                  if [[ "$inside_method" -eq 1 ]]; then
+                    echo "        $line_content_trimmed" >> "$temp_file"
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+        
+                    [[ "$line_content_trimmed" == *"{"* ]] && ((method_brace_depth++))
+                    [[ "$line_content_trimmed" == *"}"* ]] && ((method_brace_depth--))
+        
+                    if [[ "$method_brace_depth" -eq 0 ]]; then
+                      inside_method=0
+                    fi
+        
+                    previous_line="$line_content_trimmed"
+                    continue
+                  fi
+        
+                  # ✅ 4. Start tempMethod if not started
                   if [[ "$temp_method_started" -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
@@ -138,7 +163,7 @@ jobs:
                     temp_method_started=1
                   fi
         
-                  # ✅ 3. Handle special structures (if, else, for, etc.)
+                  # ✅ 5. Handle special keywords like else, catch, etc.
                   if [[ "$line_content_trimmed" =~ ^else ]]; then
                     if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                       echo "        if (true) {}" >> "$temp_file"
@@ -180,12 +205,13 @@ jobs:
                     continue
                   fi
         
+                  # ✅ 6. Normal code
                   echo "        $line_content_trimmed" >> "$temp_file"
                   previous_line="$line_content_trimmed"
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                 done < "line_number_mapping_${file//\//_}.txt"
         
-                # ✅ Close tempMethod if opened
+                # ✅ Close tempMethod if started
                 if [[ "$temp_method_started" -eq 1 ]]; then
                   echo "    }" >> "$temp_file"
                   ((brace_depth--))
@@ -195,7 +221,6 @@ jobs:
                 echo "}" >> "$temp_file"
                 ((brace_depth--))
         
-                # ✅ Instead of error, just warn if braces mismatch
                 if [[ "$brace_depth" -ne 0 ]]; then
                   echo "⚠️ Warning: Unmatched braces (Remaining: $brace_depth). Not exiting."
                 fi
