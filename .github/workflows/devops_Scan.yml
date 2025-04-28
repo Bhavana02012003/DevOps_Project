@@ -135,7 +135,7 @@ jobs:
                   fi
         
                   # Detect method/constructor declaration
-                  if [[ "$line_content_trimmed" =~ ^(public|private|protected)[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                  if [[ "$line_content_trimmed" =~ ^(public|private|protected|global)[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                     if [[ "$temp_method_started" -eq 1 ]]; then
                       echo "    }" >> "$temp_file"
                       ((brace_depth--))
@@ -149,7 +149,7 @@ jobs:
                     continue
                   fi
         
-                  # Inside a real method
+                  # Inside a real method body
                   if [[ "$inside_method" -eq 1 ]]; then
                     echo "        $line_content_trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
@@ -165,7 +165,7 @@ jobs:
                     continue
                   fi
         
-                  # Start a tempMethod if not yet started
+                  # Start tempMethod if not yet started
                   if [[ "$temp_method_started" -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
@@ -173,44 +173,7 @@ jobs:
                     temp_method_started=1
                   fi
         
-                  # Handle 'else' special case
-                  if [[ "$line_content_trimmed" =~ ^else ]]; then
-                    if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                      echo "        if (true) {}" >> "$temp_file"
-                    fi
-                  fi
-        
-                  # Handle 'catch' special case
-                  if [[ "$line_content_trimmed" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                    if [[ ! "$previous_line" =~ ^try[[:space:]]*\{ ]]; then
-                      echo "        try {}" >> "$temp_file"
-                    fi
-                  fi
-        
-                  # Handle 'finally' special case
-                  if [[ "$line_content_trimmed" =~ ^finally[[:space:]]*\{ ]]; then
-                    if [[ ! "$previous_line" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                      echo "        try {} catch (Exception e) {}" >> "$temp_file"
-                    fi
-                  fi
-        
-                  # For 'if', 'for', 'while' just copy
-                  if [[ "$line_content_trimmed" =~ ^(for|while|if)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                    echo "        $line_content_trimmed" >> "$temp_file"
-                    previous_line="$line_content_trimmed"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    continue
-                  fi
-        
-                  # Handle only `{` or `}` lines
-                  if [[ "$line_content_trimmed" =~ ^[{}]+$ ]]; then
-                    echo "        $line_content_trimmed" >> "$temp_file"
-                    previous_line="$line_content_trimmed"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    continue
-                  fi
-        
-                  # Normal logic line
+                  # Normal free code inside tempMethod
                   echo "        $line_content_trimmed" >> "$temp_file"
                   previous_line="$line_content_trimmed"
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
@@ -228,7 +191,7 @@ jobs:
                 ((brace_depth--))
         
                 if [[ "$brace_depth" -ne 0 ]]; then
-                  echo "⚠️ Warning: Unmatched braces. (Remaining: $brace_depth)"
+                  echo "⚠️ Warning: Unmatched braces. Remaining: $brace_depth"
                 fi
         
                 echo "====== Generated Temp Apex File Content ======"
