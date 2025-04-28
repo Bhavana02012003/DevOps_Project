@@ -73,9 +73,9 @@ jobs:
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
           echo "TARGET_BRANCH=${BRANCH_NAME}" >> $GITHUB_ENV  # Store the Target Branch
           
-      - name: Get changed lines and create temporary files
-        id: get-changes
-        run: |
+          - name: Get changed lines and create temporary files
+          id: get-changes
+          run: |
             mkdir -p temp_scanner_files
             > changed_cls_lwc_files.txt
             > line_number_mapping.txt
