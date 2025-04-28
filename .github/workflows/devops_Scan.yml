@@ -120,7 +120,7 @@ jobs:
 
               previous_line=""
               in_method=0
-              brace_depth=1 # class opened
+              brace_depth=1  # already opened TempWrapperClass {
               temp_method_started=0
               method_buffer=""
               method_brace_depth=0
@@ -129,32 +129,15 @@ jobs:
                 line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                 echo "Processing line: $line_content_trimmed"
 
-                # ✅ Detect methods AND constructors
-                if [[ "$line_content_trimmed" =~ ^(public|private|protected)[[:space:]]+[a-zA-Z0-9_]+\s*\(.*\)[[:space:]]*\{[[:space:]]*$ ]]; then
-                  in_method=1
-                  method_buffer="    $line_content_trimmed"$'\n'
-                  method_brace_depth=1
-                  ((brace_depth++))  # ✅ track opening brace for method/constructor
+                # 🛠 1. Detect top-level class/interface/enum
+                if [[ "$line_content_trimmed" =~ ^(public|global|private|protected)[[:space:]]+(with[[:space:]]+sharing[[:space:]]+|without[[:space:]]+sharing[[:space:]]+)?(class|interface|enum)[[:space:]]+ ]]; then
+                  echo "    $line_content_trimmed" >> "$temp_file"
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  previous_line="$line_content_trimmed"
                   continue
                 fi
 
-                if [[ "$in_method" -eq 1 ]]; then
-                  method_buffer+="        $line_content_trimmed"$'\n'
-                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-
-                  [[ "$line_content_trimmed" == *"{"* ]] && ((method_brace_depth++))
-                  [[ "$line_content_trimmed" == *"}"* ]] && ((method_brace_depth--))
-
-                  if [[ "$method_brace_depth" -eq 0 ]]; then
-                    echo "$method_buffer" >> "$temp_file"
-                    in_method=0
-                    method_buffer=""
-                  fi
-                  continue
-                fi
-
-                # 🔁 Fallback: wrap in static temp method
+                # 🛠 2. Otherwise, start tempMethod if not started
                 if [[ "$temp_method_started" -eq 0 ]]; then
                   echo "    public static void tempMethod() {" >> "$temp_file"
                   echo "        /* Extracted logic */" >> "$temp_file"
@@ -162,7 +145,7 @@ jobs:
                   temp_method_started=1
                 fi
 
-                # Handling special edge cases
+                # 🛠 3. Handle fallback (if, for, else, etc.)
                 if [[ "$line_content_trimmed" =~ ^else ]]; then
                   if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                     echo "        if (true) {}" >> "$temp_file"
@@ -213,17 +196,14 @@ jobs:
                 echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
               done < "line_number_mapping_${file//\//_}.txt"
 
-              # ✅ Close tempMethod
               if [[ "$temp_method_started" -eq 1 ]]; then
                 echo "    }" >> "$temp_file"
                 ((brace_depth--))
               fi
 
-              # ✅ Close class
               echo "}" >> "$temp_file"
               ((brace_depth--))
 
-              # Final check for unmatched braces
               if [[ "$brace_depth" -ne 0 ]]; then
                 echo "❌ Error: Unmatched braces. Remaining count: $brace_depth"
                 cat "$temp_file"
@@ -233,7 +213,6 @@ jobs:
               echo "====== Generated Temp Apex File Content ======"
               cat "$temp_file"
               echo "====== End of Temp Apex File Content ======"
-
 
             elif [[ "$file" == *.js ]]; then
               echo "// LWC JavaScript File" > "$temp_file"
