@@ -1,5 +1,5 @@
 public with sharing class TempDummyClass {
     public void dummyMethod() {
-        System.debug('Testing Method');
+        System.debug('Temp Method');
     }
 }
