@@ -86,7 +86,7 @@ jobs:
             echo "Detected changed files: $changed_files"
         
             if [ -z "$changed_files" ]; then
-              echo "No .cls or .lwc files detected."
+              echo "No changed .cls/.js/.html/.lwc files detected."
               echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
               exit 0
             fi
@@ -111,92 +111,47 @@ jobs:
               if [[ "$file" == *.cls ]]; then
                 echo "public class TempWrapperClass {" > "$temp_file"
         
-                previous_line=""
-                temp_method_started=0
                 inside_method=0
-                method_brace_depth=0
-                brace_depth=1  # TempWrapperClass opened
+                previous_line=""
         
                 while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing line: $line_content_trimmed"
         
-                  # Detect class/interface/enum declaration
+                  # Detect class
                   if [[ "$line_content_trimmed" =~ ^(public|global|private|protected)[[:space:]]+(with[[:space:]]+sharing[[:space:]]+|without[[:space:]]+sharing[[:space:]]+)?(class|interface|enum)[[:space:]]+ ]]; then
-                    if [[ "$temp_method_started" -eq 1 ]]; then
-                      echo "    }" >> "$temp_file"
-                      ((brace_depth--))
-                      temp_method_started=0
-                    fi
                     echo "    $line_content_trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    previous_line="$line_content_trimmed"
-                    continue
-                  fi
-        
-                  # Detect method/constructor declaration
-                  if [[ "$line_content_trimmed" =~ ^(public|private|protected|global)[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                    if [[ "$temp_method_started" -eq 1 ]]; then
-                      echo "    }" >> "$temp_file"
-                      ((brace_depth--))
-                      temp_method_started=0
-                    fi
-                    echo "    $line_content_trimmed" >> "$temp_file"
-                    inside_method=1
-                    method_brace_depth=1
                     previous_line="$line_content_trimmed"
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                     continue
                   fi
         
-                  # Inside a real method body
-                  if [[ "$inside_method" -eq 1 ]]; then
+                  # Detect method/constructor
+                  if [[ "$line_content_trimmed" =~ ^(public|private|protected|global)[[:space:]]+[a-zA-Z0-9_<>\[\]]+[[:space:]]+[a-zA-Z0-9_]+\([^\)]*\)[[:space:]]*\{ ]]; then
                     echo "        $line_content_trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-        
-                    [[ "$line_content_trimmed" == *"{"* ]] && ((method_brace_depth++))
-                    [[ "$line_content_trimmed" == *"}"* ]] && ((method_brace_depth--))
-        
-                    if [[ "$method_brace_depth" -eq 0 ]]; then
-                      inside_method=0
-                    fi
-        
+                    inside_method=1
                     previous_line="$line_content_trimmed"
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                     continue
                   fi
         
-                  # Start tempMethod if not yet started
-                  if [[ "$temp_method_started" -eq 0 ]]; then
-                    echo "    public static void tempMethod() {" >> "$temp_file"
-                    echo "        /* Extracted logic */" >> "$temp_file"
-                    ((brace_depth++))
-                    temp_method_started=1
+                  # Inside a method
+                  if [[ "$inside_method" -eq 1 ]]; then
+                    echo "            $line_content_trimmed" >> "$temp_file"
+                    [[ "$line_content_trimmed" == *"{"* ]] && inside_method=1
+                    [[ "$line_content_trimmed" == *"}"* ]] && inside_method=0
+                    previous_line="$line_content_trimmed"
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    continue
                   fi
         
-                  # Normal free code inside tempMethod
+                  # Regular logic
                   echo "        $line_content_trimmed" >> "$temp_file"
                   previous_line="$line_content_trimmed"
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-        
                 done < "line_number_mapping_${file//\//_}.txt"
         
-                # Close tempMethod if started
-                if [[ "$temp_method_started" -eq 1 ]]; then
-                  echo "    }" >> "$temp_file"
-                  ((brace_depth--))
-                fi
-        
-                # Close TempWrapperClass
                 echo "}" >> "$temp_file"
-                ((brace_depth--))
-        
-                if [[ "$brace_depth" -ne 0 ]]; then
-                  echo "⚠️ Warning: Unmatched braces. Remaining: $brace_depth"
-                fi
-        
-                echo "====== Generated Temp Apex File Content ======"
-                cat "$temp_file"
-                echo "====== End of Temp Apex File Content ======"
         
               elif [[ "$file" == *.js ]]; then
                 echo "// LWC JavaScript File" > "$temp_file"
@@ -232,7 +187,7 @@ jobs:
             if [ ! -s changed_cls_lwc_files.txt ]; then
               echo "No temp files created. Exiting."
               exit 0
-            fi        
+            fi         
       
             
       - name: Debug Extracted Line Number Mapping
