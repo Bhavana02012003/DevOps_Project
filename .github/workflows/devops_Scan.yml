@@ -123,6 +123,12 @@ jobs:
         
                   # ✅ 1. Class/interface/enum detection
                   if [[ "$line_content_trimmed" =~ ^(public|global|private|protected)[[:space:]]+(with[[:space:]]+sharing[[:space:]]+|without[[:space:]]+sharing[[:space:]]+)?(class|interface|enum)[[:space:]]+ ]]; then
+                    # Close tempMethod if open
+                    if [[ "$temp_method_started" -eq 1 ]]; then
+                      echo "    }" >> "$temp_file"
+                      ((brace_depth--))
+                      temp_method_started=0
+                    fi
                     echo "    $line_content_trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                     previous_line="$line_content_trimmed"
@@ -131,6 +137,12 @@ jobs:
         
                   # ✅ 2. Method or constructor detection
                   if [[ "$line_content_trimmed" =~ ^(public|private|protected)[[:space:]]+[a-zA-Z0-9_]+[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                    # Close tempMethod if open
+                    if [[ "$temp_method_started" -eq 1 ]]; then
+                      echo "    }" >> "$temp_file"
+                      ((brace_depth--))
+                      temp_method_started=0
+                    fi
                     echo "    $line_content_trimmed" >> "$temp_file"
                     inside_method=1
                     method_brace_depth=1
@@ -155,7 +167,7 @@ jobs:
                     continue
                   fi
         
-                  # ✅ 4. Start tempMethod if not started
+                  # ✅ 4. Start tempMethod if not already
                   if [[ "$temp_method_started" -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
