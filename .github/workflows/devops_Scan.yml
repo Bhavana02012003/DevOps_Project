@@ -113,46 +113,48 @@ jobs:
                 echo "public class TempWrapperClass {" > "$temp_file"
                 echo "" >> "$temp_file"
         
+                inside_class=0
+                inside_method=0
                 inside_temp_method=0
         
                 while IFS=, read -r line_number line_content; do
-                  line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                  line_content_trimmed=$(echo "$line_content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         
-                  # If line is a class, interface or enum
+                  # Detect a CLASS declaration
                   if echo "$line_content_trimmed" | grep -qE '^(public|private|protected|global)[[:space:]]+(with[[:space:]]+sharing[[:space:]]+|without[[:space:]]+sharing[[:space:]]+)?(class|interface|enum)[[:space:]]+'; then
-                    if [[ "$inside_temp_method" -eq 1 ]]; then
-                      echo "        }" >> "$temp_file"
-                      inside_temp_method=0
-                    fi
                     echo "    $line_content_trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    inside_class=1
                     continue
                   fi
         
-                  # If line is a method
-                  if echo "$line_content_trimmed" | grep -qE '^(public|private|protected|global)[[:space:]]+[a-zA-Z0-9_<>\[\]]+[[:space:]]+[a-zA-Z0-9_]+\s*\([^)]*\)\s*\{'; then
-                    if [[ "$inside_temp_method" -eq 1 ]]; then
-                      echo "        }" >> "$temp_file"
-                      inside_temp_method=0
-                    fi
+                  # Detect a METHOD declaration
+                  if [[ "$inside_class" -eq 1 ]] && echo "$line_content_trimmed" | grep -qE '^(public|private|protected|global)[[:space:]]+[a-zA-Z0-9_<>\[\]]+[[:space:]]+[a-zA-Z0-9_]+\s*\([^)]*\)\s*\{'; then
                     echo "        $line_content_trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    inside_method=1
                     continue
                   fi
         
-                  # Normal code, needs to be inside tempMethod
-                  if [[ "$inside_temp_method" -eq 0 ]]; then
-                    echo "        public static void tempMethod() {" >> "$temp_file"
+                  # Logic inside a METHOD
+                  if [[ "$inside_method" -eq 1 ]]; then
+                    echo "            $line_content_trimmed" >> "$temp_file"
+                    continue
+                  fi
+        
+                  # Now if it's random loose code (no class, no method yet)
+                  if [[ "$inside_class" -eq 0 && "$inside_temp_method" -eq 0 ]]; then
+                    echo "    public static void tempMethod() {" >> "$temp_file"
                     inside_temp_method=1
                   fi
         
-                  echo "            $line_content_trimmed" >> "$temp_file"
-                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  if [[ "$inside_temp_method" -eq 1 ]]; then
+                    echo "        $line_content_trimmed" >> "$temp_file"
+                  fi
         
                 done < "line_number_mapping_${file//\//_}.txt"
         
+                # Close tempMethod if opened
                 if [[ "$inside_temp_method" -eq 1 ]]; then
-                  echo "        }" >> "$temp_file"
+                  echo "    }" >> "$temp_file"
                 fi
         
                 echo "}" >> "$temp_file"
