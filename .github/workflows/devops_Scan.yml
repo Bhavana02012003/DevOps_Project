@@ -130,7 +130,7 @@ jobs:
                 echo "public class TempWrapperClass {" > "$temp_file"
                 brace_depth=1
                 temp_method_started=0
-                orphan_else_detected=0
+                inside_else=0
         
                 while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
@@ -138,20 +138,19 @@ jobs:
         
                   # ✅ Detect orphan "} else {" or "}else{"
                   if [[ "$line_content_trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{[[:space:]]*$ ]]; then
-                    orphan_else_detected=1
                     if [[ "$temp_method_started" -eq 0 ]]; then
                       echo "    public static void tempMethod() {" >> "$temp_file"
                       echo "        /* Extracted logic */" >> "$temp_file"
                       temp_method_started=1
                     fi
-                    echo "        if (true) {}" >> "$temp_file"   # 🛠️ Dummy if block
+                    echo "        if (true) {}" >> "$temp_file"   # Dummy if block
                     echo "        else {" >> "$temp_file"
                     echo "$temp_file,$line_number,if (true) {}" >> line_number_mapping.txt
                     echo "$temp_file,$line_number,else {" >> line_number_mapping.txt
+                    inside_else=1  # Remember we entered an else
                     continue
                   fi
         
-                  # Normal case
                   if [[ "$temp_method_started" -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
@@ -162,6 +161,12 @@ jobs:
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
         
                 done < "line_number_mapping_${file//\//_}.txt"
+        
+                # ✅ If still inside else and not closed, add a closing }
+                if [[ "$inside_else" -eq 1 ]]; then
+                  echo "        }" >> "$temp_file"
+                  echo "✅ Added missing closing brace for else block"
+                fi
         
                 if [[ "$temp_method_started" -eq 1 ]]; then
                   echo "    }" >> "$temp_file"
