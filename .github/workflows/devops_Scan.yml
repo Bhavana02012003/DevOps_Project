@@ -130,26 +130,28 @@ jobs:
                 echo "public class TempWrapperClass {" > "$temp_file"
                 brace_depth=1
                 temp_method_started=0
+                orphan_else_detected=0
         
                 while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing line: $line_content_trimmed"
         
-                  # ✅ Special case: split "} else {" into two lines
+                  # ✅ Detect orphan "} else {" or "}else{"
                   if [[ "$line_content_trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{[[:space:]]*$ ]]; then
+                    orphan_else_detected=1
                     if [[ "$temp_method_started" -eq 0 ]]; then
                       echo "    public static void tempMethod() {" >> "$temp_file"
                       echo "        /* Extracted logic */" >> "$temp_file"
                       temp_method_started=1
                     fi
-                    echo "        }" >> "$temp_file"
+                    echo "        if (true) {}" >> "$temp_file"   # 🛠️ Dummy if block
                     echo "        else {" >> "$temp_file"
-                    echo "$temp_file,$line_number,}" >> line_number_mapping.txt
+                    echo "$temp_file,$line_number,if (true) {}" >> line_number_mapping.txt
                     echo "$temp_file,$line_number,else {" >> line_number_mapping.txt
                     continue
                   fi
         
-                  # Normal writing
+                  # Normal case
                   if [[ "$temp_method_started" -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
