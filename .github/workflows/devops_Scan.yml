@@ -82,7 +82,6 @@ jobs:
             > scanner-report-temp.csv
             echo "Checking for changed .cls, .js, .html, and .lwc files..."
         
-            # Get only changed files (.cls, .js, .html, .lwc)
             changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' '*.lwc' || true)
             echo "Detected changed files: $changed_files"
         
@@ -95,17 +94,15 @@ jobs:
             for file in $changed_files; do
               echo "Processing file: $file"
         
-              # ✅ Detect if the file is new (added)
               is_new_file=$(git diff --name-status HEAD~1 HEAD -- "$file" | grep "^A" || true)
         
               if [[ "$is_new_file" != "" ]]; then
                 echo "📄 File is NEW: $file"
-                echo "$file" >> changed_cls_lwc_files.txt  # Directly scan the original full file
+                echo "$file" >> changed_cls_lwc_files.txt
                 echo "$file,ENTIRE_FILE" >> line_number_mapping.txt
                 continue
               fi
         
-              # 🔁 Modified file — proceed with changed lines delta logic
               echo "Extracting changed lines from: $file"
               extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
                 /^@@/ {
@@ -131,114 +128,67 @@ jobs:
         
               if [[ "$file" == *.cls ]]; then
                 echo "public class TempWrapperClass {" > "$temp_file"
-        
-                previous_line=""
-                in_method=0
                 brace_depth=1
                 temp_method_started=0
-                method_buffer=""
-                method_brace_depth=0
+                block_buffer=""
+                inside_if=0
+                inside_else=0
         
                 while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing line: $line_content_trimmed"
         
-                  if [[ "$line_content_trimmed" =~ ^(public|private|protected)[[:space:]]+.*\(.*\)[[:space:]]*\{[[:space:]]*$ ]]; then
-                    in_method=1
-                    method_buffer="    $line_content_trimmed"$'\n'
-                    method_brace_depth=1
+                  # Capture if-else blocks together
+                  if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                    inside_if=1
+                    block_buffer="        $line_content_trimmed"$'\n'
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                     continue
                   fi
         
-                  if [[ "$in_method" -eq 1 ]]; then
-                    method_buffer+="        $line_content_trimmed"$'\n'
+                  if [[ "$inside_if" -eq 1 ]]; then
+                    block_buffer+="        $line_content_trimmed"$'\n'
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    [[ "$line_content_trimmed" == *"{"* ]] && ((method_brace_depth++))
-                    [[ "$line_content_trimmed" == *"}"* ]] && ((method_brace_depth--))
-        
-                    if [[ "$method_brace_depth" -eq 0 ]]; then
-                      echo "$method_buffer" >> "$temp_file"
-                      in_method=0
-                      method_buffer=""
+                    if [[ "$line_content_trimmed" == "}" ]]; then
+                      inside_if=0
+                      inside_else=1
                     fi
                     continue
                   fi
         
+                  if [[ "$inside_else" -eq 1 ]]; then
+                    block_buffer+="        $line_content_trimmed"$'\n'
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    if [[ "$line_content_trimmed" == "}" ]]; then
+                      inside_else=0
+                      if [[ "$temp_method_started" -eq 0 ]]; then
+                        echo "    public static void tempMethod() {" >> "$temp_file"
+                        echo "        /* Extracted logic */" >> "$temp_file"
+                        temp_method_started=1
+                      fi
+                      echo "$block_buffer" >> "$temp_file"
+                      block_buffer=""
+                    fi
+                    continue
+                  fi
+        
+                  # Normal line fallback
                   if [[ "$temp_method_started" -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
-                    ((brace_depth++))
                     temp_method_started=1
                   fi
         
-                  if [[ "$line_content_trimmed" =~ ^else ]]; then
-                    if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                      echo "        if (true) {}" >> "$temp_file"
-                    fi
-                  fi
-        
-                  if [[ "$line_content_trimmed" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                    if [[ ! "$previous_line" =~ ^try[[:space:]]*\{ ]]; then
-                      echo "        try {}" >> "$temp_file"
-                    fi
-                  fi
-        
-                  if [[ "$line_content_trimmed" =~ ^finally[[:space:]]*\{ ]]; then
-                    if [[ ! "$previous_line" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                      echo "        try {} catch (Exception e) {}" >> "$temp_file"
-                    fi
-                  fi
-        
-                  if [[ "$line_content_trimmed" =~ ^(for|while)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                    echo "        $line_content_trimmed" >> "$temp_file"
-                    echo "        {}" >> "$temp_file"
-                    ((brace_depth++))
-                    previous_line="$line_content_trimmed"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    continue
-                  fi
-        
-                  if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                    echo "        $line_content_trimmed" >> "$temp_file"
-                    echo "        {}" >> "$temp_file"
-                    ((brace_depth++))
-                    previous_line="$line_content_trimmed"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    continue
-                  fi
-        
-                  if [[ "$line_content_trimmed" =~ ^[{}]+$ ]]; then
-                    echo "        $line_content_trimmed" >> "$temp_file"
-                    [[ "$line_content_trimmed" == *"{"* ]] && ((brace_depth++))
-                    [[ "$line_content_trimmed" == *"}"* ]] && ((brace_depth--))
-                    previous_line="$line_content_trimmed"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    continue
-                  fi
-        
                   echo "        $line_content_trimmed" >> "$temp_file"
-                  previous_line="$line_content_trimmed"
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+        
                 done < "line_number_mapping_${file//\//_}.txt"
         
                 if [[ "$temp_method_started" -eq 1 ]]; then
                   echo "    }" >> "$temp_file"
-                  ((brace_depth--))
                 fi
         
                 echo "}" >> "$temp_file"
-                ((brace_depth--))
-        
-                if [[ "$brace_depth" -ne 0 ]]; then
-                  echo "❌ Error: Unmatched braces. Remaining count: $brace_depth"
-                  cat "$temp_file"
-                  exit 1
-                fi
-        
-                echo "====== Generated Temp Apex File Content ======"
-                cat "$temp_file"
-                echo "====== End of Temp Apex File Content ======"
         
               elif [[ "$file" == *.js ]]; then
                 echo "// LWC JavaScript File" > "$temp_file"
@@ -266,7 +216,6 @@ jobs:
         
             echo "====== Final Line Number Mapping ======"
             cat line_number_mapping.txt || echo "No line number mapping available."
-        
             echo "Generated temp files:"
             ls -l temp_scanner_files
         
