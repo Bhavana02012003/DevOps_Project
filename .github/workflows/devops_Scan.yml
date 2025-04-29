@@ -138,7 +138,21 @@ jobs:
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing line: $line_content_trimmed"
         
-                  # Capture if-else blocks together
+                  # 🔥 Special handling for "}else{" tightly packed
+                  if [[ "$line_content_trimmed" == "}else{" ]]; then
+                    if [[ "$temp_method_started" -eq 0 ]]; then
+                      echo "    public static void tempMethod() {" >> "$temp_file"
+                      echo "        /* Extracted logic */" >> "$temp_file"
+                      temp_method_started=1
+                    fi
+                    echo "        }" >> "$temp_file"
+                    echo "        else {" >> "$temp_file"
+                    echo "$temp_file,$line_number,}" >> line_number_mapping.txt
+                    echo "$temp_file,$line_number,else {" >> line_number_mapping.txt
+                    continue
+                  fi
+        
+                  # Normal if-else block capturing
                   if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                     inside_if=1
                     block_buffer="        $line_content_trimmed"$'\n'
@@ -172,7 +186,7 @@ jobs:
                     continue
                   fi
         
-                  # Normal line fallback
+                  # Normal lines fallback
                   if [[ "$temp_method_started" -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
@@ -199,6 +213,7 @@ jobs:
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                   fi
                 done < "line_number_mapping_${file//\//_}.txt"
+        
               elif [[ "$file" == *.html ]]; then
                 echo "<!-- LWC HTML File -->" > "$temp_file"
                 while IFS=, read -r line_number line_content; do
