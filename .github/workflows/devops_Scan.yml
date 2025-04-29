@@ -75,14 +75,14 @@ jobs:
           
       - name: Get changed lines and create temporary files
         id: get-changes
-        shell: bash
         run: |
             mkdir -p temp_scanner_files
             > changed_cls_lwc_files.txt
             > line_number_mapping.txt
             > scanner-report-temp.csv
-        
             echo "Checking for changed .cls, .js, .html, and .lwc files..."
+        
+            # Get only changed files (.cls, .js, .html, .lwc)
             changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' '*.lwc' || true)
             echo "Detected changed files: $changed_files"
         
@@ -95,9 +95,29 @@ jobs:
             for file in $changed_files; do
               echo "Processing file: $file"
         
+              # ✅ Detect if the file is new (added)
+              is_new_file=$(git diff --name-status HEAD~1 HEAD -- "$file" | grep "^A" || true)
+        
+              if [[ "$is_new_file" != "" ]]; then
+                echo "📄 File is NEW: $file"
+                echo "$file" >> changed_cls_lwc_files.txt  # Directly scan the original full file
+                echo "$file,ENTIRE_FILE" >> line_number_mapping.txt
+                continue
+              fi
+        
+              # 🔁 Modified file — proceed with changed lines delta logic
+              echo "Extracting changed lines from: $file"
               extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
-                /^@@/ { match($0, /\+([0-9]+)/, arr); line = arr[1]; next }
-                /^\+/ { if ($0 !~ /^(diff --git|index|---|\+\+\+|@@|b\/force-app)/) { print line "," substr($0, 2); line++ } }
+                /^@@/ {
+                  match($0, /\+([0-9]+)/, arr);
+                  line = arr[1]; next
+                }
+                /^\+/ {
+                  if ($0 !~ /^(diff --git|index|---|\+\+\+|@@|b\/force-app)/) {
+                    print line "," substr($0, 2);
+                    line++;
+                  }
+                }
               ')
         
               if [ -z "$extracted_lines" ]; then
@@ -111,53 +131,110 @@ jobs:
         
               if [[ "$file" == *.cls ]]; then
                 echo "public class TempWrapperClass {" > "$temp_file"
-                echo "" >> "$temp_file"
         
-                inside_class=0
-                inside_method=0
-                inside_temp_method=0
+                previous_line=""
+                in_method=0
+                brace_depth=1
+                temp_method_started=0
+                method_buffer=""
+                method_brace_depth=0
         
                 while IFS=, read -r line_number line_content; do
-                  line_content_trimmed=$(echo "$line_content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                  line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                  echo "Processing line: $line_content_trimmed"
         
-                  # Detect a CLASS declaration
-                  if echo "$line_content_trimmed" | grep -qE '^(public|private|protected|global)[[:space:]]+(with[[:space:]]+sharing[[:space:]]+|without[[:space:]]+sharing[[:space:]]+)?(class|interface|enum)[[:space:]]+'; then
-                    echo "    $line_content_trimmed" >> "$temp_file"
-                    inside_class=1
+                  if [[ "$line_content_trimmed" =~ ^(public|private|protected)[[:space:]]+.*\(.*\)[[:space:]]*\{[[:space:]]*$ ]]; then
+                    in_method=1
+                    method_buffer="    $line_content_trimmed"$'\n'
+                    method_brace_depth=1
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                     continue
                   fi
         
-                  # Detect a METHOD declaration
-                  if [[ "$inside_class" -eq 1 ]] && echo "$line_content_trimmed" | grep -qE '^(public|private|protected|global)[[:space:]]+[a-zA-Z0-9_<>\[\]]+[[:space:]]+[a-zA-Z0-9_]+\s*\([^)]*\)\s*\{'; then
-                    echo "        $line_content_trimmed" >> "$temp_file"
-                    inside_method=1
+                  if [[ "$in_method" -eq 1 ]]; then
+                    method_buffer+="        $line_content_trimmed"$'\n'
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    [[ "$line_content_trimmed" == *"{"* ]] && ((method_brace_depth++))
+                    [[ "$line_content_trimmed" == *"}"* ]] && ((method_brace_depth--))
+        
+                    if [[ "$method_brace_depth" -eq 0 ]]; then
+                      echo "$method_buffer" >> "$temp_file"
+                      in_method=0
+                      method_buffer=""
+                    fi
                     continue
                   fi
         
-                  # Logic inside a METHOD
-                  if [[ "$inside_method" -eq 1 ]]; then
-                    echo "            $line_content_trimmed" >> "$temp_file"
-                    continue
-                  fi
-        
-                  # Now if it's random loose code (no class, no method yet)
-                  if [[ "$inside_class" -eq 0 && "$inside_temp_method" -eq 0 ]]; then
+                  if [[ "$temp_method_started" -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
-                    inside_temp_method=1
+                    echo "        /* Extracted logic */" >> "$temp_file"
+                    ((brace_depth++))
+                    temp_method_started=1
                   fi
         
-                  if [[ "$inside_temp_method" -eq 1 ]]; then
+                  if [[ "$line_content_trimmed" =~ ^else ]]; then
+                    if [[ ! "$previous_line" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                      echo "        if (true) {}" >> "$temp_file"
+                    fi
+                  fi
+        
+                  if [[ "$line_content_trimmed" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                    if [[ ! "$previous_line" =~ ^try[[:space:]]*\{ ]]; then
+                      echo "        try {}" >> "$temp_file"
+                    fi
+                  fi
+        
+                  if [[ "$line_content_trimmed" =~ ^finally[[:space:]]*\{ ]]; then
+                    if [[ ! "$previous_line" =~ ^catch[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                      echo "        try {} catch (Exception e) {}" >> "$temp_file"
+                    fi
+                  fi
+        
+                  if [[ "$line_content_trimmed" =~ ^(for|while)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                     echo "        $line_content_trimmed" >> "$temp_file"
+                    echo "        {}" >> "$temp_file"
+                    ((brace_depth++))
+                    previous_line="$line_content_trimmed"
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    continue
                   fi
         
+                  if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                    echo "        $line_content_trimmed" >> "$temp_file"
+                    echo "        {}" >> "$temp_file"
+                    ((brace_depth++))
+                    previous_line="$line_content_trimmed"
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    continue
+                  fi
+        
+                  if [[ "$line_content_trimmed" =~ ^[{}]+$ ]]; then
+                    echo "        $line_content_trimmed" >> "$temp_file"
+                    [[ "$line_content_trimmed" == *"{"* ]] && ((brace_depth++))
+                    [[ "$line_content_trimmed" == *"}"* ]] && ((brace_depth--))
+                    previous_line="$line_content_trimmed"
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    continue
+                  fi
+        
+                  echo "        $line_content_trimmed" >> "$temp_file"
+                  previous_line="$line_content_trimmed"
+                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                 done < "line_number_mapping_${file//\//_}.txt"
         
-                # Close tempMethod if opened
-                if [[ "$inside_temp_method" -eq 1 ]]; then
+                if [[ "$temp_method_started" -eq 1 ]]; then
                   echo "    }" >> "$temp_file"
+                  ((brace_depth--))
                 fi
         
                 echo "}" >> "$temp_file"
+                ((brace_depth--))
+        
+                if [[ "$brace_depth" -ne 0 ]]; then
+                  echo "❌ Error: Unmatched braces. Remaining count: $brace_depth"
+                  cat "$temp_file"
+                  exit 1
+                fi
         
                 echo "====== Generated Temp Apex File Content ======"
                 cat "$temp_file"
@@ -172,7 +249,6 @@ jobs:
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                   fi
                 done < "line_number_mapping_${file//\//_}.txt"
-        
               elif [[ "$file" == *.html ]]; then
                 echo "<!-- LWC HTML File -->" > "$temp_file"
                 while IFS=, read -r line_number line_content; do
@@ -198,6 +274,7 @@ jobs:
               echo "No temp files created. Exiting."
               exit 0
             fi        
+      
             
       - name: Debug Extracted Line Number Mapping
         run: |
@@ -230,35 +307,52 @@ jobs:
             echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
             exit 0
           fi
-          # Initialize final report with headers including TargetBranch
+
+          echo "📋 Scanning files: $files"
           echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
 
-          UNWANTED_PATH="/home/runner/work/DevOps_Project/DevOps_Project/temp_scanner_files/"
+          UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
 
           for file in $files; do
-            echo "Running SFDX Scanner on file: $file"
-            if [[ "$file" == *.cls ]]; then
-                sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scanner run failed for $file"
+            if [[ "$file" == temp_scanner_files/* ]]; then
+              echo "🧠 Modified file (delta logic): $file"
+              SCAN_PATH="$file"
+              SCAN_MODE="Delta"
             else
-                sf scanner:run --target "$file" --format "csv" --outfile "scanner-report-partial.csv" || echo "Scanner run failed for $file"
+              echo "🆕 New file (full scan): $file"
+              SCAN_PATH="$file"
+              SCAN_MODE="Full"
             fi
 
-            # Ensure partial report exists before processing
+            # Determine if it's Apex and needs ruleset config
+            if [[ "$SCAN_PATH" == *.cls ]]; then
+              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
+            else
+              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
+            fi
+
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
-                # Append new results to the final report, excluding duplicate headers
-                tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' -v commit_author="$COMMIT_AUTHOR" -v target_branch="${{ env.TARGET_BRANCH }}" -v unwanted_path="$UNWANTED_PATH" '{
-                    $3 = gensub(unwanted_path, "", "g", $3);  # Trim unwanted path in "File" column
-                    $11 = commit_author;  # Set commit username in column 11
-                    if (NF < 12) $12 = "N/A";  # Ensure ActualLine column is always present
-                    $13 = target_branch; # Add the TargetBranch column
-                    print $0
+              tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' \
+                  -v commit_author="$COMMIT_AUTHOR" \
+                  -v target_branch="${{ env.TARGET_BRANCH }}" \
+                  -v unwanted_path="$UNWANTED_PATH" \
+                  -v orig_file="$file" \
+                  -v mode="$SCAN_MODE" '
+                {
+                  $3 = gensub(unwanted_path, "", "g", $3);  # Trim file path
+                  $11 = commit_author;  # Commit author
+                  if (NF < 12) $12 = "N/A";  # Actual line fallback
+                  $13 = target_branch;  # Branch
+                  print $0
                 }' >> scanner-report.csv
+            else
+              echo "⚠️ No violations found for: $file"
             fi
           done
 
-          # Debug final scanner report
-          echo "Final Scanner Report with TargetBranch:"
+          echo "✅ Final Scanner Report with TargetBranch:"
           cat scanner-report.csv
+
           
       - name: Upload Scanner Report to Temporary Storage (GoFile.io)
         id: upload-report

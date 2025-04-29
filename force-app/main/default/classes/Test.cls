@@ -1,5 +1,5 @@
 public with sharing class Test {
-    public void testMethod() {
-        System.debug('Done testing!');
+    public static void test() {
+        System.debug('Testing');
     }
 }
