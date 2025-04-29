@@ -130,16 +130,13 @@ jobs:
                 echo "public class TempWrapperClass {" > "$temp_file"
                 brace_depth=1
                 temp_method_started=0
-                block_buffer=""
-                inside_if=0
-                inside_else=0
         
                 while IFS=, read -r line_number line_content; do
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing line: $line_content_trimmed"
         
-                  # 🔥 Special handling for "}else{" tightly packed
-                  if [[ "$line_content_trimmed" == "}else{" ]]; then
+                  # ✅ Special case: split "} else {" into two lines
+                  if [[ "$line_content_trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{[[:space:]]*$ ]]; then
                     if [[ "$temp_method_started" -eq 0 ]]; then
                       echo "    public static void tempMethod() {" >> "$temp_file"
                       echo "        /* Extracted logic */" >> "$temp_file"
@@ -152,41 +149,7 @@ jobs:
                     continue
                   fi
         
-                  # Normal if-else block capturing
-                  if [[ "$line_content_trimmed" =~ ^if[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                    inside_if=1
-                    block_buffer="        $line_content_trimmed"$'\n'
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    continue
-                  fi
-        
-                  if [[ "$inside_if" -eq 1 ]]; then
-                    block_buffer+="        $line_content_trimmed"$'\n'
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    if [[ "$line_content_trimmed" == "}" ]]; then
-                      inside_if=0
-                      inside_else=1
-                    fi
-                    continue
-                  fi
-        
-                  if [[ "$inside_else" -eq 1 ]]; then
-                    block_buffer+="        $line_content_trimmed"$'\n'
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    if [[ "$line_content_trimmed" == "}" ]]; then
-                      inside_else=0
-                      if [[ "$temp_method_started" -eq 0 ]]; then
-                        echo "    public static void tempMethod() {" >> "$temp_file"
-                        echo "        /* Extracted logic */" >> "$temp_file"
-                        temp_method_started=1
-                      fi
-                      echo "$block_buffer" >> "$temp_file"
-                      block_buffer=""
-                    fi
-                    continue
-                  fi
-        
-                  # Normal lines fallback
+                  # Normal writing
                   if [[ "$temp_method_started" -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
@@ -231,6 +194,7 @@ jobs:
         
             echo "====== Final Line Number Mapping ======"
             cat line_number_mapping.txt || echo "No line number mapping available."
+        
             echo "Generated temp files:"
             ls -l temp_scanner_files
         
