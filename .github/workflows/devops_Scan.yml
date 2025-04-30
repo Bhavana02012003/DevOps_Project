@@ -357,33 +357,6 @@ jobs:
                 echo "scanner-report-url=" >> $GITHUB_ENV
                 echo "scanner-report-url=" >> $GITHUB_OUTPUT
               fi          
-        
-
-          
-      - name: Upload Scanner Report to Temporary Storage (GoFile.io)
-        id: upload-report
-        run: |
-          if [ -f scanner-report.csv ]; then
-            echo "✅ Uploading scanner report to GoFile.io..."
-            
-            # Upload the file and capture response
-            response=$(curl -F "file=@scanner-report.csv" https://store1.gofile.io/uploadFile)
-            echo "📢 GoFile.io Response: $response"
-            # Extract the URL from the JSON response
-            SCANNER_REPORT_URL=$(echo $response | jq -r '.data.downloadPage')
-            if [[ "$SCANNER_REPORT_URL" == "null" || -z "$SCANNER_REPORT_URL" ]]; then
-              echo "❌ Failed to upload file to GoFile.io"
-              exit 1
-            fi
-            echo "📂 Scanner report uploaded successfully: $SCANNER_REPORT_URL"
-            echo "scanner-report-url=$SCANNER_REPORT_URL" >> $GITHUB_ENV
-            echo "scanner-report-url=$SCANNER_REPORT_URL" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ No scanner report found. Cannot generate URL."
-            echo "scanner-report-url=" >> $GITHUB_ENV
-            echo "scanner-report-url=" >> $GITHUB_OUTPUT
-            echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
-          fi
           
           
       - name: Load Salesforce API URL
