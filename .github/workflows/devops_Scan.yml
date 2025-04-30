@@ -316,48 +316,6 @@ jobs:
           echo "✅ Final Scanner Report with TargetBranch:"
           cat scanner-report.csv
 
-
-      - name: Get GoFile guest token
-        id: gofile-token
-        run: |
-            echo "Getting GoFile guest token..."
-            response=$(curl -s https://api.gofile.io/getServer)
-            echo "Raw response: $response"
-            SERVER=$(echo "$response" | jq -r '.data.server')
-        
-            if [[ "$SERVER" == "null" || -z "$SERVER" ]]; then
-              echo "❌ Failed to get GoFile server."
-              exit 1
-            fi
-        
-            echo "GOFILE_SERVER=$SERVER" >> $GITHUB_ENV
-            echo "✅ Got GoFile server: $SERVER"
-
-
-      - name: Upload scanner report to GoFile.io
-        id: upload-report
-        run: |
-              if [ -f scanner-report.csv ]; then
-                echo "📤 Uploading scanner-report.csv to GoFile..."
-                response=$(curl -s -F "file=@scanner-report.csv" "https://${{ env.GOFILE_SERVER }}.gofile.io/uploadFile")
-          
-                echo "📢 Upload Response: $response"
-                SCANNER_REPORT_URL=$(echo "$response" | jq -r '.data.downloadPage')
-          
-                if [[ "$SCANNER_REPORT_URL" == "null" || -z "$SCANNER_REPORT_URL" ]]; then
-                  echo "❌ Failed to get scanner report download URL."
-                  exit 1
-                fi
-          
-                echo "scanner-report-url=$SCANNER_REPORT_URL" >> $GITHUB_ENV
-                echo "scanner-report-url=$SCANNER_REPORT_URL" >> $GITHUB_OUTPUT
-                echo "✅ File uploaded successfully: $SCANNER_REPORT_URL"
-              else
-                echo "⚠️ scanner-report.csv not found."
-                echo "scanner-report-url=" >> $GITHUB_ENV
-                echo "scanner-report-url=" >> $GITHUB_OUTPUT
-              fi          
-          
           
       - name: Load Salesforce API URL
         id: load-api-url
