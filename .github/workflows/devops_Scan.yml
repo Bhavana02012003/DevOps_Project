@@ -99,10 +99,27 @@ jobs:
 
               if [[ "$is_new_file" != "" ]]; then
                 echo "📄 File is NEW: $file"
-                echo "$file" >> changed_cls_lwc_files.txt
-                echo "$file,ENTIRE_FILE" >> line_number_mapping.txt
-                continue
+                
+                if [[ "$file" == *.cls ]]; then
+                  # 🔹 For NEW Apex class, scan entire file (no wrapping)
+                  echo "$file" >> changed_cls_lwc_files.txt
+                  echo "$file,ENTIRE_FILE" >> line_number_mapping.txt
+                  continue
+                else
+                  # 🔹 For other new files (like .js, .html), extract all lines for delta scan
+                  full_content=$(cat "$file")
+                  if [[ -z "$full_content" ]]; then
+                    echo "⚠️ Skipping empty new file: $file"
+                    continue
+                  fi
+
+                  echo "$full_content" | nl -ba -nln | while read -r line_num line_content; do
+                    echo "$line_num,$line_content"
+                  done > "line_number_mapping_${file//\//_}.txt"
+                  # Continue into the wrapping logic for js/html
+                fi
               fi
+
 
               echo "Extracting changed lines from: $file"
               extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
