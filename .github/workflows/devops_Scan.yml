@@ -96,7 +96,6 @@ jobs:
             for file in $changed_files; do
               echo "Processing file: $file"
 
-              # Detect if file is a new addition (status A)
               file_status=$(git diff --name-status HEAD~1 HEAD -- "$file" | awk '{print $1}')
               if [[ "$file_status" == "A" && "$file" == *.cls ]]; then
                 echo "🆕 Full new Apex class detected: $file"
@@ -105,7 +104,6 @@ jobs:
                 continue
               fi
 
-              echo "Extracting changed lines from: $file"
               extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
                 /^@@/ {
                   match($0, /\+([0-9]+)/, arr);
@@ -131,110 +129,109 @@ jobs:
               if [[ "$file" == *.cls ]]; then
                 echo "public class TempWrapperClass {" > "$temp_file"
                 temp_method_started=0
-                collecting_block=0
-                block_buffer=""
-                block_opened=0
-                control_keywords="if|else|for|while|switch|try|catch|do"
+                collecting_method=0
+                method_brace_count=0
+                control_block=0
+                block_brace_count=0
+                method_buffer=""
 
                 while IFS=, read -r line_number line_content; do
-                  line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                  echo "Processing line: $line_content_trimmed"
+                  trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                  echo "Processing: $trimmed"
+
+                  # Start of method
+                  if [[ "$trimmed" =~ ^(public|private|global|protected)[[:space:]]+(static[[:space:]]+)?(void|[\w<>]+)[[:space:]]+[[:alnum:]_]+\s*\(.*\)[[:space:]]*\{ ]]; then
+                    collecting_method=1
+                    method_brace_count=1
+                    method_buffer="    $trimmed"$'\n'
+                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
+                    continue
+                  fi
+
+                  # Collect method block
+                  if [[ $collecting_method -eq 1 ]]; then
+                    [[ "$trimmed" == *"{"* ]] && ((method_brace_count++))
+                    [[ "$trimmed" == *"}"* ]] && ((method_brace_count--))
+                    method_buffer+="    $trimmed"$'\n'
+                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
+                    if [[ $method_brace_count -eq 0 ]]; then
+                      collecting_method=0
+                      echo "$method_buffer" >> "$temp_file"
+                      method_buffer=""
+                    fi
+                    continue
+                  fi
 
                   # Handle orphan "} else {"
-                  if [[ "$line_content_trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{ ]]; then
-                    collecting_block=1
-                    block_opened=1
+                  if [[ "$trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{ ]]; then
                     [[ $temp_method_started -eq 0 ]] && {
                       echo "    public static void tempMethod() {" >> "$temp_file"
                       echo "        /* Extracted logic */" >> "$temp_file"
                       temp_method_started=1
                     }
-                    block_buffer+="        if (true) {}"$'\n'
-                    block_buffer+="        $line_content_trimmed"$'\n'
+                    echo "        if (true) {}" >> "$temp_file"
+                    echo "        $trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,if (true) {}" >> line_number_mapping.txt
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
                     continue
                   fi
 
-                  # Detect control block start
-                  if [[ "$line_content_trimmed" =~ ^($control_keywords)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
-                    collecting_block=1
-                    block_opened=1
-                    block_buffer+="        $line_content_trimmed"$'\n'
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  # Control blocks
+                  if [[ "$trimmed" =~ ^(if|for|while|switch|try|catch|do)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                    control_block=1
+                    block_brace_count=1
+                    block_buffer="        $trimmed"$'\n'
+                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
                     continue
                   fi
 
-                  # Collect control block content
-                  if [[ $collecting_block -eq 1 ]]; then
-                    block_buffer+="        $line_content_trimmed"$'\n'
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    if [[ "$line_content_trimmed" == "}" ]]; then
-                      collecting_block=0
-                      block_opened=0
+                  if [[ $control_block -eq 1 ]]; then
+                    [[ "$trimmed" == *"{"* ]] && ((block_brace_count++))
+                    [[ "$trimmed" == *"}"* ]] && ((block_brace_count--))
+                    block_buffer+="        $trimmed"$'\n'
+                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
+                    if [[ $block_brace_count -eq 0 ]]; then
                       [[ $temp_method_started -eq 0 ]] && {
                         echo "    public static void tempMethod() {" >> "$temp_file"
                         echo "        /* Extracted logic */" >> "$temp_file"
                         temp_method_started=1
                       }
                       echo "$block_buffer" >> "$temp_file"
-                      block_buffer=""
+                      control_block=0
                     fi
                     continue
                   fi
 
-                  # 🧠 Detect method declaration and insert OUTSIDE tempMethod
-                  if [[ "$line_content_trimmed" =~ ^(public|private|global|protected)[[:space:]]+(static[[:space:]]+)?(void|[\w<>]+)[[:space:]]+[[:alnum:]_]+\s*\(.*\)[[:space:]]*\{ ]]; then
-                    # If tempMethod was started before, close it before adding method
-                    [[ $temp_method_started -eq 1 ]] && {
-                      echo "    }" >> "$temp_file"
-                      temp_method_started=0
-                    }
-                    echo "    $line_content_trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    continue
-                  fi
-
-                  # Start tempMethod if needed
+                  # Normal line
                   if [[ $temp_method_started -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
                     temp_method_started=1
                   fi
-
-                  echo "        $line_content_trimmed" >> "$temp_file"
-                  echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  echo "        $trimmed" >> "$temp_file"
+                  echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
                 done < "line_number_mapping_${file//\//_}.txt"
 
-                # Auto-close any unclosed blocks
-                if [[ $block_opened -eq 1 ]]; then
-                  echo "        }" >> "$temp_file"
-                  echo "⚠️ Auto-appended missing closing brace }"
-                fi
-
-                # Close tempMethod if started
                 [[ $temp_method_started -eq 1 ]] && echo "    }" >> "$temp_file"
-
-                # Close the class
                 echo "}" >> "$temp_file"
 
               elif [[ "$file" == *.js ]]; then
                 echo "// LWC JavaScript File" > "$temp_file"
                 while IFS=, read -r line_number line_content; do
-                  line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                  [[ -n "$line_content_trimmed" ]] && {
-                    echo "$line_content_trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                  [[ -n "$trimmed" ]] && {
+                    echo "$trimmed" >> "$temp_file"
+                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
                   }
                 done < "line_number_mapping_${file//\//_}.txt"
 
               elif [[ "$file" == *.html ]]; then
                 echo "<!-- LWC HTML File -->" > "$temp_file"
                 while IFS=, read -r line_number line_content; do
-                  line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                  [[ -n "$line_content_trimmed" ]] && {
-                    echo "$line_content_trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                  trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
+                  [[ -n "$trimmed" ]] && {
+                    echo "$trimmed" >> "$temp_file"
+                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
                   }
                 done < "line_number_mapping_${file//\//_}.txt"
               fi
@@ -253,6 +250,7 @@ jobs:
               echo "No temp files created. Exiting."
               exit 0
             fi
+
       
             
       - name: Debug Extracted Line Number Mapping
