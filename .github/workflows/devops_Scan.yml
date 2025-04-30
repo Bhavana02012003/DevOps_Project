@@ -81,6 +81,7 @@ jobs:
             > changed_cls_lwc_files.txt
             > line_number_mapping.txt
             > scanner-report-temp.csv
+
             echo "Checking for changed .cls, .js, .html, and .lwc files..."
 
             changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' '*.lwc' || true)
@@ -95,31 +96,16 @@ jobs:
             for file in $changed_files; do
               echo "Processing file: $file"
 
-              is_new_file=$(git diff --name-status HEAD~1 HEAD -- "$file" | grep "^A" || true)
-
-              if [[ "$is_new_file" != "" ]]; then
-                echo "📄 File is NEW: $file"
-                
-                if [[ "$file" == *.cls ]]; then
-                  # 🔹 For NEW Apex class, scan entire file (no wrapping)
-                  echo "$file" >> changed_cls_lwc_files.txt
-                  echo "$file,ENTIRE_FILE" >> line_number_mapping.txt
-                  continue
-                else
-                  # 🔹 For other new files (like .js, .html), extract all lines for delta scan
-                  full_content=$(cat "$file")
-                  if [[ -z "$full_content" ]]; then
-                    echo "⚠️ Skipping empty new file: $file"
-                    continue
-                  fi
-
-                  echo "$full_content" | nl -ba -nln | while read -r line_num line_content; do
-                    echo "$line_num,$line_content"
-                  done > "line_number_mapping_${file//\//_}.txt"
-                  # Continue into the wrapping logic for js/html
-                fi
+              # Check if the file is completely new (status 'A')
+              file_status=$(git diff --name-status HEAD~1 HEAD -- "$file" | awk '{print $1}')
+              
+              # ✅ For new Apex class files → full scan, no wrapping
+              if [[ "$file_status" == "A" && "$file" == *.cls ]]; then
+                echo "🆕 Full new Apex class detected: $file"
+                echo "$file" >> changed_cls_lwc_files.txt
+                echo "$file,ENTIRE_FILE" >> line_number_mapping.txt
+                continue
               fi
-
 
               echo "Extracting changed lines from: $file"
               extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
@@ -156,7 +142,7 @@ jobs:
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing line: $line_content_trimmed"
 
-                  # Detect orphan "} else {"
+                  # Orphan "} else {"
                   if [[ "$line_content_trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{ ]]; then
                     collecting_block=1
                     block_opened=1
@@ -172,7 +158,7 @@ jobs:
                     continue
                   fi
 
-                  # Detect start of control blocks (if, for, while, try, etc.)
+                  # Control block start (if, for, etc.)
                   if [[ "$line_content_trimmed" =~ ^($control_keywords)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                     collecting_block=1
                     block_opened=1
@@ -181,7 +167,7 @@ jobs:
                     continue
                   fi
 
-                  # Keep collecting inside control block until it's closed with }
+                  # Inside control block
                   if [[ $collecting_block -eq 1 ]]; then
                     block_buffer+="        $line_content_trimmed"$'\n'
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
@@ -199,7 +185,7 @@ jobs:
                     continue
                   fi
 
-                  # Write normal single line
+                  # Regular line
                   if [[ $temp_method_started -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
@@ -210,7 +196,7 @@ jobs:
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                 done < "line_number_mapping_${file//\//_}.txt"
 
-                # ✅ Append } if block was opened but not closed
+                # Append closing brace if necessary
                 if [[ $block_opened -eq 1 ]]; then
                   echo "        }" >> "$temp_file"
                   echo "⚠️ Auto-appended missing closing brace }"
