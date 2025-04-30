@@ -140,7 +140,7 @@ jobs:
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing line: $line_content_trimmed"
 
-                  # Handle "} else {" edge case
+                  # Handle orphan "} else {"
                   if [[ "$line_content_trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{ ]]; then
                     collecting_block=1
                     block_opened=1
@@ -156,7 +156,7 @@ jobs:
                     continue
                   fi
 
-                  # Detect start of control blocks (if, for, while, etc.)
+                  # Detect control block start
                   if [[ "$line_content_trimmed" =~ ^($control_keywords)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                     collecting_block=1
                     block_opened=1
@@ -165,7 +165,7 @@ jobs:
                     continue
                   fi
 
-                  # Collect inside control block
+                  # Collect control block content
                   if [[ $collecting_block -eq 1 ]]; then
                     block_buffer+="        $line_content_trimmed"$'\n'
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
@@ -183,30 +183,39 @@ jobs:
                     continue
                   fi
 
-                  # 🧠 Detect method declarations and place them at class level
+                  # 🧠 Detect method declaration and insert OUTSIDE tempMethod
                   if [[ "$line_content_trimmed" =~ ^(public|private|global|protected)[[:space:]]+(static[[:space:]]+)?(void|[\w<>]+)[[:space:]]+[[:alnum:]_]+\s*\(.*\)[[:space:]]*\{ ]]; then
+                    # If tempMethod was started before, close it before adding method
+                    [[ $temp_method_started -eq 1 ]] && {
+                      echo "    }" >> "$temp_file"
+                      temp_method_started=0
+                    }
                     echo "    $line_content_trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                     continue
                   fi
 
-                  # All other lines go inside tempMethod
+                  # Start tempMethod if needed
                   if [[ $temp_method_started -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
                     temp_method_started=1
                   fi
+
                   echo "        $line_content_trimmed" >> "$temp_file"
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                 done < "line_number_mapping_${file//\//_}.txt"
 
-                # Close block if still open
+                # Auto-close any unclosed blocks
                 if [[ $block_opened -eq 1 ]]; then
                   echo "        }" >> "$temp_file"
                   echo "⚠️ Auto-appended missing closing brace }"
                 fi
 
+                # Close tempMethod if started
                 [[ $temp_method_started -eq 1 ]] && echo "    }" >> "$temp_file"
+
+                # Close the class
                 echo "}" >> "$temp_file"
 
               elif [[ "$file" == *.js ]]; then
