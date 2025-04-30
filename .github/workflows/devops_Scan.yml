@@ -96,10 +96,8 @@ jobs:
             for file in $changed_files; do
               echo "Processing file: $file"
 
-              # Check if the file is completely new (status 'A')
+              # Detect if file is a new addition (status A)
               file_status=$(git diff --name-status HEAD~1 HEAD -- "$file" | awk '{print $1}')
-              
-              # ✅ For new Apex class files → full scan, no wrapping
               if [[ "$file_status" == "A" && "$file" == *.cls ]]; then
                 echo "🆕 Full new Apex class detected: $file"
                 echo "$file" >> changed_cls_lwc_files.txt
@@ -142,7 +140,7 @@ jobs:
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing line: $line_content_trimmed"
 
-                  # Orphan "} else {"
+                  # Handle "} else {" edge case
                   if [[ "$line_content_trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{ ]]; then
                     collecting_block=1
                     block_opened=1
@@ -158,7 +156,7 @@ jobs:
                     continue
                   fi
 
-                  # Control block start (if, for, etc.)
+                  # Detect start of control blocks (if, for, while, etc.)
                   if [[ "$line_content_trimmed" =~ ^($control_keywords)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                     collecting_block=1
                     block_opened=1
@@ -167,7 +165,7 @@ jobs:
                     continue
                   fi
 
-                  # Inside control block
+                  # Collect inside control block
                   if [[ $collecting_block -eq 1 ]]; then
                     block_buffer+="        $line_content_trimmed"$'\n'
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
@@ -185,18 +183,24 @@ jobs:
                     continue
                   fi
 
-                  # Regular line
+                  # 🧠 Detect method declarations and place them at class level
+                  if [[ "$line_content_trimmed" =~ ^(public|private|global|protected)[[:space:]]+(static[[:space:]]+)?(void|[\w<>]+)[[:space:]]+[[:alnum:]_]+\s*\(.*\)[[:space:]]*\{ ]]; then
+                    echo "    $line_content_trimmed" >> "$temp_file"
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    continue
+                  fi
+
+                  # All other lines go inside tempMethod
                   if [[ $temp_method_started -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
                     temp_method_started=1
                   fi
-
                   echo "        $line_content_trimmed" >> "$temp_file"
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                 done < "line_number_mapping_${file//\//_}.txt"
 
-                # Append closing brace if necessary
+                # Close block if still open
                 if [[ $block_opened -eq 1 ]]; then
                   echo "        }" >> "$temp_file"
                   echo "⚠️ Auto-appended missing closing brace }"
