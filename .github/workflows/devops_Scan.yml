@@ -81,7 +81,6 @@ jobs:
             > changed_cls_lwc_files.txt
             > line_number_mapping.txt
             > scanner-report-temp.csv
-
             echo "Checking for changed .cls, .js, .html, and .lwc files..."
 
             changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' '*.lwc' || true)
@@ -95,6 +94,7 @@ jobs:
 
             for file in $changed_files; do
               echo "Processing file: $file"
+
               is_new_file=$(git diff --name-status HEAD~1 HEAD -- "$file" | grep "^A" || true)
 
               if [[ "$is_new_file" != "" ]]; then
@@ -132,7 +132,6 @@ jobs:
                 temp_method_started=0
                 collecting_block=0
                 block_buffer=""
-                brace_depth=0
                 block_opened=0
                 control_keywords="if|else|for|while|switch|try|catch|do"
 
@@ -140,21 +139,36 @@ jobs:
                   line_content_trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing line: $line_content_trimmed"
 
-                  # Detect orphan "} else {" or any control block
-                  if [[ "$line_content_trimmed" =~ ^($control_keywords)[[:space:]]*\(.*\)[[:space:]]*\{?$ || "$line_content_trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{?$ ]]; then
+                  # Detect orphan "} else {"
+                  if [[ "$line_content_trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{ ]]; then
                     collecting_block=1
                     block_opened=1
-                    [[ "$line_content_trimmed" =~ ^\}[[:space:]]*else ]] && block_buffer+="        if (true) {}"$'\n' && echo "$temp_file,$line_number,if (true) {}" >> line_number_mapping.txt
+                    [[ $temp_method_started -eq 0 ]] && {
+                      echo "    public static void tempMethod() {" >> "$temp_file"
+                      echo "        /* Extracted logic */" >> "$temp_file"
+                      temp_method_started=1
+                    }
+                    block_buffer+="        if (true) {}"$'\n'
+                    block_buffer+="        $line_content_trimmed"$'\n'
+                    echo "$temp_file,$line_number,if (true) {}" >> line_number_mapping.txt
+                    echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
+                    continue
+                  fi
 
+                  # Detect start of control blocks (if, for, while, try, etc.)
+                  if [[ "$line_content_trimmed" =~ ^($control_keywords)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
+                    collecting_block=1
+                    block_opened=1
                     block_buffer+="        $line_content_trimmed"$'\n'
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
                     continue
                   fi
 
+                  # Keep collecting inside control block until it's closed with }
                   if [[ $collecting_block -eq 1 ]]; then
                     block_buffer+="        $line_content_trimmed"$'\n'
                     echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-                    [[ "$line_content_trimmed" == "}" ]] && {
+                    if [[ "$line_content_trimmed" == "}" ]]; then
                       collecting_block=0
                       block_opened=0
                       [[ $temp_method_started -eq 0 ]] && {
@@ -164,10 +178,11 @@ jobs:
                       }
                       echo "$block_buffer" >> "$temp_file"
                       block_buffer=""
-                    }
+                    fi
                     continue
                   fi
 
+                  # Write normal single line
                   if [[ $temp_method_started -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
                     echo "        /* Extracted logic */" >> "$temp_file"
@@ -176,10 +191,9 @@ jobs:
 
                   echo "        $line_content_trimmed" >> "$temp_file"
                   echo "$temp_file,$line_number,$line_content_trimmed" >> line_number_mapping.txt
-
                 done < "line_number_mapping_${file//\//_}.txt"
 
-                # ⛔ Final check: orphan block opened but not closed → auto-append closing }
+                # ✅ Append } if block was opened but not closed
                 if [[ $block_opened -eq 1 ]]; then
                   echo "        }" >> "$temp_file"
                   echo "⚠️ Auto-appended missing closing brace }"
