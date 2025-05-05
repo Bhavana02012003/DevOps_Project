@@ -214,18 +214,22 @@ jobs:
                   echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
                 done < "line_number_mapping_${file//\//_}.txt"
                 
-                # ✅ Close any open orphan else block
+                # Close orphan else block if not already closed
                 if [[ "$orphan_else_open" == "1" ]]; then
                   echo "        }" >> "$temp_file"
                   echo "$temp_file,$line_number,}" >> line_number_mapping.txt
                   orphan_else_open=0
                 fi
 
-                [[ $temp_method_started -eq 1 ]] && echo "    }" >> "$temp_file"
-                echo "}" >> "$temp_file"
+                # Only close tempMethod() if it was started
+                if [[ "$temp_method_started" -eq 1 ]]; then
+                  echo "    }" >> "$temp_file"
+                  echo "}" >> "$temp_file"
+                else
+                  # If no method logic was added, only close the class
+                  echo "}" >> "$temp_file"
+                fi
 
-                [[ $temp_method_started -eq 1 ]] && echo "    }" >> "$temp_file"
-                echo "}" >> "$temp_file"
 
               elif [[ "$file" == *.js ]]; then
                 echo "// LWC JavaScript File" > "$temp_file"
