@@ -174,9 +174,9 @@ jobs:
                     }
 
                     echo "        if (true) {" >> "$temp_file"
-                    echo "        } $trimmed" >> "$temp_file"
+                    echo "        $trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,if (true) {" >> line_number_mapping.txt
-                    echo "$temp_file,$line_number,} $trimmed" >> line_number_mapping.txt
+                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
 
                     orphan_else_open=1
                     orphan_else_first_line=1
