@@ -169,10 +169,10 @@ jobs:
                       echo "        /* Extracted logic */" >> "$temp_file"
                       temp_method_started=1
                     }
-                    echo "        if (true) {}" >> "$temp_file"
-                    echo "        $trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,if (true) {}" >> line_number_mapping.txt
-                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
+                    echo "        if (true) {" >> "$temp_file"
+                    echo "        } $trimmed" >> "$temp_file"
+                    echo "$temp_file,$line_number,if (true) {" >> line_number_mapping.txt
+                    echo "$temp_file,$line_number,} $trimmed" >> line_number_mapping.txt
                     continue
                   fi
 
