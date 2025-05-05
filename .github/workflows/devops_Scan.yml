@@ -134,6 +134,7 @@ jobs:
                 control_block=0
                 block_brace_count=0
                 method_buffer=""
+                orphan_else_open=0  # ⬅️ Add this before the while loop starts
 
                 while IFS=, read -r line_number line_content; do
                   trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
@@ -173,6 +174,7 @@ jobs:
                     echo "        $trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,if (true) {" >> line_number_mapping.txt
                     echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
+                    orphan_else_open=1
                     continue
                   fi
 
@@ -211,6 +213,16 @@ jobs:
                   echo "        $trimmed" >> "$temp_file"
                   echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
                 done < "line_number_mapping_${file//\//_}.txt"
+                
+                # ✅ Close any open orphan else block
+                if [[ "$orphan_else_open" == "1" ]]; then
+                  echo "        }" >> "$temp_file"
+                  echo "$temp_file,$line_number,}" >> line_number_mapping.txt
+                  orphan_else_open=0
+                fi
+
+                [[ $temp_method_started -eq 1 ]] && echo "    }" >> "$temp_file"
+                echo "}" >> "$temp_file"
 
                 [[ $temp_method_started -eq 1 ]] && echo "    }" >> "$temp_file"
                 echo "}" >> "$temp_file"
