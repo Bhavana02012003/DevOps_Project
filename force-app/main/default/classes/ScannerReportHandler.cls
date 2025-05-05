@@ -44,9 +44,8 @@ public with sharing class ScannerReportHandler {
                 newCase.File_Name__c = cv.Title;
                 newCase.Status = 'New';
 
-                // Read CSV content and map TargetBranch to Target Environment
+                // Read CSV content and map TargetBranch to Target Environment and Commit to Case Created By
                 try {
-                    // Fetch the actual file content as Blob
                     ContentVersion cvWithData = [SELECT VersionData FROM ContentVersion WHERE Id = :cv.Id LIMIT 1];
                     Blob csvBlob = cvWithData.VersionData;
                     String csvContent = csvBlob.toString();
@@ -58,16 +57,26 @@ public with sharing class ScannerReportHandler {
                         List<String> headers = headerLine.split(',');
 
                         Integer targetBranchIndex = headers.indexOf('TargetBranch');
-                        if (targetBranchIndex != -1) {
-                            for (Integer i = 1; i < csvLines.size(); i++) {
-                                List<String> values = csvLines[i].split(',');
+                        Integer commitIndex = headers.indexOf('Commit');
 
-                                if (values.size() > targetBranchIndex) {
-                                    String targetBranchValue = values[targetBranchIndex].trim();
-                                    System.debug('🔗 Mapping TargetBranch: ' + targetBranchValue);
-                                    newCase.Target_Environment__c = targetBranchValue;
-                                    break; // Map the first occurrence
-                                }
+                        for (Integer i = 1; i < csvLines.size(); i++) {
+                            List<String> values = csvLines[i].split(',');
+
+                            if (targetBranchIndex != -1 && values.size() > targetBranchIndex) {
+                                String targetBranchValue = values[targetBranchIndex].trim();
+                                System.debug('🔗 Mapping TargetBranch: ' + targetBranchValue);
+                                newCase.Target_Environment__c = targetBranchValue;
+                            }
+
+                            if (commitIndex != -1 && values.size() > commitIndex) {
+                                String commitValue = values[commitIndex].trim();
+                                System.debug('✍️ Setting Case Created By from Commit: ' + commitValue);
+                                newCase.Case_Created_By__c = commitValue;
+                            }
+
+                            // Exit early if either is set
+                            if (newCase.Target_Environment__c != null || newCase.Case_Created_By__c != null) {
+                                break;
                             }
                         }
                     }
@@ -85,7 +94,6 @@ public with sharing class ScannerReportHandler {
                 insert casesToInsert;
                 System.debug('✅ Successfully inserted ' + casesToInsert.size() + ' Case records.');
 
-                // Map newly created Cases to their corresponding ContentDocumentId
                 Integer index = 0;
                 for (Case createdCase : casesToInsert) {
                     Id docId = contentVersions[index].ContentDocumentId;
@@ -113,7 +121,6 @@ public with sharing class ScannerReportHandler {
             if (caseId != null) {
                 System.debug('🔗 Checking ContentDocumentLink for Case: ' + caseId + ' | File: ' + contentDocId);
 
-                // Ensure ContentDocumentLink does not already exist
                 List<ContentDocumentLink> existingLinks = [
                     SELECT Id FROM ContentDocumentLink 
                     WHERE LinkedEntityId = :caseId 
@@ -136,7 +143,6 @@ public with sharing class ScannerReportHandler {
             }
         }
 
-        // Insert ContentDocumentLinks to link files to Cases
         if (!linksToInsert.isEmpty()) {
             try {
                 insert linksToInsert;
