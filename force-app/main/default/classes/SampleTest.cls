@@ -3,8 +3,6 @@ public with sharing class SampleTest {
         System.debug('Hello');
         if(num>5){
             System.debug('Greater 5');
-        } else{
-            System.debug('Lesser 5');
         }
     }
     public void hardCodedIdMethod() {
