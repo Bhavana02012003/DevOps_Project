@@ -173,9 +173,9 @@ jobs:
                     }
 
                     echo "        if (true) {" >> "$temp_file"
-                    echo "        } $trimmed" >> "$temp_file"
+                    echo "        $trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,if (true) {" >> line_number_mapping.txt
-                    echo "$temp_file,$line_number,} $trimmed" >> line_number_mapping.txt
+                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
 
                     orphan_else_open=1
                     orphan_else_brace_count=1  # We're inside the else block now
