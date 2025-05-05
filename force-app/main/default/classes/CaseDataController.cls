@@ -62,10 +62,8 @@ public with sharing class CaseDataController {
             }
 
             List<String> headers = lines[0].split(',');
-            System.debug('✅ CSV Headers: ' + headers);
 
-            Integer commitIndex = headers.indexOf('Commit');
-            Boolean commitFieldUpdated = false;
+            System.debug('✅ CSV Headers: ' + headers);
 
             // Process CSV rows
             for (Integer i = 1; i < lines.size(); i++) {
@@ -88,18 +86,6 @@ public with sharing class CaseDataController {
                             response.auraViolationCount++;
                         } else if (filePath.contains('objects')) {
                             response.objectsViolationCount++;
-                        }
-                    }
-
-                    // ✅ Populate 'Case_Created_By__c' from first valid Commit value
-                    if (!commitFieldUpdated && commitIndex != -1 && commitIndex < values.size()) {
-                        String commitValue = values[commitIndex].trim();
-                        if (!String.isEmpty(commitValue)) {
-                            Case caseRecord = [SELECT Id, Case_Created_By__c FROM Case WHERE Id = :caseId LIMIT 1];
-                            caseRecord.Case_Created_By__c = commitValue;
-                            update caseRecord;
-                            commitFieldUpdated = true;
-                            System.debug('✅ Case_Created_By__c updated with: ' + commitValue);
                         }
                     }
 
