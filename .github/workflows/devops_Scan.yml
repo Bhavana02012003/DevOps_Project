@@ -164,17 +164,35 @@ jobs:
                   fi
 
                   # Handle orphan "} else {"
+                  # Orphan else block handling with brace tracking
                   if [[ "$trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{ ]]; then
                     [[ $temp_method_started -eq 0 ]] && {
                       echo "    public static void tempMethod() {" >> "$temp_file"
                       echo "        /* Extracted logic */" >> "$temp_file"
                       temp_method_started=1
                     }
+
                     echo "        if (true) {" >> "$temp_file"
-                    echo "        $trimmed" >> "$temp_file"
+                    echo "        } $trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,if (true) {" >> line_number_mapping.txt
-                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
+                    echo "$temp_file,$line_number,} $trimmed" >> line_number_mapping.txt
+
                     orphan_else_open=1
+                    orphan_else_brace_count=1  # We're inside the else block now
+                    continue
+                  fi
+
+                  # Track lines inside orphan else block
+                  if [[ "$orphan_else_open" -eq 1 ]]; then
+                    [[ "$trimmed" == *"{"* ]] && ((orphan_else_brace_count++))
+                    [[ "$trimmed" == *"}"* ]] && ((orphan_else_brace_count--))
+                    
+                    echo "        $trimmed" >> "$temp_file"
+                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
+
+                    if [[ "$orphan_else_brace_count" -eq 0 ]]; then
+                      orphan_else_open=0
+                    fi
                     continue
                   fi
 
