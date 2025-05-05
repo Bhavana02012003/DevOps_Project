@@ -242,6 +242,7 @@ jobs:
 
             echo "====== Final Line Number Mapping ======"
             cat line_number_mapping.txt || echo "No line number mapping available."
+            cat $temp_file
 
             echo "Generated temp files:"
             ls -l temp_scanner_files
