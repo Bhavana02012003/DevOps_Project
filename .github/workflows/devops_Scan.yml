@@ -135,6 +135,8 @@ jobs:
                 block_brace_count=0
                 method_buffer=""
                 orphan_else_open=0  # ⬅️ Add this before the while loop starts
+                orphan_else_first_line=0
+
 
                 while IFS=, read -r line_number line_content; do
                   trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
@@ -164,7 +166,6 @@ jobs:
                   fi
 
                   # Handle orphan "} else {"
-                  # Detect orphan "} else {"
                   if [[ "$trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{ ]]; then
                     [[ $temp_method_started -eq 0 ]] && {
                       echo "    public static void tempMethod() {" >> "$temp_file"
@@ -173,26 +174,26 @@ jobs:
                     }
 
                     echo "        if (true) {" >> "$temp_file"
-                    echo "        $trimmed" >> "$temp_file"
+                    echo "        } $trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,if (true) {" >> line_number_mapping.txt
-                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
+                    echo "$temp_file,$line_number,} $trimmed" >> line_number_mapping.txt
 
                     orphan_else_open=1
-                    orphan_else_brace_count=1
+                    orphan_else_first_line=1
                     continue
                   fi
 
-                  # If inside an orphan else block, track nested braces
-                  if [[ "$orphan_else_open" -eq 1 ]]; then
-                    [[ "$trimmed" == *"{"* ]] && ((orphan_else_brace_count++))
-                    [[ "$trimmed" == *"}"* ]] && ((orphan_else_brace_count--))
-
+                  # ✅ 2. First statement inside orphan else → add & close orphan block
+                  if [[ "$orphan_else_open" -eq 1 && "$orphan_else_first_line" -eq 1 ]]; then
                     echo "        $trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
 
-                    if [[ "$orphan_else_brace_count" -eq 0 ]]; then
-                      orphan_else_open=0
-                    fi
+                    # 🔒 Close orphan else immediately after first inner line
+                    echo "        }" >> "$temp_file"
+                    echo "$temp_file,$line_number,}" >> line_number_mapping.txt
+
+                    orphan_else_open=0
+                    orphan_else_first_line=0
                     continue
                   fi
 
