@@ -328,37 +328,31 @@ jobs:
           UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
 
           for file in $files; do
-            if [[ "$file" == temp_scanner_files/* ]]; then
-              echo "🧠 Modified file (delta logic): $file"
-              SCAN_PATH="$file"
-              SCAN_MODE="Delta"
-            else
-              echo "🆕 New file (full scan): $file"
-              SCAN_PATH="$file"
-              SCAN_MODE="Full"
-            fi
+            echo "🔍 Scanning file: $file"
 
-            if [[ "$SCAN_PATH" == *.cls ]]; then
-              sf code-analyzer run --target "$SCAN_PATH" --engine pmd --format csv --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Analyzer failed for $SCAN_PATH"
-            else
-              sf code-analyzer run --target "$SCAN_PATH" --format csv --outfile "scanner-report-partial.csv" || echo "⚠️ Analyzer failed for $SCAN_PATH"
-            fi
+            # Run analyzer with config (includes custom ruleset for Apex)
+            sf code-analyzer run --target "$file" --config .code-analyzer-config.json --json > scanner-report-partial.json || echo "⚠️ Analyzer failed for $file"
 
-
-            if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
-              tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' \
-                  -v commit_author="$COMMIT_AUTHOR" \
-                  -v target_branch="${{ env.TARGET_BRANCH }}" \
-                  -v unwanted_path="$UNWANTED_PATH" \
-                  -v orig_file="$file" \
-                  -v mode="$SCAN_MODE" '
-                {
-                  $3 = gensub(unwanted_path, "", "g", $3);  # Trim file path
-                  $11 = commit_author;  # Commit author
-                  if (NF < 12) $12 = "N/A";  # Actual line fallback
-                  $13 = target_branch;  # Branch
-                  print $0
-                }' >> scanner-report.csv
+            if [ -s scanner-report-partial.json ]; then
+              jq -r --arg file "$file" --arg unwanted "$UNWANTED_PATH" '
+                .results[]?.violations[]? |
+                [
+                  .ruleName,
+                  .severity,
+                  (.fileName | gsub($unwanted; "")),
+                  .line,
+                  .column,
+                  .ruleName,
+                  .message,
+                  .url,
+                  .category,
+                  .engine,
+                  "GITHUB_COMMITTER",
+                  "N/A",
+                  "GITHUB_BRANCH"
+                ] | @csv
+              ' scanner-report-partial.json | \
+              sed 's/"GITHUB_COMMITTER"/"'"$COMMIT_AUTHOR"'"/;s/"GITHUB_BRANCH"/"'"${{ env.TARGET_BRANCH }}"'"/' >> scanner-report.csv
             else
               echo "⚠️ No violations found for: $file"
             fi
@@ -366,6 +360,7 @@ jobs:
 
           echo "✅ Final Scanner Report (v5):"
           cat scanner-report.csv
+
 
           
       - name: Load Salesforce API URL

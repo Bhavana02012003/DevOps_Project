@@ -1,0 +1,12 @@
+{
+    "targets": [
+      {
+        "target": "temp_scanner_files/",
+        "engines": ["pmd"],
+        "pmd": {
+          "rulesets": ["force-app/main/default/Custom_apex_ruleset.xml"]
+        }
+      }
+    ]
+  }
+  
