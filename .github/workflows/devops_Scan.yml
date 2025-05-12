@@ -55,10 +55,17 @@ jobs:
       - name: Verify Salesforce CLI Installation
         run: sf --version
       
-      - name: Install Salesforce Code Analyzer Plugin (v5)
+      - name: Install Salesforce Code Analyzer v5 Plugin
         run: |
+          echo "🔧 Installing Salesforce Code Analyzer v5"
           sf plugins install code-analyzer@latest
-          sf plugins --core  # Confirm it's installed
+      
+          echo "✅ Installed Plugins:"
+          sf plugins --core
+      
+          echo "🔍 Verifying Analyzer Version..."
+          sf code-analyzer --help
+    
       
 
       - name: Get Commit Author
@@ -336,11 +343,10 @@ jobs:
           for file in $files; do
             echo "🔍 Scanning file: $file"
 
-            # Use config file (custom ruleset) + JSON output
             sf code-analyzer run --target "$file" --config .code-analyzer-config.json --json > scanner-report-partial.json || echo "⚠️ Analyzer failed for $file"
 
             if [ -s scanner-report-partial.json ]; then
-              jq -r --arg file "$file" --arg unwanted "$UNWANTED_PATH" '
+              jq -r --arg unwanted "$UNWANTED_PATH" '
                 .results[]?.violations[]? |
                 [
                   .ruleName,
