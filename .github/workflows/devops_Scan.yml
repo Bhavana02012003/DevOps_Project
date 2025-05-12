@@ -313,7 +313,7 @@ jobs:
       #       echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
       #       echo "Commit Author: $COMMIT_AUTHOR"
          
-      - name: Run SFDX Scanner on Changed Lines
+      - name: Run Salesforce Code Analyzer v5 on Changed Lines
         run: |
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
@@ -322,7 +322,7 @@ jobs:
             exit 0
           fi
 
-          echo "📋 Scanning files: $files"
+          echo "📋 Scanning files with v5: $files"
           echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
 
           UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
@@ -338,11 +338,10 @@ jobs:
               SCAN_MODE="Full"
             fi
 
-            # Determine if it's Apex and needs ruleset config
             if [[ "$SCAN_PATH" == *.cls ]]; then
-              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
+              sf codeanalyzer run --target "$SCAN_PATH" --engine pmd --format csv --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Analyzer failed for $SCAN_PATH"
             else
-              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
+              sf codeanalyzer run --target "$SCAN_PATH" --format csv --outfile "scanner-report-partial.csv" || echo "⚠️ Analyzer failed for $SCAN_PATH"
             fi
 
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
@@ -364,7 +363,7 @@ jobs:
             fi
           done
 
-          echo "✅ Final Scanner Report with TargetBranch:"
+          echo "✅ Final Scanner Report (v5):"
           cat scanner-report.csv
 
           

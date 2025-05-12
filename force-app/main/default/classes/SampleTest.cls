@@ -2,7 +2,7 @@ public with sharing class SampleTest {
     public void print(Integer num){
         System.debug('Hello');
         if(num>5){
-            System.debug('Greater 5');
+            System.debug('Greater than 5');
         } else{
             System.debug('Lesser 5');
         }
