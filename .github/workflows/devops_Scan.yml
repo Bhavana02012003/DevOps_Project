@@ -55,17 +55,23 @@ jobs:
       - name: Verify Salesforce CLI Installation
         run: sf --version
       
-      - name: Upgrade Salesforce CLI Core to v3
+      - name: Uninstall Old Salesforce CLI and Plugins (if any)
         run: |
-          echo "⚙️ Upgrading Salesforce CLI Core to v3..."
+          echo "🧼 Removing legacy Salesforce CLI"
+          npm uninstall -g sfdx @salesforce/cli || true
+      
+      - name: Install Salesforce CLI v3 (latest)
+        run: |
+          echo "⚙️ Installing latest Salesforce CLI v3"
           npm install -g @salesforce/cli@latest
           sf version
       
-      - name: Install Salesforce Code Analyzer v5 Plugin
+      - name: Install Code Analyzer v5 Plugin
         run: |
-          echo "🔧 Installing Salesforce Code Analyzer v5"
+          echo "🔧 Installing code-analyzer plugin"
           sf plugins install code-analyzer@latest
-          sf plugins --core   
+          sf plugins --core
+          sf code-analyzer --help      
 
       - name: Get Commit Author
         id: commit-author
@@ -325,7 +331,7 @@ jobs:
       #       echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
       #       echo "Commit Author: $COMMIT_AUTHOR"
          
-      - name: Run Salesforce Code Analyzer v5 on Changed Lines
+      - name: Run Salesforce Code Analyzer v5 on Changed Files
         run: |
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
@@ -334,23 +340,20 @@ jobs:
             exit 0
           fi
 
-          echo "📋 Scanning files with v5: $files"
+          echo "📋 Scanning files with Code Analyzer v5: $files"
           echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
 
-          UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
-
           for file in $files; do
-            echo "🔍 Scanning file: $file"
-
+            echo "🔍 Scanning $file with config..."
             sf code-analyzer run --target "$file" --config .code-analyzer-config.json --json > scanner-report-partial.json || echo "⚠️ Analyzer failed for $file"
 
             if [ -s scanner-report-partial.json ]; then
-              jq -r --arg unwanted "$UNWANTED_PATH" '
+              jq -r '
                 .results[]?.violations[]? |
                 [
                   .ruleName,
                   .severity,
-                  (.fileName | gsub($unwanted; "")),
+                  .fileName,
                   .line,
                   .column,
                   .ruleName,
@@ -364,16 +367,8 @@ jobs:
                 ] | @csv
               ' scanner-report-partial.json | \
               sed 's/"GITHUB_COMMITTER"/"'"$COMMIT_AUTHOR"'"/;s/"GITHUB_BRANCH"/"'"${{ env.TARGET_BRANCH }}"'"/' >> scanner-report.csv
-            else
-              echo "⚠️ No violations found for: $file"
             fi
           done
-
-          echo "✅ Final Scanner Report (v5):"
-          cat scanner-report.csv
-
-
-
           
       - name: Load Salesforce API URL
         id: load-api-url
