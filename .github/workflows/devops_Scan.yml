@@ -55,18 +55,17 @@ jobs:
       - name: Verify Salesforce CLI Installation
         run: sf --version
       
+      - name: Upgrade Salesforce CLI Core to v3
+        run: |
+          echo "⚙️ Upgrading Salesforce CLI Core to v3..."
+          npm install -g @salesforce/cli@latest
+          sf version
+      
       - name: Install Salesforce Code Analyzer v5 Plugin
         run: |
           echo "🔧 Installing Salesforce Code Analyzer v5"
           sf plugins install code-analyzer@latest
-      
-          echo "✅ Installed Plugins:"
-          sf plugins --core
-      
-          echo "🔍 Verifying Analyzer Version..."
-          sf code-analyzer --help
-    
-      
+          sf plugins --core   
 
       - name: Get Commit Author
         id: commit-author
