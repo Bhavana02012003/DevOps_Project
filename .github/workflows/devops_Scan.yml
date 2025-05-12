@@ -339,10 +339,11 @@ jobs:
             fi
 
             if [[ "$SCAN_PATH" == *.cls ]]; then
-              sf codeanalyzer run --target "$SCAN_PATH" --engine pmd --format csv --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Analyzer failed for $SCAN_PATH"
+              sf code-analyzer run --target "$SCAN_PATH" --engine pmd --format csv --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Analyzer failed for $SCAN_PATH"
             else
-              sf codeanalyzer run --target "$SCAN_PATH" --format csv --outfile "scanner-report-partial.csv" || echo "⚠️ Analyzer failed for $SCAN_PATH"
+              sf code-analyzer run --target "$SCAN_PATH" --format csv --outfile "scanner-report-partial.csv" || echo "⚠️ Analyzer failed for $SCAN_PATH"
             fi
+
 
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
               tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' \

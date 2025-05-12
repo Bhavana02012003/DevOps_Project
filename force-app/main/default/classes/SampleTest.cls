@@ -4,7 +4,7 @@ public with sharing class SampleTest {
         if(num>5){
             System.debug('Greater than 5');
         } else{
-            System.debug('Lesser 5');
+            System.debug('Lesser than 5');
         }
     }
     public void hardCodedIdMethod() {
