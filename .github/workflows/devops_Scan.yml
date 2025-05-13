@@ -384,16 +384,20 @@ jobs:
             -d "client_secret=${{ secrets.SF_CLIENT_SECRET }}" \
             -d "username=${{ secrets.SF_USERNAME }}" \
             -d "password=${{ secrets.SF_PASSWORD }}${{ secrets.SF_SECURITY_TOKEN }}" )
+
           echo "Login response: $response"
+          
           SF_ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
           INSTANCE_URL=$(echo "$response" | jq -r '.instance_url')
-          if [ -z "$SF_ACCESS_TOKEN" ]; then
+
+          if [[ -z "$SF_ACCESS_TOKEN" || "$SF_ACCESS_TOKEN" == "null" ]]; then
             echo "❌ Salesforce authentication failed."
             exit 1
           fi
+
+          echo "✅ Salesforce Authenticated Successfully"
           echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> $GITHUB_ENV
           echo "INSTANCE_URL=$INSTANCE_URL" >> $GITHUB_ENV
-
       
       - name: Upload Scanner Report to Salesforce
         if: success()
@@ -413,6 +417,7 @@ jobs:
             -H "Content-Type: multipart/form-data" \
             -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
             -F "VersionData=@scanner-report.csv;type=text/csv")
+
 
 
             # 🔍 Debug: Print the full API response
