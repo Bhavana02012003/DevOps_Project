@@ -383,14 +383,17 @@ jobs:
             -d "client_id=${{ secrets.SF_CLIENT_ID }}" \
             -d "client_secret=${{ secrets.SF_CLIENT_SECRET }}" \
             -d "username=${{ secrets.SF_USERNAME }}" \
-            -d "password=${{ secrets.SF_PASSWORD }}" )
+            -d "password=${{ secrets.SF_PASSWORD }}${{ secrets.SF_SECURITY_TOKEN }}" )
+          echo "Login response: $response"
           SF_ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
+          INSTANCE_URL=$(echo "$response" | jq -r '.instance_url')
           if [ -z "$SF_ACCESS_TOKEN" ]; then
-            echo "Salesforce authentication failed."
+            echo "❌ Salesforce authentication failed."
             exit 1
           fi
           echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> $GITHUB_ENV
-          echo "Successfully authenticated with Salesforce."
+          echo "INSTANCE_URL=$INSTANCE_URL" >> $GITHUB_ENV
+
       
       - name: Upload Scanner Report to Salesforce
         if: success()
@@ -405,11 +408,12 @@ jobs:
             echo "🔄 Uploading scanner report to Salesforce..."
 
             # Send file to Salesforce
-            response=$(curl -X POST "${{ secrets.SF_API_URL }}" \
-              -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
-              -H "Content-Type: multipart/form-data" \
-              -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
-              -F "VersionData=@scanner-report.csv;type=text/csv")
+            response=$(curl -X POST "$INSTANCE_URL/services/data/v58.0/sobjects/ContentVersion" \
+            -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+            -H "Content-Type: multipart/form-data" \
+            -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
+            -F "VersionData=@scanner-report.csv;type=text/csv")
+
 
             # 🔍 Debug: Print the full API response
             echo "📢 Salesforce API Response: $response"
