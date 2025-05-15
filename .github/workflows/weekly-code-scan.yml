@@ -1,9 +1,9 @@
 name: Weekly SFDX Full Code Scan
 
 on:
+  workflow_dispatch:        # ✅ Manual trigger (works in non-default branches)
   schedule:
-    - cron: '25 13 * * 1'  # Every Monday at 6:40 PM IST (1:10 PM UTC)
-  workflow_dispatch:        # ✅ Allows manual run from UI
+    - cron: '10 13 * * 1'    # 🔁 Auto trigger only when in default branch
 
 jobs:
   weekly-full-scan:
