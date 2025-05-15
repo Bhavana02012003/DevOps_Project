@@ -55,6 +55,10 @@ jobs:
       - name: Verify Salesforce CLI Installation
         run: sf --version
 
+      - name: Install Salesforce Code Analyzer v5
+        run: sf plugins install @salesforce/code-analyzer@latest
+
+
       - name: Get Commit Author
         id: commit-author
         run: |
@@ -340,10 +344,11 @@ jobs:
 
             # Determine if it's Apex and needs ruleset config
             if [[ "$SCAN_PATH" == *.cls ]]; then
-              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
+              sf codeanalyzer run --target "$SCAN_PATH" --engine pmd --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
             else
-              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
+              sf codeanalyzer run --target "$SCAN_PATH" --engine eslint --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
             fi
+
 
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
               tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' \
