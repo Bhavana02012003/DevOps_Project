@@ -1,42 +1,13 @@
 name: Weekly SFDX Full Code Scan
 
 on:
-  workflow_dispatch:        # ✅ Manual trigger (works in non-default branches)
+  workflow_dispatch:        # ✅ Enables manual trigger from Actions tab
   schedule:
-    - cron: '10 13 * * 1'    # 🔁 Auto trigger only when in default branch
+    - cron: '10 13 * * 1'    # Runs every Monday at 6:40 PM IST (1:10 PM UTC)
 
 jobs:
-  weekly-full-scan:
+  test-trigger-only:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-
-      - name: Install Salesforce CLI
-        run: npm install --global @salesforce/cli
-
-      - name: Install SFDX Scanner Plugin
-        run: sf plugins install @salesforce/sfdx-scanner
-
-      - name: Run Full SFDX Scan
-        run: |
-          mkdir -p scanner_output
-          sf scanner:run \
-            --target "force-app/main/default/classes,force-app/main/default/lwc" \
-            --format "csv" \
-            --outfile "scanner_output/weekly-scanner-report.csv" \
-            --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "Scan completed with warnings"
-
-      - name: Upload Weekly Report to GitHub Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: weekly-scanner-report
-          path: scanner_output/weekly-scanner-report.csv
+      - name: Test step
+        run: echo "✅ This is a test workflow to confirm it runs"
