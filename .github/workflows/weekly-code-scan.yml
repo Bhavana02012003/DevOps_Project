@@ -2,7 +2,8 @@ name: Weekly SFDX Full Code Scan
 
 on:
   schedule:
-    - cron: '10 13 * * 1'  # Every Monday at 6:40 PM IST (1:10 PM UTC)
+    - cron: '25 13 * * 1'  # Every Monday at 6:40 PM IST (1:10 PM UTC)
+  workflow_dispatch:        # ✅ Allows manual run from UI
 
 jobs:
   weekly-full-scan:
@@ -14,7 +15,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20'
