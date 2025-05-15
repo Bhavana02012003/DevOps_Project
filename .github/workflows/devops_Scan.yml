@@ -339,15 +339,19 @@ jobs:
               SCAN_MODE="Full"
             fi
 
-            # Determine if it's Apex and needs ruleset config
-            if [[ "$SCAN_PATH" == *.cls ]]; then
-              sf code-analyzer run --target "$SCAN_PATH" --engine pmd --format csv --outfile scanner-report-partial.csv --pmdconfig force-app/main/default/Custom_apex_ruleset.xml || echo "⚠️ Scanner failed for $SCAN_PATH"
-            else
-              sf code-analyzer run --target "$SCAN_PATH" --engine eslint --format csv --outfile scanner-report-partial.csv || echo "⚠️ Scanner failed for $SCAN_PATH"
-            fi
+           echo "{
+            \"targetPatterns\": [\"$SCAN_PATH\"],
+            \"outputFormat\": \"csv\",
+            \"outputFile\": \"scanner-report-partial.csv\",
+            \"engines\": [
+              { \"name\": \"pmd\" }
+            ],
+            \"pmdConfig\": {
+              \"rulesets\": [\"force-app/main/default/Custom_apex_ruleset.xml\"]
+            }
+          }" > .code-analyzer-config.json
 
-
-
+          sf code-analyzer run --config .code-analyzer-config.json || echo "⚠️ Scanner failed for $SCAN_PATH"
 
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
               tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' \

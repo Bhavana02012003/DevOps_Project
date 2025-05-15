@@ -1,12 +1,16 @@
 {
-    "targets": [
-      {
-        "target": "temp_scanner_files/",
-        "engines": ["pmd"],
-        "pmd": {
-          "rulesets": ["force-app/main/default/Custom_apex_ruleset.xml"]
-        }
-      }
-    ]
+  "targetPatterns": [
+    "temp_scanner_files/*.cls"
+  ],
+  "outputFormat": "csv",
+  "outputFile": "scanner-report-partial.csv",
+  "engines": [
+    {
+      "name": "pmd",
+      "categories": ["Best Practices", "Code Style", "Design", "Performance", "Security"]
+    }
+  ],
+  "pmdConfig": {
+    "rulesets": ["force-app/main/default/Custom_apex_ruleset.xml"]
   }
-  
+}
