@@ -341,10 +341,11 @@ jobs:
 
             # Determine if it's Apex and needs ruleset config
             if [[ "$SCAN_PATH" == *.cls ]]; then
-              sf codeanalyzer run --target "$SCAN_PATH" --engine pmd --format csv --outfile scanner-report-partial.csv --pmdconfig force-app/main/default/Custom_apex_ruleset.xml || echo "⚠️ Scanner failed for $SCAN_PATH"
+              sf code-analyzer run --target "$SCAN_PATH" --engine pmd --format csv --outfile scanner-report-partial.csv --pmdconfig force-app/main/default/Custom_apex_ruleset.xml || echo "⚠️ Scanner failed for $SCAN_PATH"
             else
-              sf codeanalyzer run --target "$SCAN_PATH" --engine eslint --format csv --outfile scanner-report-partial.csv || echo "⚠️ Scanner failed for $SCAN_PATH"
+              sf code-analyzer run --target "$SCAN_PATH" --engine eslint --format csv --outfile scanner-report-partial.csv || echo "⚠️ Scanner failed for $SCAN_PATH"
             fi
+
 
 
 
