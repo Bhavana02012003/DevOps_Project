@@ -314,7 +314,7 @@ jobs:
       #       echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
       #       echo "Commit Author: $COMMIT_AUTHOR"
          
-      - name: Run SFDX Scanner on Changed Lines
+      - name: Run SFDX Code Analyzer v5 on Changed Lines
         run: |
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
@@ -339,19 +339,19 @@ jobs:
               SCAN_MODE="Full"
             fi
 
-           echo "{
-            \"targetPatterns\": [\"$SCAN_PATH\"],
-            \"outputFormat\": \"csv\",
-            \"outputFile\": \"scanner-report-partial.csv\",
-            \"engines\": [
-              { \"name\": \"pmd\" }
-            ],
-            \"pmdConfig\": {
-              \"rulesets\": [\"force-app/main/default/Custom_apex_ruleset.xml\"]
-            }
-          }" > .code-analyzer-config.json
+            echo "Creating .code-analyzer-config.json for: $SCAN_PATH"
+            echo "{
+              \"targetPatterns\": [\"$SCAN_PATH\"],
+              \"outputFormat\": \"csv\",
+              \"outputFile\": \"scanner-report-partial.csv\",
+              \"engines\": [{ \"name\": \"pmd\" }],
+              \"pmdConfig\": {
+                \"rulesets\": [\"force-app/main/default/Custom_apex_ruleset.xml\"]
+              }
+            }" > .code-analyzer-config.json
 
-          sf code-analyzer run --config .code-analyzer-config.json || echo "⚠️ Scanner failed for $SCAN_PATH"
+            echo "🔍 Running scan on $SCAN_PATH"
+            sf code-analyzer run --config .code-analyzer-config.json || echo "⚠️ Scanner failed for $SCAN_PATH"
 
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
               tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' \
@@ -361,10 +361,10 @@ jobs:
                   -v orig_file="$file" \
                   -v mode="$SCAN_MODE" '
                 {
-                  $3 = gensub(unwanted_path, "", "g", $3);  # Trim file path
-                  $11 = commit_author;  # Commit author
-                  if (NF < 12) $12 = "N/A";  # Actual line fallback
-                  $13 = target_branch;  # Branch
+                  $3 = gensub(unwanted_path, "", "g", $3);
+                  $11 = commit_author;
+                  if (NF < 12) $12 = "N/A";
+                  $13 = target_branch;
                   print $0
                 }' >> scanner-report.csv
             else
