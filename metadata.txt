@@ -1,0 +1,59 @@
+App:
+Code Scanner 
+Custom Objects:
+Pull Request(object)
+Fields in Pull Request Object
+•	Pull Request Name                                      Auto Number
+•	PR Title                                                           Text
+•	PR Status                                                        Text
+•	PR Reviewer                                                   Text
+•	PR Review Comment			Text
+•	PR Merged By				Text
+•	PR Link					URL
+•	PR Author				Text
+•	Code Analyzer Check Status		Text
+•	Code Analyzer Check Name		Text
+Vulnerability (object)
+•	Vulnerability Name			Auto Number
+•	URL					URL
+•	TargetBranch				Text
+•	Severity					Text
+•	Rule					Text
+•	Problem				Text
+•	Line					Text
+•	File					Text
+•	Engine					Text Area
+•	Description				Long Text Area
+•	Commit					Text
+•	Column					Text
+•	Category				Text
+•	ActualLine				Text
+
+
+
+Triggers:
+ContentVersionTrigger1
+ContentVersionTrigger2
+
+
+
+
+Apex Classes:
+AttachmentHandler
+CSVDataController
+CaseDataController
+File
+FileController
+ScannerReportHandler
+
+Test Classes:
+AttachmentHandlerTest
+CSVDataControllerTest
+CaseDataControllerTest
+FileTest
+FileControllerTest
+ScannerReportHandlerTest
+
+LWC Components:
+csvDataTable
+caseDataTable
