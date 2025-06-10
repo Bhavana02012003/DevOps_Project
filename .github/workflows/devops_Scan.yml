@@ -53,19 +53,16 @@ jobs:
         run: sf plugins update
 
       # 🧹 This must come here
-      - name: Remove old scanner plugin (v4)
-        run: sf plugins uninstall @salesforce/sfdx-scanner || echo "Old plugin not found"
+      - name: Remove v4 Scanner Plugin Completely
+        run: |
+          sf plugins uninstall @salesforce/sfdx-scanner || echo "v4 plugin not installed"
+          sf plugins unlink @salesforce/sfdx-scanner || echo "v4 plugin not linked"
 
       - name: Install Code Analyzer v5 plugin
         run: sf plugins install code-analyzer
 
-      - name: Prevent auto-install of v4
-        run: sf plugins unlink @salesforce/sfdx-scanner || echo "Not linked"
-
       - name: Confirm Installed Plugins
         run: sf plugins --core
-
-
 
 
       # - name: Add PMD Custom Ruleset (Optional)
