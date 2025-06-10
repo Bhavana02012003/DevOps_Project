@@ -61,9 +61,9 @@ jobs:
       - name: Confirm Code Analyzer Plugin Version
         run: sf plugins --core
 
-      - name: Add PMD Custom Ruleset (Optional)
-        run: |
-          sf scanner:rule:add --engine pmd --path force-app/main/default/Custom_apex_ruleset.xml
+      # - name: Add PMD Custom Ruleset (Optional)
+      #   run: |
+      #     sf scanner:rule:add --engine pmd --path force-app/main/default/Custom_apex_ruleset.xml
 
       - name: Verify Salesforce CLI Installation
         run: sf --version
