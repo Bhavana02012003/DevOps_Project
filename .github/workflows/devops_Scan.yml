@@ -46,22 +46,34 @@ jobs:
         with:
           node-version: 20.x
 
-      - name: Setup Salesforce CLI
-        uses: sfdx-actions/setup-sfdx@v1
-        with:
-          sfdx-auth-url: ${{ secrets.SFDX_AUTH_URL }}
-          
-      - name: Disable JIT Plugin Auto-Install
-        run: sf config:set plugins.autoInstall=false --no-prompt
+      - name: Install Salesforce CLI
+        run: npm install @salesforce/cli --global
 
-      - name: Uninstall Legacy Scanner Plugin
-        run: sf plugins uninstall @salesforce/sfdx-scanner || echo "Legacy plugin not found"
+      # - name: Install Scanner Plugin
+      #   run: sf plugins install @salesforce/sfdx-scanner
 
-      - name: Install Code Analyzer v5
+      - name: Remove old scanner plugin (v4)
+        run: sf plugins uninstall @salesforce/sfdx-scanner || echo "Old plugin not found"
+
+      - name: Disable JIT plugin installs
+        run: sf config:set plugins.autoInstall=false
+
+      - name: Install Code Analyzer v5 plugin
         run: sf plugins install code-analyzer
 
-      - name: Confirm Installed Plugins
+      - name: Confirm Code Analyzer Plugin Version
         run: sf plugins --core
+
+      - name: Clear CLI Plugin Cache (Optional)
+        run: sf plugins update
+
+
+      # - name: Add PMD Custom Ruleset (Optional)
+      #   run: |
+      #     sf scanner:rule:add --engine pmd --path force-app/main/default/Custom_apex_ruleset.xml
+
+      - name: Verify Salesforce CLI Installation
+        run: sf --version
 
       - name: Get Commit Author
         id: commit-author
