@@ -49,20 +49,23 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install @salesforce/cli --global
 
-      # - name: Install Scanner Plugin
-      #   run: sf plugins install @salesforce/sfdx-scanner
+      - name: Clear CLI Plugin Cache (Optional)
+        run: sf plugins update
 
+      # 🧹 This must come here
       - name: Remove old scanner plugin (v4)
         run: sf plugins uninstall @salesforce/sfdx-scanner || echo "Old plugin not found"
 
       - name: Install Code Analyzer v5 plugin
         run: sf plugins install code-analyzer
 
-      - name: Confirm Code Analyzer Plugin Version
+      - name: Prevent auto-install of v4
+        run: sf plugins unlink @salesforce/sfdx-scanner || echo "Not linked"
+
+      - name: Confirm Installed Plugins
         run: sf plugins --core
 
-      - name: Clear CLI Plugin Cache (Optional)
-        run: sf plugins update
+
 
 
       # - name: Add PMD Custom Ruleset (Optional)
@@ -358,11 +361,11 @@ jobs:
             # Determine if it's Apex and needs ruleset config
             if [[ "$SCAN_PATH" == *.cls ]]; then
               # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf scanner:run --config .sfdx-scanner-config.yml
+              sf codeanalyzer run --config .sfdx-scanner-config.yml
 
             else
               # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf scanner:run --config .sfdx-scanner-config.yml
+              sf codeanalyzer run --config .sfdx-scanner-config.yml
 
             fi
 
