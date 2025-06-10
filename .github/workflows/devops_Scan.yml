@@ -52,16 +52,18 @@ jobs:
       # - name: Install Scanner Plugin
       #   run: sf plugins install @salesforce/sfdx-scanner
 
-      - name: Install Code Analyzer Plugin (v5)
-        run: |
-          sf plugins install code-analyzer
+      - name: Uninstall Scanner v4 (if present)
+        run: sf plugins uninstall @salesforce/sfdx-scanner || echo "No old scanner to uninstall"
 
+      - name: Install Code Analyzer v5 plugin
+        run: sf plugins install code-analyzer
+
+      - name: Confirm Code Analyzer Plugin Version
+        run: sf plugins --core
 
       - name: Add PMD Custom Ruleset (Optional)
         run: |
           sf scanner:rule:add --engine pmd --path force-app/main/default/Custom_apex_ruleset.xml
-
-
 
       - name: Verify Salesforce CLI Installation
         run: sf --version
