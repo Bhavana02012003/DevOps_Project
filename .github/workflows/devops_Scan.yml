@@ -55,9 +55,6 @@ jobs:
       - name: Remove old scanner plugin (v4)
         run: sf plugins uninstall @salesforce/sfdx-scanner || echo "Old plugin not found"
 
-      - name: Disable JIT plugin installs
-        run: sf config:set plugins.autoInstall=false
-
       - name: Install Code Analyzer v5 plugin
         run: sf plugins install code-analyzer
 
