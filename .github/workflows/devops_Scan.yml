@@ -61,6 +61,10 @@ jobs:
       - name: Confirm Code Analyzer Plugin Version
         run: sf plugins --core
 
+      - name: Clear CLI Plugin Cache (Optional)
+        run: sf plugins update
+
+
       # - name: Add PMD Custom Ruleset (Optional)
       #   run: |
       #     sf scanner:rule:add --engine pmd --path force-app/main/default/Custom_apex_ruleset.xml
@@ -354,11 +358,11 @@ jobs:
             # Determine if it's Apex and needs ruleset config
             if [[ "$SCAN_PATH" == *.cls ]]; then
               # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf scanner:run --config .sfdx-scanner-config.yml
+              sf code-analyzer run --config .sfdx-scanner-config.yml
 
             else
               # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf scanner:run --config .sfdx-scanner-config.yml
+              sf code-analyzer run --config .sfdx-scanner-config.yml
 
             fi
 
