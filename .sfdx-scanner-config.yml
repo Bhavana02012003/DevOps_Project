@@ -1,0 +1,11 @@
+projectType: sf
+targets:
+  - temp_scanner_files/
+engines:
+  - pmd
+  - retire-js
+formatters:
+  - csv
+outfile: scanner-report-partial.csv
+normalizeSeverity: true
+pmdconfig: force-app/main/default/Custom_apex_ruleset.xml

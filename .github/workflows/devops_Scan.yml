@@ -352,11 +352,11 @@ jobs:
             # Determine if it's Apex and needs ruleset config
             if [[ "$SCAN_PATH" == *.cls ]]; then
               # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf code-analyzer run --target "$SCAN_PATH" --engine "pmd-custom,retire-js" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml"
+              sf code-analyzer run --config .sfdx-scanner-config.yml
 
             else
               # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf code-analyzer run --target "$SCAN_PATH" --engine "retire-js" --format "csv" --outfile "scanner-report-partial.csv"
+              sf code-analyzer run --config .sfdx-scanner-config.yml
 
             fi
 
