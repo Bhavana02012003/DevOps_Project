@@ -46,8 +46,11 @@ jobs:
         with:
           node-version: 20.x
 
-      - name: Install Salesforce CLI
-        run: npm install @salesforce/cli --global
+      - name: Install Salesforce CLI (latest version)
+        run: npm install --global @salesforce/cli
+
+      - name: Add npm global bin to PATH
+        run: echo "$(npm bin -g)" >> $GITHUB_PATH
 
       - name: Clear CLI Plugin Cache (Optional)
         run: sf plugins update
