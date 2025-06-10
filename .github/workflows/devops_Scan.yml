@@ -52,8 +52,10 @@ jobs:
       # - name: Install Scanner Plugin
       #   run: sf plugins install @salesforce/sfdx-scanner
 
-      - name: Install Code Analyzer (v5)
-        run: sf plugins install @salesforce/code-analyzer
+      - name: Install Code Analyzer Plugin (v5)
+        run: |
+          sf plugins install code-analyzer
+
 
       - name: Add PMD Custom Ruleset (Optional)
         run: |
