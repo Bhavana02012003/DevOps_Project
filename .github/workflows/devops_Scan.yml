@@ -370,22 +370,38 @@ jobs:
             fi
 
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
-              tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' \
-                  -v commit_author="$COMMIT_AUTHOR" \
-                  -v target_branch="${{ env.TARGET_BRANCH }}" \
-                  -v unwanted_path="$UNWANTED_PATH" \
-                  -v orig_file="$file" \
-                  -v mode="$SCAN_MODE" '
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+
+            tail -n +2 "scanner-report-partial.csv" | while IFS= read -r line; do
+              # Extract the file path from column 3 (file path column)
+              file=$(echo "$line" | cut -d',' -f3)
+
+              # Remove unwanted path prefix
+              clean_file=$(echo "$file" | sed "s|$UNWANTED_PATH||g")
+
+              # Check if the file actually exists before proceeding
+              if [[ ! -f "$file" ]]; then
+                echo "⚠️ Skipping non-existent file: $file"
+                continue
+              fi
+
+              # Append with updated values
+              echo "$line" | awk -F',' -v OFS=',' \
+                -v commit_author="$COMMIT_AUTHOR" \
+                -v target_branch="${{ env.TARGET_BRANCH }}" \
+                -v file_path="$clean_file" '
                 {
-                  $3 = gensub(unwanted_path, "", "g", $3);  # Trim file path
-                  $11 = commit_author;  # Commit author
-                  if (NF < 12) $12 = "N/A";  # Actual line fallback
-                  $13 = target_branch;  # Branch
+                  $3 = file_path;           # Cleaned file path
+                  $11 = commit_author;      # Commit Author
+                  if (NF < 12) $12 = "N/A"; # Fallback for Actual Line
+                  $13 = target_branch;      # Target Branch
                   print $0
                 }' >> scanner-report.csv
-            else
-              echo "⚠️ No violations found for: $file"
-            fi
+            done
+          else
+            echo "⚠️ scanner-report-partial.csv is missing or empty. No violations to process."
+          fi
+
           done
 
           echo "✅ Final Scanner Report with TargetBranch:"
