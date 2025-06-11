@@ -62,7 +62,7 @@ jobs:
           sf plugins unlink @salesforce/sfdx-scanner || echo "v4 plugin not linked"
 
       - name: Install Code Analyzer v5 plugin
-        run: sf plugins install code-analyzer
+        run: sf plugins install @salesforce/plugin-code-analyzer@latest
 
       - name: Confirm Installed Plugins
         run: sf plugins --core
@@ -361,11 +361,11 @@ jobs:
             # Determine if it's Apex and needs ruleset config
             if [[ "$SCAN_PATH" == *.cls ]]; then
               # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf code-analyzer run --config .sfdx-scanner-config.yml
+              sf code-analyzer run --config-file .sfdx-scanner-config.yml
 
             else
               # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf code-analyzer run --config .sfdx-scanner-config.yml
+              sf code-analyzer run --config-file .sfdx-scanner-config.yml
 
             fi
 

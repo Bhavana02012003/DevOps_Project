@@ -1,11 +1,26 @@
-projectType: sf
-targets:
-  - temp_scanner_files/
 engines:
-  - pmd
-  - retire-js
-formatters:
-  - csv
-outfile: scanner-report-partial.csv
-normalizeSeverity: true
-pmdconfig: force-app/main/default/Custom_apex_ruleset.xml
+  pmd:
+    file_extensions:
+      - ".cls"
+      - ".trigger"
+    config_file: force-app/main/default/Custom_apex_ruleset.xml
+  retire-js:
+    file_extensions:
+      - ".js"
+      - ".html"
+    disable_engine: false
+
+  eslint:
+    disable_engine: true
+  regex:
+    disable_engine: true
+  sfge:
+    disable_engine: true
+  flow:
+    disable_engine: true
+  cpd:
+    disable_engine: true
+
+rules:
+  AvoidHardcodingId: {}
+  ClassWithTooManyFields: {}
