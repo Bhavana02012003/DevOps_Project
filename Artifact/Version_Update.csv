@@ -1,1 +1,28 @@
 Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch
+Streaming logs in real time to:,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+    /tmp/sfca-2025_06_11_07_39_24_143.log,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+Violation file paths relative to ''.,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+ # Severity     Rule                          Location                 Message                                                                                                                                                                                                   ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+ ─ ──────────── ───────────────────────────── ──────────────────────── ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+ 1 1 (Critical) pmd:UninstantiableEngineError null:undefined:undefined The engine with name 'pmd' could not be instantiated. Error: The 'engines.pmd.file_extensions' configuration value must be of type 'object' instead of type 'array'.                                      ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+                                                                           at validateType (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-engine-api/dist/config.js:406:15)                                  ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+                                                                           at ValueValidator.validateObject (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-engine-api/dist/config.js:340:16)                 ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+                                                                           at ConfigValueExtractor.extractRequiredObject (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-engine-api/dist/config.js:163:31)    ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+                                                                           at ConfigValueExtractor.extractObject (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-engine-api/dist/config.js:181:68)            ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+                                                                           at ConfigValueExtractor.extractObjectAsExtractor (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-engine-api/dist/config.js:190:32) ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+                                                                           at PmdConfigValueExtractor.extractFileExtensions (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-pmd-engine/dist/config.js:199:67) ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+                                                                           at validateAndNormalizePmdConfig (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-pmd-engine/dist/config.js:100:50)                 ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+                                                                           at process.processTicksAndRejections (node:internal/process/task_queues:95:5)                                                                                                                         ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+                                                                           at async PmdCpdEnginesPlugin.createEngineConfig (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-pmd-engine/dist/plugin.js:34:20)   ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+                                                                           at async CodeAnalyzer.createAndAddEngineIfValid (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-core/dist/code-analyzer.js:376:34) ,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+[2m===[22m [1mSummary[22m,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+Found 1 violation(s) across 0 file(s):,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+    1 Critical severity violation(s) found.,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+Additional log information written to:,,,,,,,,,,Bhavana02012003,N/A,WI-000047
+    /tmp/sfca-2025_06_11_07_39_24_143.log,,,,,,,,,,Bhavana02012003,N/A,WI-000047
