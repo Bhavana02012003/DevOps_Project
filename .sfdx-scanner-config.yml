@@ -1,13 +1,14 @@
 engines:
   pmd:
+    file_extensions:
+      apex:
+        - ".cls"
+        - ".trigger"
     custom_rulesets:
       - force-app/main/default/Custom_apex_ruleset.xml
-    file_extensions:
-      - ".cls"
-      - ".trigger"
 
   retire-js:
-    disable_engine: false  # ✅ Enable retire-js, no extra config keys allowed
+    disable_engine: false
 
   eslint:
     disable_engine: true
