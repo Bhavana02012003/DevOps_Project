@@ -361,11 +361,12 @@ jobs:
             # Determine if it's Apex and needs ruleset config
             if [[ "$SCAN_PATH" == *.cls ]]; then
               # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf code-analyzer run --config-file .sfdx-scanner-config.yml --target "$SCAN_PATH" --format csv 2> /dev/null > scanner-report-partial.csv
+              sf code-analyzer run --config-file .sfdx-scanner-config.yml --target "$SCAN_PATH" | tee scanner-report-partial.csv || echo "⚠️ Scanner failed for $SCAN_PATH"
 
             else
               # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf code-analyzer run --config-file .sfdx-scanner-config.yml --target "$SCAN_PATH" --format csv 2> /dev/null > scanner-report-partial.csv
+              sf code-analyzer run --config-file .sfdx-scanner-config.yml --target "$SCAN_PATH" | tee scanner-report-partial.csv || echo "⚠️ Scanner failed for $SCAN_PATH"
+
             fi
 
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
