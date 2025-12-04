@@ -56,7 +56,7 @@ public with sharing class AttachmentHandler {
 
             insert attachment;
 
-            System.debug('✅ CSV Attachment successfully created for Case ID:: ' + caseId);
+            System.debug('✅ CSV Attachment successfully created for Case ID: ' + caseId);
 
         } catch (Exception e) {
             System.debug('❌ Error creating CSV attachment: ' + e.getMessage());
