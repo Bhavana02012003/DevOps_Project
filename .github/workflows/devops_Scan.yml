@@ -345,8 +345,9 @@ jobs:
           echo "📋 Scanning files: $files"
           echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
 
-          # 🛠 Correct GitHub workspace path
-          REPO_NAME="${{ github.repository##*/ }}"
+          # Extract repo name inside bash
+          REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | awk -F'/' '{print $2}')
+
           UNWANTED_PATH="/home/runner/work/${REPO_NAME}/${REPO_NAME}/temp_scanner_files/"
 
           for file in $files; do
