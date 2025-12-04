@@ -267,76 +267,39 @@ jobs:
       #       echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
       #       echo "Commit Author: $COMMIT_AUTHOR"
          
-      - name: Run SFDX Scanner on Changed Lines
+      - name: Run SFDX Code Analyzer on Changed Lines
         run: |
             files=$(cat changed_cls_lwc_files.txt)
             if [ -z "$files" ]; then
-              echo "No files to scan. Creating an empty report."
-              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+              echo "No files to scan."
               exit 0
             fi
-            echo "📋 Scanning files: $files"
-            # 📌 Create scanner-report.csv only ONCE
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" \
-            > scanner-report.csv
-            # Extract repo name
-            REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | awk -F'/' '{print $2}')
-            UNWANTED_PATH="/home/runner/work/${REPO_NAME}/${REPO_NAME}/temp_scanner_files/"
+
+            echo "Problem,Severity,File,Line,Message" > scanner-report.csv
+
             for file in $files; do
               echo "🔍 Scanning: $file"
-              # Skip broken numeric paths early
-              if [[ "$file" =~ ^[0-9]+$ ]]; then
-                echo "⚠️ Skipping invalid numeric file entry: $file"
-                continue
-              fi
-              # Determine scan mode
-              if [[ "$file" == temp_scanner_files/* ]]; then
-                SCAN_PATH="$file"
-              else
-                SCAN_PATH="$file"
-              fi
-              # Run Code Analyzer
-              sf code-analyzer run \
-              --target "$SCAN_PATH" \
-              --config-file .sfdx-scanner-config.yml \
-              --log-format csv \
-              --log-output scanner-report-partial.csv \
-              || true
 
-              # Skip if no content
-              if [ ! -s scanner-report-partial.csv ]; then
-                echo "⚠️ No violations in $SCAN_PATH"
-                continue
-              fi
-              # Process each row of the partial scan
-              tail -n +2 scanner-report-partial.csv | while IFS= read -r line; do
-                # Extract raw scanner file path (column 3)
-                report_file=$(echo "$line" | cut -d',' -f3)
-                # Skip numeric-only column-3 bugs (scanner bug)
-                if [[ "$report_file" =~ ^[0-9]+$ ]]; then
-                  echo "⚠️ Skipping invalid scanner path: $report_file"
-                  continue
-                fi
-                # Cleanup path
-                clean_report_file=$(echo "$report_file" | sed "s|$UNWANTED_PATH||g")
-                # Append cleaned row into master CSV
-                echo "$line" | awk -F',' -v OFS=',' \
-                  -v commit_author="$COMMIT_AUTHOR" \
-                  -v target_branch="${{ env.TARGET_BRANCH }}" \
-                  -v file_path="$clean_report_file" '
-                  {
-                    $3 = file_path              # Clean file path
-                    $11 = commit_author         # Commit Author
-                    if (NF < 12) $12 = "N/A"    # Actual line fallback
-                    $13 = target_branch         # Branch
-                    print $0
-                  }' >> scanner-report.csv
-              done
-              rm -f scanner-report-partial.csv
+              # Run Code Analyzer Snapshot
+              sf code-analyzer run:snapshot \
+                --target "$file" \
+                --config-file .sfdx-scanner-config.yml \
+                --json > scanner-report-partial.json || true
+
+              # Convert JSON → CSV
+              jq -r '.runs[].results[] |
+                      [.ruleId,
+                      .level,
+                      .locations[0].physicalLocation.artifactLocation.uri,
+                      .locations[0].physicalLocation.region.startLine,
+                      .message.text] | @csv' \
+                      scanner-report-partial.json >> scanner-report.csv
             done
+
             echo "======= FINAL SCANNER REPORT ======="
             cat scanner-report.csv
-          
+
+                
       - name: Load Salesforce API URL
         id: load-api-url
         run: |
