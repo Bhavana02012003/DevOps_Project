@@ -377,9 +377,16 @@ jobs:
 
             tail -n +2 "scanner-report-partial.csv" | while IFS= read -r line; do
               # Extract the file path from column 3 (file path column)
+              # Extract the file path from column 3
               file=$(echo "$line" | cut -d',' -f3)
 
-              # Remove unwanted path prefix
+              # 🚫 Skip invalid numeric file paths like "2", "3", etc.
+              if [[ "$file" =~ ^[0-9]+$ ]]; then
+                echo "⚠️ Skipping invalid file path returned by scanner: $file"
+                continue
+              fi
+
+              # Clean path
               clean_file=$(echo "$file" | sed "s|$UNWANTED_PATH||g")
 
               # Check if the file actually exists before proceeding
