@@ -335,92 +335,85 @@ jobs:
          
       - name: Run SFDX Scanner on Changed Lines
         run: |
-          files=$(cat changed_cls_lwc_files.txt)
-          if [ -z "$files" ]; then
-            echo "No files to scan. Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
-            exit 0
-          fi
+            files=$(cat changed_cls_lwc_files.txt)
 
-          echo "📋 Scanning files: $files"
-
-          # 📌 FIX: Create scanner-report.csv only ONCE
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" \
-          > scanner-report.csv
-
-          # Extract repo name
-          REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | awk -F'/' '{print $2}')
-          UNWANTED_PATH="/home/runner/work/${REPO_NAME}/${REPO_NAME}/temp_scanner_files/"
-
-
-          for file in $files; do
-            if [[ "$file" == temp_scanner_files/* ]]; then
-              echo "🧠 Modified file (delta logic): $file"
-              SCAN_PATH="$file"
-              SCAN_MODE="Delta"
-            else
-              echo "🆕 New file (full scan): $file"
-              SCAN_PATH="$file"
-              SCAN_MODE="Full"
+            if [ -z "$files" ]; then
+              echo "No files to scan. Creating an empty report."
+              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+              exit 0
             fi
 
-            # Determine if it's Apex and needs ruleset config
-            if [[ "$SCAN_PATH" == *.cls ]]; then
-              # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf code-analyzer run --config-file .sfdx-scanner-config.yml --target "$SCAN_PATH" \2> /dev/null | grep "," > scanner-report-partial.csv
+            echo "📋 Scanning files: $files"
 
-            else
-              # sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
-              sf code-analyzer run --config-file .sfdx-scanner-config.yml --target "$SCAN_PATH" \2> /dev/null | grep "," > scanner-report-partial.csv
+            # 📌 Create scanner-report.csv only ONCE
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" \
+            > scanner-report.csv
 
-            fi
+            # Extract repo name
+            REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | awk -F'/' '{print $2}')
+            UNWANTED_PATH="/home/runner/work/${REPO_NAME}/${REPO_NAME}/temp_scanner_files/"
 
-            if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+            for file in $files; do
+              echo "🔍 Scanning: $file"
 
-            tail -n +2 "scanner-report-partial.csv" | while IFS= read -r line; do
-              # Extract the file path from column 3 (file path column)
-              # Extract the file path from column 3
-              file=$(echo "$line" | cut -d',' -f3)
-
-              # 🚫 Skip invalid numeric file paths like "2", "3", etc.
+              # Skip broken numeric paths early
               if [[ "$file" =~ ^[0-9]+$ ]]; then
-                echo "⚠️ Skipping invalid file path returned by scanner: $file"
+                echo "⚠️ Skipping invalid numeric file entry: $file"
                 continue
               fi
 
-              # Clean path
-              clean_file=$(echo "$file" | sed "s|$UNWANTED_PATH||g")
+              # Determine scan mode
+              if [[ "$file" == temp_scanner_files/* ]]; then
+                SCAN_PATH="$file"
+              else
+                SCAN_PATH="$file"
+              fi
 
-              # Check if the file actually exists before proceeding
-              if [[ ! -f "$file" ]]; then
-                echo "⚠️ Skipping non-existent file: $file"
+              # Run Code Analyzer
+              sf code-analyzer run --config-file .sfdx-scanner-config.yml --target "$SCAN_PATH" \
+                2> /dev/null | grep "," > scanner-report-partial.csv || true
+
+              # Skip if no content
+              if [ ! -s scanner-report-partial.csv ]; then
+                echo "⚠️ No violations in $SCAN_PATH"
                 continue
               fi
 
-              # Append with updated values
-              echo "$line" | awk -F',' -v OFS=',' \
-                -v commit_author="$COMMIT_AUTHOR" \
-                -v target_branch="${{ env.TARGET_BRANCH }}" \
-                -v file_path="$clean_file" '
-                {
-                  $3 = file_path;           # Cleaned file path
-                  $11 = commit_author;      # Commit Author
-                  if (NF < 12) $12 = "N/A"; # Fallback for Actual Line
-                  $13 = target_branch;      # Target Branch
-                  print $0
-                }' >> scanner-report.csv
+              # Process each row of the partial scan
+              tail -n +2 scanner-report-partial.csv | while IFS= read -r line; do
+
+                # Extract raw scanner file path (column 3)
+                report_file=$(echo "$line" | cut -d',' -f3)
+
+                # Skip numeric-only column-3 bugs (scanner bug)
+                if [[ "$report_file" =~ ^[0-9]+$ ]]; then
+                  echo "⚠️ Skipping invalid scanner path: $report_file"
+                  continue
+                fi
+
+                # Cleanup path
+                clean_report_file=$(echo "$report_file" | sed "s|$UNWANTED_PATH||g")
+
+                # Append cleaned row into master CSV
+                echo "$line" | awk -F',' -v OFS=',' \
+                  -v commit_author="$COMMIT_AUTHOR" \
+                  -v target_branch="${{ env.TARGET_BRANCH }}" \
+                  -v file_path="$clean_report_file" '
+                  {
+                    $3 = file_path              # Clean file path
+                    $11 = commit_author         # Commit Author
+                    if (NF < 12) $12 = "N/A"    # Actual line fallback
+                    $13 = target_branch         # Branch
+                    print $0
+                  }' >> scanner-report.csv
+
+              done
+
+              rm -f scanner-report-partial.csv
             done
-          else
-            echo "⚠️ scanner-report-partial.csv is missing or empty. No violations to process."
-          fi
 
-          done
-
-          echo "✅ Final Scanner Report with TargetBranch:"
-          cat scanner-report.csv
-          echo "🔍 Partial Scanner Output:"
-          cat scanner-report-partial.csv || echo "No output generated."
+            echo "======= FINAL SCANNER REPORT ======="
+            cat scanner-report.csv
           
       - name: Load Salesforce API URL
         id: load-api-url
