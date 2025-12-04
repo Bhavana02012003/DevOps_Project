@@ -501,6 +501,7 @@ jobs:
   
       - name: Send Email with actions-send-mail
         uses: dawidd6/action-send-mail@v3
+        continue-on-error: true   # ✔ EMAIL FAILS, WORKFLOW CONTINUES
         with:
           server_address: 'smtp.gmail.com'
           server_port: '587'
