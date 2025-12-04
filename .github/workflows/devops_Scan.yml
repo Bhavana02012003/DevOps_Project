@@ -46,31 +46,11 @@ jobs:
         with:
           node-version: 20.x
 
-      - name: Install Salesforce CLI (latest version)
-        run: npm install --global @salesforce/cli
+      - name: Install Salesforce CLI
+        run: npm install @salesforce/cli --global
 
-      - name: Add npm global bin to PATH
-        run: echo "$(npm bin -g)" >> $GITHUB_PATH
-
-      - name: Clear CLI Plugin Cache (Optional)
-        run: sf plugins update
-
-      # 🧹 This must come here
-      - name: Remove v4 Scanner Plugin Completely
-        run: |
-          sf plugins uninstall @salesforce/sfdx-scanner || echo "v4 plugin not installed"
-          sf plugins unlink @salesforce/sfdx-scanner || echo "v4 plugin not linked"
-
-      - name: Install Code Analyzer v5 plugin
-        run: sf plugins install @salesforce/plugin-code-analyzer@latest
-
-      - name: Confirm Installed Plugins
-        run: sf plugins --core
-
-
-      # - name: Add PMD Custom Ruleset (Optional)
-      #   run: |
-      #     sf scanner:rule:add --engine pmd --path force-app/main/default/Custom_apex_ruleset.xml
+      - name: Install Scanner Plugin
+        run: sf plugins install @salesforce/sfdx-scanner
 
       - name: Verify Salesforce CLI Installation
         run: sf --version
@@ -82,7 +62,6 @@ jobs:
           echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
           echo "commit-author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
           echo "Commit Author: $COMMIT_AUTHOR"
-
       - name: Get Repository and Branch Info
         id: get-info
         run: |
@@ -101,21 +80,16 @@ jobs:
             > changed_cls_lwc_files.txt
             > line_number_mapping.txt
             > scanner-report-temp.csv
-
             echo "Checking for changed .cls, .js, .html, and .lwc files..."
-
             changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' '*.lwc' || true)
             echo "Detected changed files: $changed_files"
-
             if [ -z "$changed_files" ]; then
               echo "No .cls or .lwc files detected."
               echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
               exit 0
             fi
-
             for file in $changed_files; do
               echo "Processing file: $file"
-
               file_status=$(git diff --name-status HEAD~1 HEAD -- "$file" | awk '{print $1}')
               if [[ "$file_status" == "A" && "$file" == *.cls ]]; then
                 echo "🆕 Full new Apex class detected: $file"
@@ -123,7 +97,6 @@ jobs:
                 echo "$file,ENTIRE_FILE" >> line_number_mapping.txt
                 continue
               fi
-
               extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
                 /^@@/ {
                   match($0, /\+([0-9]+)/, arr);
@@ -136,16 +109,13 @@ jobs:
                   }
                 }
               ')
-
               if [ -z "$extracted_lines" ]; then
                 echo "No valid lines found for $file. Skipping..."
                 continue
               fi
-
               echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
               temp_file="temp_scanner_files/temp_${file//\//_}"
               touch "$temp_file"
-
               if [[ "$file" == *.cls ]]; then
                 echo "public class TempWrapperClass {" > "$temp_file"
                 temp_method_started=0
@@ -156,12 +126,9 @@ jobs:
                 method_buffer=""
                 orphan_else_open=0  # ⬅️ Add this before the while loop starts
                 orphan_else_first_line=0
-
-
                 while IFS=, read -r line_number line_content; do
                   trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
                   echo "Processing: $trimmed"
-
                   # Start of method
                   if [[ "$trimmed" =~ ^(public|private|global|protected)[[:space:]]+(static[[:space:]]+)?(void|[\w<>]+)[[:space:]]+[[:alnum:]_]+\s*\(.*\)[[:space:]]*\{ ]]; then
                     collecting_method=1
@@ -170,7 +137,6 @@ jobs:
                     echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
                     continue
                   fi
-
                   # Collect method block
                   if [[ $collecting_method -eq 1 ]]; then
                     [[ "$trimmed" == *"{"* ]] && ((method_brace_count++))
@@ -184,7 +150,6 @@ jobs:
                     fi
                     continue
                   fi
-
                   # Handle orphan "} else {"
                   if [[ "$trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{ ]]; then
                     [[ $temp_method_started -eq 0 ]] && {
@@ -192,32 +157,25 @@ jobs:
                       echo "        /* Extracted logic */" >> "$temp_file"
                       temp_method_started=1
                     }
-
                     echo "        if (true) {" >> "$temp_file"
                     echo "        $trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,if (true) {" >> line_number_mapping.txt
                     echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
-
                     orphan_else_open=1
                     orphan_else_first_line=1
                     continue
                   fi
-
                   # ✅ 2. First statement inside orphan else → add & close orphan block
                   if [[ "$orphan_else_open" -eq 1 && "$orphan_else_first_line" -eq 1 ]]; then
                     echo "        $trimmed" >> "$temp_file"
                     echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
-
                     # 🔒 Close orphan else immediately after first inner line
                     echo "        }" >> "$temp_file"
                     echo "$temp_file,$line_number,}" >> line_number_mapping.txt
-
                     orphan_else_open=0
                     orphan_else_first_line=0
                     continue
                   fi
-
-
                   # Control blocks
                   if [[ "$trimmed" =~ ^(if|for|while|switch|try|catch|do)[[:space:]]*\(.*\)[[:space:]]*\{ ]]; then
                     control_block=1
@@ -226,7 +184,6 @@ jobs:
                     echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
                     continue
                   fi
-
                   if [[ $control_block -eq 1 ]]; then
                     [[ "$trimmed" == *"{"* ]] && ((block_brace_count++))
                     [[ "$trimmed" == *"}"* ]] && ((block_brace_count--))
@@ -243,7 +200,6 @@ jobs:
                     fi
                     continue
                   fi
-
                   # Normal line
                   if [[ $temp_method_started -eq 0 ]]; then
                     echo "    public static void tempMethod() {" >> "$temp_file"
@@ -260,7 +216,6 @@ jobs:
                   echo "$temp_file,$line_number,}" >> line_number_mapping.txt
                   orphan_else_open=0
                 fi
-
                 # Only close tempMethod() if it was started
                 if [[ "$temp_method_started" -eq 1 ]]; then
                   echo "    }" >> "$temp_file"
@@ -269,8 +224,6 @@ jobs:
                   # If no method logic was added, only close the class
                   echo "}" >> "$temp_file"
                 fi
-
-
               elif [[ "$file" == *.js ]]; then
                 echo "// LWC JavaScript File" > "$temp_file"
                 while IFS=, read -r line_number line_content; do
@@ -280,7 +233,6 @@ jobs:
                     echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
                   }
                 done < "line_number_mapping_${file//\//_}.txt"
-
               elif [[ "$file" == *.html ]]; then
                 echo "<!-- LWC HTML File -->" > "$temp_file"
                 while IFS=, read -r line_number line_content; do
@@ -291,23 +243,18 @@ jobs:
                   }
                 done < "line_number_mapping_${file//\//_}.txt"
               fi
-
               echo "$temp_file" >> changed_cls_lwc_files.txt
               echo "Created temp file: $temp_file"
             done
-
             echo "====== Final Line Number Mapping ======"
             cat line_number_mapping.txt || echo "No line number mapping available."
             cat $temp_file
-
             echo "Generated temp files:"
             ls -l temp_scanner_files
-
             if [ ! -s changed_cls_lwc_files.txt ]; then
               echo "No temp files created. Exiting."
               exit 0
             fi
-
       
             
       - name: Debug Extracted Line Number Mapping
@@ -335,89 +282,51 @@ jobs:
          
       - name: Run SFDX Scanner on Changed Lines
         run: |
-            files=$(cat changed_cls_lwc_files.txt)
-
-            if [ -z "$files" ]; then
-              echo "No files to scan. Creating an empty report."
-              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
-              exit 0
+          files=$(cat changed_cls_lwc_files.txt)
+          if [ -z "$files" ]; then
+            echo "No files to scan. Creating an empty report."
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+            exit 0
+          fi
+          echo "📋 Scanning files: $files"
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+          UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
+          for file in $files; do
+            if [[ "$file" == temp_scanner_files/* ]]; then
+              echo "🧠 Modified file (delta logic): $file"
+              SCAN_PATH="$file"
+              SCAN_MODE="Delta"
+            else
+              echo "🆕 New file (full scan): $file"
+              SCAN_PATH="$file"
+              SCAN_MODE="Full"
             fi
-
-            echo "📋 Scanning files: $files"
-
-            # 📌 Create scanner-report.csv only ONCE
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" \
-            > scanner-report.csv
-
-            # Extract repo name
-            REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | awk -F'/' '{print $2}')
-            UNWANTED_PATH="/home/runner/work/${REPO_NAME}/${REPO_NAME}/temp_scanner_files/"
-
-            for file in $files; do
-              echo "🔍 Scanning: $file"
-
-              # Skip broken numeric paths early
-              if [[ "$file" =~ ^[0-9]+$ ]]; then
-                echo "⚠️ Skipping invalid numeric file entry: $file"
-                continue
-              fi
-
-              # Determine scan mode
-              if [[ "$file" == temp_scanner_files/* ]]; then
-                SCAN_PATH="$file"
-              else
-                SCAN_PATH="$file"
-              fi
-
-              # Run Code Analyzer
-              sf code-analyzer run \
-              --target "$SCAN_PATH" \
-              --config-file .sfdx-scanner-config.yml \
-              --format csv \
-              --outfile scanner-report-partial.csv \
-              || true
-
-              # Skip if no content
-              if [ ! -s scanner-report-partial.csv ]; then
-                echo "⚠️ No violations in $SCAN_PATH"
-                continue
-              fi
-
-              # Process each row of the partial scan
-              tail -n +2 scanner-report-partial.csv | while IFS= read -r line; do
-
-                # Extract raw scanner file path (column 3)
-                report_file=$(echo "$line" | cut -d',' -f3)
-
-                # Skip numeric-only column-3 bugs (scanner bug)
-                if [[ "$report_file" =~ ^[0-9]+$ ]]; then
-                  echo "⚠️ Skipping invalid scanner path: $report_file"
-                  continue
-                fi
-
-                # Cleanup path
-                clean_report_file=$(echo "$report_file" | sed "s|$UNWANTED_PATH||g")
-
-                # Append cleaned row into master CSV
-                echo "$line" | awk -F',' -v OFS=',' \
+            # Determine if it's Apex and needs ruleset config
+            if [[ "$SCAN_PATH" == *.cls ]]; then
+              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
+            else
+              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
+            fi
+            if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
+              tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' \
                   -v commit_author="$COMMIT_AUTHOR" \
                   -v target_branch="${{ env.TARGET_BRANCH }}" \
-                  -v file_path="$clean_report_file" '
-                  {
-                    $3 = file_path              # Clean file path
-                    $11 = commit_author         # Commit Author
-                    if (NF < 12) $12 = "N/A"    # Actual line fallback
-                    $13 = target_branch         # Branch
-                    print $0
-                  }' >> scanner-report.csv
-
-              done
-
-              rm -f scanner-report-partial.csv
-            done
-
-            echo "======= FINAL SCANNER REPORT ======="
-            cat scanner-report.csv
+                  -v unwanted_path="$UNWANTED_PATH" \
+                  -v orig_file="$file" \
+                  -v mode="$SCAN_MODE" '
+                {
+                  $3 = gensub(unwanted_path, "", "g", $3);  # Trim file path
+                  $11 = commit_author;  # Commit author
+                  if (NF < 12) $12 = "N/A";  # Actual line fallback
+                  $13 = target_branch;  # Branch
+                  print $0
+                }' >> scanner-report.csv
+            else
+              echo "⚠️ No violations found for: $file"
+            fi
+          done
+          echo "✅ Final Scanner Report with TargetBranch:"
+          cat scanner-report.csv
           
       - name: Load Salesforce API URL
         id: load-api-url
@@ -435,17 +344,14 @@ jobs:
             -d "client_secret=${{ secrets.SF_CLIENT_SECRET }}" \
             -d "username=${{ secrets.SF_USERNAME }}" \
             -d "password=${{ secrets.SF_PASSWORD }}${{ secrets.SF_SECURITY_TOKEN }}" )
-
           echo "Login response: $response"
           
           SF_ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
           INSTANCE_URL=$(echo "$response" | jq -r '.instance_url')
-
           if [[ -z "$SF_ACCESS_TOKEN" || "$SF_ACCESS_TOKEN" == "null" ]]; then
             echo "❌ Salesforce authentication failed."
             exit 1
           fi
-
           echo "✅ Salesforce Authenticated Successfully"
           echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> $GITHUB_ENV
           echo "INSTANCE_URL=$INSTANCE_URL" >> $GITHUB_ENV
@@ -459,30 +365,22 @@ jobs:
               echo "✅ No violations found. Skipping Salesforce upload."
               exit 0
             fi
-
             echo "🔄 Uploading scanner report to Salesforce..."
-
             # Send file to Salesforce
             response=$(curl -X POST "$INSTANCE_URL/services/data/v58.0/sobjects/ContentVersion" \
             -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
             -H "Content-Type: multipart/form-data" \
             -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
             -F "VersionData=@scanner-report.csv;type=text/csv")
-
-
-
             # 🔍 Debug: Print the full API response
             echo "📢 Salesforce API Response: $response"
-
             # Extract the ID safely (handles both array & object responses)
             contentVersionId=$(echo "$response" | jq -r 'if type=="array" then .[0].id else .id end' 2>/dev/null || echo "null")
-
             if [[ "$contentVersionId" == "null" || -z "$contentVersionId" ]]; then
               echo "❌ Error: Failed to extract ContentVersion ID from response."
               echo "🔴 Full API Response: $response"  # Log full response for debugging
               exit 1
             fi
-
             echo "✅ Successfully uploaded scanner report to Salesforce. ContentVersionId: $contentVersionId"
         
       # - name: Get Commit Author  # ✅ Fetch the commit author
@@ -543,16 +441,13 @@ jobs:
           mkdir -p /tmp/artifact_backup
           cp scanner-report.csv /tmp/artifact_backup/${{ env.REPORT_FILE }}
           echo "✅ Scanner report backed up in /tmp/artifact_backup/${{ env.REPORT_FILE }}."
-
       - name: Commit and Push Scanner Report to `Scanner_Reports` Branch
         if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
           BRANCH_NAME="Scanner_Reports"
           echo "✅ Target Branch: $BRANCH_NAME"
-
           # 🔹 Check if the `Scanner_Reports` branch exists remotely
           if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
             echo "✅ Remote branch $BRANCH_NAME exists."
@@ -562,12 +457,10 @@ jobs:
             git checkout -b $BRANCH_NAME
             git push --set-upstream origin $BRANCH_NAME
           fi
-
           git pull origin $BRANCH_NAME --rebase
           mkdir -p Artifact
           cp /tmp/artifact_backup/${{ env.REPORT_FILE }} Artifact/${{ env.REPORT_FILE }}
           echo "✅ Scanner report restored to Artifact/${{ env.REPORT_FILE }}."
-
           git add Artifact/${{ env.REPORT_FILE }}
           git commit -m "🔄 Auto-update scanner report (${REPORT_FILE}) in Artifact folder for branch $BRANCH_NAME" || echo "No changes to commit"
           git push origin $BRANCH_NAME
@@ -608,7 +501,6 @@ jobs:
   
       - name: Send Email with actions-send-mail
         uses: dawidd6/action-send-mail@v3
-        continue-on-error: true   # ✔ EMAIL FAILS, WORKFLOW CONTINUES
         with:
           server_address: 'smtp.gmail.com'
           server_port: '587'
@@ -631,20 +523,15 @@ jobs:
             -d "client_secret=${{ secrets.OUTLOOK_CLIENT_SECRET }}" \
             -d "scope=https://graph.microsoft.com/.default" \
             -d "grant_type=client_credentials")
-
           echo "🔹 Raw OAuth Response: $RESPONSE"
-
           OAUTH_ACCESS_TOKEN=$(echo $RESPONSE | jq -r '.access_token')
-
           if [ "$OAUTH_ACCESS_TOKEN" == "null" ]; then
             echo "❌ Failed to get OAuth token. Full error response: $RESPONSE"
             exit 1
           fi
-
           echo "✅ OAuth Token: $OAUTH_ACCESS_TOKEN"
           echo "::add-mask::$OAUTH_ACCESS_TOKEN"
           echo "OAUTH_ACCESS_TOKEN=$OAUTH_ACCESS_TOKEN" >> $GITHUB_ENV
-
       - name: Send Email via Microsoft Graph API (OAuth)
         run: |
           curl -X POST "https://graph.microsoft.com/v1.0/users/${{ secrets.OUTLOOK_EMAIL }}/sendMail" \
@@ -667,18 +554,14 @@ jobs:
               }
             }'
               
-
-
       # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
       - name: Block PR merge if severity violations are found
         id: block-check
         run: |
           if [ -f scanner-report.csv ]; then
             echo "Reading scanner-report.csv for severity violations..."
-
             # Debugging: Display the entire scanner report
             cat scanner-report.csv
-
             # Count Apex severity 3 violations
             apex_severity_count=$(awk -F',' 'NR>1 {
               severity = $2; gsub(/"/, "", severity); 
