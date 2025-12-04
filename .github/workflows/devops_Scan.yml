@@ -343,12 +343,15 @@ jobs:
           fi
 
           echo "📋 Scanning files: $files"
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
 
-          # Extract repo name inside bash
+          # 📌 FIX: Create scanner-report.csv only ONCE
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" \
+          > scanner-report.csv
+
+          # Extract repo name
           REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | awk -F'/' '{print $2}')
-
           UNWANTED_PATH="/home/runner/work/${REPO_NAME}/${REPO_NAME}/temp_scanner_files/"
+
 
           for file in $files; do
             if [[ "$file" == temp_scanner_files/* ]]; then
