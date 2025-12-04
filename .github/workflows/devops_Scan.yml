@@ -1,4 +1,3 @@
-
 name: SFDX Code Scan and Store in Salesforce
 
 on:
@@ -10,303 +9,207 @@ concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: false
 
-
 jobs:
   quality-gate-code-check:
     runs-on: ubuntu-latest
     outputs:
-      scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}  # Outputs the artifact path to pass to the next job
-      block-pr: ${{ steps.block-check.outputs.block-status }}  # Pass the block status
-      runner-name: ${{ steps.get-runner.outputs.runner_name }}  # Store the runner name
-      # artifact_url: ${{ steps.generate-artifact-url.outputs.artifact_url }}
+      scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}
+      block-pr: ${{ steps.block-check.outputs.block-status }}
+      runner-name: ${{ steps.get-runner.outputs.runner_name }}
       commit-author: ${{ steps.commit-author.outputs.commit-author }}
-      scanner-report-url: ${{ steps.upload-report.outputs.scanner-report-url }} # Pass the report URL to Slack job
-
+      scanner-report-url: ${{ steps.upload-report.outputs.scanner-report-url }}
 
     steps:
+
       - name: Get Runner Name
         id: get-runner
         run: |
-              echo "Runner Name: ${{ runner.name }}"
-              echo "Runner OS: ${{ runner.os }}"
-              echo "Runner Arch: ${{ runner.arch }}"
-              echo "Machine Hostname: $(hostname)"
-              echo "System Info:"
-              uname -a
-              echo "OS Release Information:"
-              cat /etc/os-release
-              echo "Ubuntu Version:"
-              lsb_release -a || echo "lsb_release command not found"
+          echo "Runner: ${{ runner.name }}"
+          echo "Hostname: $(hostname)"
+          uname -a
+          cat /etc/os-release
+
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Ensures full commit history is available
+          fetch-depth: 0
 
       - name: Use Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 20.x
 
-      - name: Install Salesforce CLI (latest version)
+      - name: Install Salesforce CLI
         run: npm install --global @salesforce/cli
 
       - name: Add npm global bin to PATH
         run: echo "$(npm bin -g)" >> $GITHUB_PATH
 
-      - name: Clear CLI Plugin Cache (Optional)
+      - name: Clear CLI Plugin Cache
         run: sf plugins update
 
-      # 🧹 This must come here
-      - name: Remove v4 Scanner Plugin Completely
+      - name: Remove old Scanner plugin
         run: |
-          sf plugins uninstall @salesforce/sfdx-scanner || echo "v4 plugin not installed"
-          sf plugins unlink @salesforce/sfdx-scanner || echo "v4 plugin not linked"
-      - name: Install Code Analyzer v5 plugin
-        run: sf plugins install @salesforce/plugin-code-analyzer@latest
+          sf plugins uninstall @salesforce/sfdx-scanner || true
+          sf plugins unlink @salesforce/sfdx-scanner || true
 
-      - name: Confirm Installed Plugins
+      - name: Install Salesforce Scanner (Correct Plugin)
+        run: sf plugins install @salesforce/sfdx-scanner
+
+      - name: Confirm Plugins Installed
         run: sf plugins --core
 
-
-      # - name: Add PMD Custom Ruleset (Optional)
-      #   run: |
-      #     sf scanner:rule:add --engine pmd --path force-app/main/default/Custom_apex_ruleset.xml
-
-      - name: Verify Salesforce CLI Installation
+      - name: Verify Salesforce CLI
         run: sf --version
 
       - name: Get Commit Author
         id: commit-author
         run: |
-          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
-          echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
-          echo "commit-author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
-          echo "Commit Author: $COMMIT_AUTHOR"
-      - name: Get Repository and Branch Info
+          AUTHOR=$(git log -1 --pretty=format:'%an')
+          echo "Commit Author: $AUTHOR"
+          echo "commit-author=$AUTHOR" >> $GITHUB_OUTPUT
+          echo "COMMIT_AUTHOR=$AUTHOR" >> $GITHUB_ENV
+
+      - name: Get Repo Info
         id: get-info
         run: |
           REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d'/' -f2)
           BRANCH_NAME=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
-          COMMIT_LABEL=$(git log -1 --pretty=format:'%s')
-          FILE_TITLE="Code Scanner Report_${REPO_NAME}_${BRANCH_NAME}_${COMMIT_LABEL}"
-          echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
-          echo "TARGET_BRANCH=${BRANCH_NAME}" >> $GITHUB_ENV  # Store the Target Branch
-          
-      - name: Get changed lines and create temporary files
+          COMMIT_LABEL=$(git log -1 --pretty=format:'%s' | tr ' ' '_')
+          echo "FILE_TITLE=Code-Scan-${REPO_NAME}-${BRANCH_NAME}-${COMMIT_LABEL}" >> $GITHUB_ENV
+          echo "TARGET_BRANCH=${BRANCH_NAME}" >> $GITHUB_ENV
+
+      - name: Extract Changed Lines
         id: get-changes
         run: |
-            #!/bin/bash
-            mkdir -p temp_scanner_files
-            > changed_cls_lwc_files.txt
-            > line_number_mapping.txt
-            > scanner-report-temp.csv
+          mkdir -p temp_scanner_files
+          > changed_cls_lwc_files.txt
+          > line_number_mapping.txt
 
-            echo "Checking for changed .cls, .js, .html, .lwc files..."
+          changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' '*.lwc')
+          echo "Changed files: $changed_files"
 
-            changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' '*.lwc' || true)
-            echo "Detected changed files: $changed_files"
-
-            if [ -z "$changed_files" ]; then
-              echo "No changes detected."
-              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-              exit 0
-            fi
-
-            # --------------------------------------------
-            # Extract per-line deltas for all file types
-            # --------------------------------------------
-            for file in $changed_files; do
-              echo "🔍 Processing: $file"
-
-              # If this is a brand-new .cls → full file scan
-              file_status=$(git diff --name-status HEAD~1 HEAD -- "$file" | awk '{print $1}')
-              if [[ "$file_status" == "A" && "$file" == *.cls ]]; then
-                echo "🆕 Full new Apex class detected."
-                echo "$file" >> changed_cls_lwc_files.txt
-                echo "$file,ENTIRE_FILE" >> line_number_mapping.txt
-                continue
-              fi
-
-              extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
-                /^@@/ {
-                  match($0, /\+([0-9]+)/, arr);
-                  line = arr[1]; next
-                }
-                /^\+/ {
-                  if ($0 !~ /^(diff|index|---|\+\+\+|@@)/) {
-                    print line "," substr($0,2);
-                    line++;
-                  }
-                }
-              ')
-
-              if [ -z "$extracted_lines" ]; then
-                echo "❌ No relevant lines found in $file. Skipping."
-                continue
-              fi
-
-              echo "$extracted_lines" > "line_number_mapping_${file//\//_}.txt"
-              temp_file="temp_scanner_files/temp_${file//\//_}"
-              touch "$temp_file"
-
-              # -----------------------------------------------------
-              #               APEX CLASS (.cls) SECTION
-              # -----------------------------------------------------
-              if [[ "$file" == *.cls ]]; then
-                echo "public class TempWrapperClass {" > "$temp_file"
-                echo "    public static void tempMethod() {" >> "$temp_file"
-                echo "        /* Extracted delta logic */" >> "$temp_file"
-
-                brace_stack=0
-                orphan_else_open=0
-                orphan_else_first_line=0
-
-                while IFS=, read -r line_number line_content; do
-                  trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-
-                  echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
-
-                  # ---------- Fix orphan "} else {" ----------
-                  if [[ "$trimmed" =~ ^\}[[:space:]]*else[[:space:]]*\{ ]]; then
-                    echo "        if (true) {" >> "$temp_file"
-                    echo "            $trimmed" >> "$temp_file"
-                    orphan_else_open=1
-                    orphan_else_first_line=1
-                    continue
-                  fi
-
-                  # ---------- First inner line of orphan else ----------
-                  if [[ $orphan_else_open -eq 1 && $orphan_else_first_line -eq 1 ]]; then
-                    echo "        $trimmed" >> "$temp_file"
-                    echo "        }" >> "$temp_file"
-                    orphan_else_first_line=0
-                    orphan_else_open=0
-                    continue
-                  fi
-
-                  # ---------- Wrap control blocks WITHOUT braces ----------
-                  if [[ "$trimmed" =~ ^(if|for|while|switch|try|catch)[[:space:]]*\(.*\)[[:space:]]*$ ]]; then
-                    echo "        $trimmed {" >> "$temp_file"
-                    echo "        }" >> "$temp_file"
-                    continue
-                  fi
-
-                  # ---------- Brace tracking ----------
-                  opens=$(grep -o "{" <<< "$trimmed" | wc -l)
-                  closes=$(grep -o "}" <<< "$trimmed" | wc -l)
-                  brace_stack=$((brace_stack + opens - closes))
-
-                  echo "        $trimmed" >> "$temp_file"
-
-                done < "line_number_mapping_${file//\//_}.txt"
-
-                # Close unclosed braces
-                while [[ $brace_stack -gt 0 ]]; do
-                  echo "        }" >> "$temp_file"
-                  brace_stack=$((brace_stack-1))
-                done
-
-                echo "    }" >> "$temp_file"
-                echo "}" >> "$temp_file"
-
-              # -----------------------------------------------------
-              #               JAVASCRIPT (.js) SECTION
-              # -----------------------------------------------------
-              elif [[ "$file" == *.js ]]; then
-                echo "// LWC JavaScript Delta File" > "$temp_file"
-                while IFS=, read -r line_number line_content; do
-                  trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                  [[ -n "$trimmed" ]] && {
-                    echo "$trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
-                  }
-                done < "line_number_mapping_${file//\//_}.txt"
-
-              # -----------------------------------------------------
-              #               HTML (.html) SECTION
-              # -----------------------------------------------------
-              elif [[ "$file" == *.html ]]; then
-                echo "<!-- LWC HTML Delta File -->" > "$temp_file"
-                while IFS=, read -r line_number line_content; do
-                  trimmed=$(echo "$line_content" | sed 's/^[ \t]*//;s/[ \t]*$//')
-                  [[ -n "$trimmed" ]] && {
-                    echo "$trimmed" >> "$temp_file"
-                    echo "$temp_file,$line_number,$trimmed" >> line_number_mapping.txt
-                  }
-                done < "line_number_mapping_${file//\//_}.txt"
-              fi
-
-              echo "$temp_file" >> changed_cls_lwc_files.txt
-              echo "✔ Created temp file: $temp_file"
-            done
-
-            echo "====== FINAL LINE NUMBER MAPPING ======"
-            cat line_number_mapping.txt || echo "❌ No mappings found"
-      
-            
-      - name: Debug Extracted Line Number Mapping
-        run: |
-            echo "====== FINAL LINE NUMBER MAPPING ======"
-            cat line_number_mapping.txt || echo "❌ No line mappings found!"
-        
-            echo "====== CHECKING FILE PATH FORMATTING ======"
-            while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-              formatted_file_path=$(basename "$file")
-              echo "Checking: $formatted_file_path, Temp Line: $temp_line"
-              grep "$formatted_file_path,$temp_line" line_number_mapping.txt || echo "❌ No match found for $formatted_file_path,$temp_line"
-            done < <(tail -n +2 scanner-report-temp.csv)
-        
-        
-        
-                      
-      
-      # - name: Get Commit Author
-      #   id: commit-author
-      #   run: |
-      #       COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
-      #       echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
-      #       echo "Commit Author: $COMMIT_AUTHOR"
-         
-      - name: Run SFDX Code Analyzer on Changed Lines
-        run: |
-            files=$(cat changed_cls_lwc_files.txt)
-            if [ -z "$files" ]; then
-              echo "No files to scan."
-              exit 0
-            fi
-
+          if [ -z "$changed_files" ]; then
+            echo "No changes detected."
             echo "Problem,Severity,File,Line,Message" > scanner-report.csv
+            exit 0
+          fi
 
-            for file in $files; do
-              echo "🔍 Scanning: $file"
+          for file in $changed_files; do
+            echo "Processing: $file"
 
-              # Run Code Analyzer Snapshot
-              sf code-analyzer run:snapshot \
-                --target "$file" \
-                --config-file .sfdx-scanner-config.yml \
-                --json > scanner-report-partial.json || true
+            file_status=$(git diff --name-status HEAD~1 HEAD -- "$file" | awk '{print $1}')
 
-              # Convert JSON → CSV
-              jq -r '.runs[].results[] |
-                      [.ruleId,
-                      .level,
-                      .locations[0].physicalLocation.artifactLocation.uri,
-                      .locations[0].physicalLocation.region.startLine,
-                      .message.text] | @csv' \
-                      scanner-report-partial.json >> scanner-report.csv
-            done
+            temp_file="temp_scanner_files/temp_${file//\//_}"
+            touch "$temp_file"
 
-            echo "======= FINAL SCANNER REPORT ======="
-            cat scanner-report.csv
+            # Handle brand-new Apex class
+            if [[ "$file_status" == "A" && "$file" == *.cls ]]; then
+              echo "$file" >> changed_cls_lwc_files.txt
+              echo "$file,ENTIRE_FILE" >> line_number_mapping.txt
+              continue
+            fi
 
-                
+            extracted=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
+              /^@@/ {
+                match($0, /\+([0-9]+)/, arr); line=arr[1]; next
+              }
+              /^\+/ && $0 !~ /^(diff|index|---|\+\+\+|@@)/ {
+                print line "," substr($0,2); line++
+              }')
+
+            if [ -z "$extracted" ]; then
+              echo "No delta lines in $file"
+              continue
+            fi
+
+            echo "$extracted" > line_number_mapping_${file//\//_}.txt
+
+            if [[ "$file" == *.cls ]]; then
+              echo "public class TempWrapperClass {" > "$temp_file"
+              echo "public static void tempMethod() {" >> "$temp_file"
+
+              while IFS=, read -r ln content; do
+                trimmed=$(echo "$content" | sed 's/^ *//;s/ *$//')
+                echo "$temp_file,$ln,$trimmed" >> line_number_mapping.txt
+                echo "    $trimmed" >> "$temp_file"
+              done < line_number_mapping_${file//\//_}.txt
+
+              echo "}" >> "$temp_file"
+              echo "}" >> "$temp_file"
+
+            else
+              while IFS=, read -r ln content; do
+                trimmed=$(echo "$content")
+                echo "$trimmed" >> "$temp_file"
+                echo "$temp_file,$ln,$trimmed" >> line_number_mapping.txt
+              done < line_number_mapping_${file//\//_}.txt
+            fi
+
+            echo "$temp_file" >> changed_cls_lwc_files.txt
+          done
+
+          echo "==== FINAL LINE NUMBER MAPPING ===="
+          cat line_number_mapping.txt
+      - name: Debug Line Number Mapping
+        run: |
+          echo "====== FINAL LINE NUMBER MAPPING ======"
+          cat line_number_mapping.txt || echo "❌ No line mappings!"
+          echo "====== CHECK FILE PATHS ======"
+          ls -R temp_scanner_files
+
+      #######################################################################
+      #   ⭐ FIXED SFDX SCANNER SECTION (THIS WAS THE MAIN PROBLEM)        #
+      #######################################################################
+      - name: Run SFDX Scanner on Delta Files (Working Version)
+        run: |
+          files=$(cat changed_cls_lwc_files.txt)
+          if [ -z "$files" ]; then
+            echo "No delta files. Skipping scan."
+            echo "Problem,Severity,File,Line,Message" > scanner-report.csv
+            exit 0
+          fi
+
+          echo "Problem,Severity,File,Line,Message" > scanner-report.csv
+
+          for file in $files; do
+            echo "🔍 Scanning file: $file"
+
+            # Run scanner (correct command)
+            sf scanner run \
+              --target "$file" \
+              --engine pmd,eslint \
+              --format json \
+              --outfile scanner-report-partial.json || true
+
+            # Extract results from JSON → CSV
+            if [ -f scanner-report-partial.json ]; then
+              jq -r '
+                .[]?.results[]? |
+                [
+                  .ruleName,
+                  .severity,
+                  .fileName,
+                  .line,
+                  .message
+                ] | @csv
+              ' scanner-report-partial.json >> scanner-report.csv || true
+            fi
+
+          done
+
+          echo "======= FINAL SCANNER REPORT ======="
+          cat scanner-report.csv
+
+      #######################################################################
+      #             SALESFORCE LOGIN (OAuth Username + Password)            #
+      #######################################################################
       - name: Load Salesforce API URL
         id: load-api-url
         run: |
           API_URL=$(cat config/salesforce_api_url.txt)
           echo "API_URL=$API_URL" >> $GITHUB_ENV
-          echo "Using API URL: $API_URL"   
-          
+
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
@@ -316,178 +219,146 @@ jobs:
             -d "client_secret=${{ secrets.SF_CLIENT_SECRET }}" \
             -d "username=${{ secrets.SF_USERNAME }}" \
             -d "password=${{ secrets.SF_PASSWORD }}${{ secrets.SF_SECURITY_TOKEN }}" )
-          echo "Login response: $response"
           
+          echo "Login response: $response"
+
           SF_ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
           INSTANCE_URL=$(echo "$response" | jq -r '.instance_url')
+
           if [[ -z "$SF_ACCESS_TOKEN" || "$SF_ACCESS_TOKEN" == "null" ]]; then
             echo "❌ Salesforce authentication failed."
             exit 1
           fi
-          echo "✅ Salesforce Authenticated Successfully"
+
           echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> $GITHUB_ENV
           echo "INSTANCE_URL=$INSTANCE_URL" >> $GITHUB_ENV
-      
+          echo "✅ Salesforce Authentication Successful"
+
+      #######################################################################
+      #                     UPLOAD REPORT TO SALESFORCE                     #
+      #######################################################################
       - name: Upload Scanner Report to Salesforce
         if: success()
         run: |
-            # Check if the scanner report contains violations (more than just the header)
             violation_count=$(tail -n +2 scanner-report.csv | wc -l)
             if [ "$violation_count" -eq 0 ]; then
-              echo "✅ No violations found. Skipping Salesforce upload."
+              echo "No violations → Skipping Salesforce upload."
               exit 0
             fi
-            echo "🔄 Uploading scanner report to Salesforce..."
-            # Send file to Salesforce
+
+            echo "Uploading scanner report to Salesforce..."
+
             response=$(curl -X POST "$INSTANCE_URL/services/data/v58.0/sobjects/ContentVersion" \
-            -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
-            -H "Content-Type: multipart/form-data" \
-            -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
-            -F "VersionData=@scanner-report.csv;type=text/csv")
-            # 🔍 Debug: Print the full API response
-            echo "📢 Salesforce API Response: $response"
-            # Extract the ID safely (handles both array & object responses)
-            contentVersionId=$(echo "$response" | jq -r 'if type=="array" then .[0].id else .id end' 2>/dev/null || echo "null")
+              -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+              -H "Content-Type: multipart/form-data" \
+              -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
+              -F "VersionData=@scanner-report.csv;type=text/csv")
+
+            echo "SF Response: $response"
+
+            contentVersionId=$(echo "$response" | jq -r 'if type=="array" then .[0].id else .id end')
+
             if [[ "$contentVersionId" == "null" || -z "$contentVersionId" ]]; then
-              echo "❌ Error: Failed to extract ContentVersion ID from response."
-              echo "🔴 Full API Response: $response"  # Log full response for debugging
+              echo "❌ Failed to extract ContentVersion ID"
               exit 1
             fi
-            echo "✅ Successfully uploaded scanner report to Salesforce. ContentVersionId: $contentVersionId"
-        
-      # - name: Get Commit Author  # ✅ Fetch the commit author
-      #   id: commit-author
-      #   run: |
-      #     COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
-      #     echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
-      #     echo "Commit Author: $COMMIT_AUTHOR"
 
+            echo "Uploaded to Salesforce. ContentVersionId=$contentVersionId"
 
-      
+      #######################################################################
+      #                    ENSURE REPORT EXISTS FOR EMAILS                  #
+      #######################################################################
       - name: Ensure Scanner Report Exists
-        if: always()  # ✅ Ensures it runs even if commit is blocked
+        if: always()
         run: |
             if [ ! -s scanner-report.csv ]; then
-              echo "No scanner report generated, creating a dummy report."
-              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+              echo "Creating dummy empty report."
+              echo "Problem,Severity,File,Line,Message" > scanner-report.csv
             fi
-      - name: Debug - List Files Before Upload
-        if: always()
+
+      #######################################################################
+      #                BACKUP REPORT TO /tmp/artifact_backup               #
+      #######################################################################
+      - name: Generate Unique File Name
         run: |
-            echo "Listing files before uploading scanner report:"
-            ls -lah
-      - name: Get Previous Branch Name
-        id: previous-branch
-        if: always()
-        run: |
-          git fetch --all --prune
-          git branch -a
-          PREV_BRANCH=$(git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin/ | grep -v "$(git rev-parse --abbrev-ref HEAD)" | head -n 1 | sed 's/origin\///')
-          if [ -z "$PREV_BRANCH" ]; then
-            echo "❌ Could not detect the previous branch."
-            exit 1
-          fi
-          echo "✅ Previous branch detected: $PREV_BRANCH"
-          echo "PREV_BRANCH=$PREV_BRANCH" >> $GITHUB_ENV
-      - name: Generate Unique File Name for Scanner Report
-        run: |
-          # TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
-          # REPORT_FILE="scanner-report-${TIMESTAMP}.csv"
-          COMMIT_LABEL=$(git log -1 --pretty=format:'%s' | tr ' ' '_')
-          REPORT_FILE="${COMMIT_LABEL}.csv"
+          LABEL=$(git log -1 --pretty=format:'%s' | tr ' ' '_')
+          REPORT_FILE="${LABEL}.csv"
           echo "REPORT_FILE=$REPORT_FILE" >> $GITHUB_ENV
-          echo "✅ Generated unique file name: $REPORT_FILE"
-      - name: Save Scanner Report Before Branch Checkout
-        if: always()
-        run: |
-          if [ ! -f scanner-report.csv ]; then
-            echo "❌ scanner-report.csv file not found! Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-          fi
-          mkdir -p /tmp/artifact_backup
-          cp scanner-report.csv /tmp/artifact_backup/${{ env.REPORT_FILE }}
-          echo "✅ Scanner report backed up in /tmp/artifact_backup/${{ env.REPORT_FILE }}."
-      - name: Backup Scanner Report
-        if: always()
+
+      - name: Backup Report
         run: |
           mkdir -p /tmp/artifact_backup
           cp scanner-report.csv /tmp/artifact_backup/${{ env.REPORT_FILE }}
-          echo "✅ Scanner report backed up in /tmp/artifact_backup/${{ env.REPORT_FILE }}."
-      - name: Commit and Push Scanner Report to `Scanner_Reports` Branch
+          echo "Backup saved: /tmp/artifact_backup/${{ env.REPORT_FILE }}"
+
+      #######################################################################
+      #      PUSH REPORT TO SCANNER_REPORTS BRANCH (Auto-versioning)        #
+      #######################################################################
+      - name: Commit and Push Report to Scanner_Reports
         if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          BRANCH_NAME="Scanner_Reports"
-          echo "✅ Target Branch: $BRANCH_NAME"
-          # 🔹 Check if the `Scanner_Reports` branch exists remotely
-          if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
-            echo "✅ Remote branch $BRANCH_NAME exists."
-            git checkout $BRANCH_NAME
+
+          BRANCH="Scanner_Reports"
+
+          if git ls-remote --exit-code --heads origin "$BRANCH"; then
+            git checkout $BRANCH
           else
-            echo "❌ Remote branch $BRANCH_NAME does not exist! Creating it now..."
-            git checkout -b $BRANCH_NAME
-            git push --set-upstream origin $BRANCH_NAME
+            git checkout -b $BRANCH
+            git push --set-upstream origin $BRANCH
           fi
-          git pull origin $BRANCH_NAME --rebase
+
+          git pull origin $BRANCH --rebase
+
           mkdir -p Artifact
           cp /tmp/artifact_backup/${{ env.REPORT_FILE }} Artifact/${{ env.REPORT_FILE }}
-          echo "✅ Scanner report restored to Artifact/${{ env.REPORT_FILE }}."
+
           git add Artifact/${{ env.REPORT_FILE }}
-          git commit -m "🔄 Auto-update scanner report (${REPORT_FILE}) in Artifact folder for branch $BRANCH_NAME" || echo "No changes to commit"
-          git push origin $BRANCH_NAME
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          git commit -m "Auto update: ${{ env.REPORT_FILE }}" || echo "No changes"
+          git push origin $BRANCH
 
-
+      #######################################################################
+      #                           SEND EMAILS                               #
+      #######################################################################
       - name: Install mailx
         run: sudo apt-get install -y mailutils
 
-      - name: Get Pusher's Email
+      - name: Get Pusher Email
         id: get-pusher-email
         run: |
-          COMMIT_SHA=${{ github.sha }}
+          SHA=${{ github.sha }}
           REPO=${{ github.repository }}
-          GITHUB_ACTOR="${{ github.actor }}"
-          echo "Fetching email for GitHub user: $GITHUB_ACTOR"
-          # 1️⃣ Fetch Pusher Email from GitHub API
-          PUSHER_EMAIL=$(curl -s -H "Authorization: token ${{ secrets.GH_PAT }}" \
-          "https://api.github.com/repos/${REPO}/commits/${COMMIT_SHA}" | jq -r '.commit.committer.email')
-          # 2️⃣ If API does not return an email, check the GitHub event payload
-          if [[ -z "$PUSHER_EMAIL" || "$PUSHER_EMAIL" == "null" ]]; then
-            echo "GitHub API did not return an email. Checking GitHub event payload..."
-            PUSHER_EMAIL="${{ github.event.pusher.email }}"
+
+          PUSHER=$(curl -s -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            "https://api.github.com/repos/${REPO}/commits/${SHA}" | jq -r '.commit.committer.email')
+
+          if [[ -z "$PUSHER" || "$PUSHER" == "null" ]]; then
+            PUSHER="${{ github.event.pusher.email }}"
           fi
-          # 3️⃣ If GitHub event payload also fails, use commit author email
-          if [[ -z "$PUSHER_EMAIL" || "$PUSHER_EMAIL" == "null" ]]; then
-            echo "GitHub event did not return an email. Checking Git commit author..."
-            PUSHER_EMAIL=$(git log -1 --pretty=format:'%ae')
+
+          if [[ "$PUSHER" =~ .*noreply.* || -z "$PUSHER" ]]; then
+            PUSHER=$(git log -1 --pretty=format:'%ae')
           fi
-          # 4️⃣ Ensure email is valid and not a GitHub noreply email
-          if [[ "$PUSHER_EMAIL" =~ .*noreply\.github\.com || -z "$PUSHER_EMAIL" ]]; then
-            echo "❌ Invalid or missing email detected ($PUSHER_EMAIL). Email will not be sent."
-            exit 1
-          fi
-          echo "✅ Pusher Email Detected: $PUSHER_EMAIL"
-          echo "PUSHER_EMAIL=${PUSHER_EMAIL}" >> $GITHUB_ENV
-  
-      - name: Send Email with actions-send-mail
+
+          echo "PUSHER_EMAIL=$PUSHER" >> $GITHUB_ENV
+          echo "Using pusher email: $PUSHER"
+
+      - name: Send Email via Gmail
         uses: dawidd6/action-send-mail@v3
-        continue-on-error: true   # ✔ EMAIL FAILS, WORKFLOW CONTINUES
+        continue-on-error: true
         with:
-          server_address: 'smtp.gmail.com'
-          server_port: '587'
+          server_address: smtp.gmail.com
+          server_port: 587
           username: ${{ secrets.GMAIL_EMAIL }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
           from: ${{ secrets.GMAIL_EMAIL }}
-          subject: 'SFDX Code Scan Delta Report'
-          body: 'Please find the attached SFDX Code Scan Delta Report.'
-          to: ${{ env.PUSHER_EMAIL }}, ${{ secrets.GMAIL_EMAIL }}
-          attachments: scanner-report.csv  # ✅ Ensuring correct file is attached
+          subject: "SFDX Code Scan Delta Report"
+          body: "Please find the attached SFDX Code Scan Delta Report."
+          to: ${{ env.PUSHER_EMAIL }},${{ secrets.GMAIL_EMAIL }}
+          attachments: scanner-report.csv
 
-
-
-      - name: Get OAuth Token for Microsoft Graph API
+      - name: Get OAuth Token for Outlook
         id: get-oauth-token
         run: |
           RESPONSE=$(curl -X POST "https://login.microsoftonline.com/${{ secrets.OUTLOOK_TENANT_ID }}/oauth2/v2.0/token" \
@@ -496,78 +367,74 @@ jobs:
             -d "client_secret=${{ secrets.OUTLOOK_CLIENT_SECRET }}" \
             -d "scope=https://graph.microsoft.com/.default" \
             -d "grant_type=client_credentials")
-          echo "🔹 Raw OAuth Response: $RESPONSE"
-          OAUTH_ACCESS_TOKEN=$(echo $RESPONSE | jq -r '.access_token')
-          if [ "$OAUTH_ACCESS_TOKEN" == "null" ]; then
-            echo "❌ Failed to get OAuth token. Full error response: $RESPONSE"
+
+          TOKEN=$(echo $RESPONSE | jq -r '.access_token')
+
+          if [[ "$TOKEN" == "null" ]]; then
+            echo "❌ Failed to get Microsoft Graph token"
             exit 1
           fi
-          echo "✅ OAuth Token: $OAUTH_ACCESS_TOKEN"
-          echo "::add-mask::$OAUTH_ACCESS_TOKEN"
-          echo "OAUTH_ACCESS_TOKEN=$OAUTH_ACCESS_TOKEN" >> $GITHUB_ENV
-      - name: Send Email via Microsoft Graph API (OAuth)
+
+          echo "OAUTH_ACCESS_TOKEN=$TOKEN" >> $GITHUB_ENV
+
+      - name: Send Email via Outlook
         run: |
           curl -X POST "https://graph.microsoft.com/v1.0/users/${{ secrets.OUTLOOK_EMAIL }}/sendMail" \
             -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
             -H "Content-Type: application/json" \
-            -d '{
-              "message": {
-                "subject": "SFDX Code Scan Delta Report",
-                "body": {
-                  "contentType": "Text",
-                  "content": "Please find the attached SFDX Code Scan Delta Report."
-                },
-                "toRecipients": [
-                  {
-                    "emailAddress": {
-                      "address": "'"${{ secrets.OUTLOOK_EMAIL }}"'"
-                    }
-                  }
-                ]
+            -d "{
+              \"message\": {
+                \"subject\": \"SFDX Code Scan Delta Report\",
+                \"body\": {\"contentType\": \"text\", \"content\": \"Report Attached\"},
+                \"toRecipients\": [{\"emailAddress\": {\"address\": \"${{ secrets.OUTLOOK_EMAIL }}\"}}]
               }
-            }'
-              
-      # ✅ MOVE BLOCKING COMMIT STEP TO THE LAST STEP
-      - name: Block PR merge if severity violations are found
+            }"
+      #######################################################################
+      #                 BLOCK COMMIT IF SEVERITY VIOLATIONS                #
+      #######################################################################
+      - name: Block PR Merge if Severity Violations Found
         id: block-check
         run: |
           if [ -f scanner-report.csv ]; then
-            echo "Reading scanner-report.csv for severity violations..."
-            # Debugging: Display the entire scanner report
+            echo "Reading scanner-report.csv..."
             cat scanner-report.csv
+
             # Count Apex severity 3 violations
-            apex_severity_count=$(awk -F',' 'NR>1 {
-              severity = $2; gsub(/"/, "", severity); 
-              file = $3; gsub(/"/, "", file); 
-              if (severity == 3 && file ~ /\.cls$/) count++
+            apex_severity=$(awk -F',' 'NR>1 { 
+              s=$2; gsub(/\"/, "", s);
+              f=$3; gsub(/\"/, "", f);
+              if (s==3 && f ~ /\.cls$/) count++ 
             } END {print count+0}' scanner-report.csv)
-            echo "Apex Severity 3 Issues: $apex_severity_count"
-            
-            # Count LWC severity 2 or higher violations
-            lwc_severity_count=$(awk -F',' 'NR>1 {
-              severity = $2; gsub(/"/, "", severity); 
-              file = $3; gsub(/"/, "", file); 
-              if (severity >= 2 && (file ~ /\.js$/ || file ~ /\.html$/ || file ~ /\.lwc$/)) count++
+
+            # Count LWC severity >=2
+            lwc_severity=$(awk -F',' 'NR>1 {
+              s=$2; gsub(/\"/, "", s);
+              f=$3; gsub(/\"/, "", f);
+              if (s>=2 && (f ~ /\.js$/ || f ~ /\.html$/ || f ~ /\.lwc$/)) count++
             } END {print count+0}' scanner-report.csv)
-            echo "LWC Severity 2 or Higher Issues: $lwc_severity_count"
-            
-            # Check if any severity violations exist
-            if [ "$apex_severity_count" -gt 0 ] || [ "$lwc_severity_count" -gt 0 ]; then
-              echo "Blocking commit due to severity violations."
+
+            echo "Apex Severity 3: $apex_severity"
+            echo "LWC Severity >=2: $lwc_severity"
+
+            if [ "$apex_severity" -gt 0 ] || [ "$lwc_severity" -gt 0 ]; then
               echo "block-status=true" >> $GITHUB_ENV
               echo "block-status=true" >> $GITHUB_OUTPUT
               exit 1
             else
-              echo "No severity violations found. Proceeding."
               echo "block-status=false" >> $GITHUB_ENV
               echo "block-status=false" >> $GITHUB_OUTPUT
             fi
           else
-            echo "No scanner report found."
+            echo "scanner-report.csv missing!"
             echo "block-status=true" >> $GITHUB_ENV
             echo "block-status=true" >> $GITHUB_OUTPUT
             exit 1
           fi
+
+
+  ############################################################################
+  #                            SLACK NOTIFICATIONS                            #
+  ############################################################################
   notify-slack:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
@@ -581,185 +448,155 @@ jobs:
         env:
           SLACK_USER_MAP: ${{ secrets.SLACK_USER_MAP }}
         run: |
-          COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
-          echo "Fetching Slack ID for commit author: $COMMIT_AUTHOR"
-          # Ensure JSON format is correct
+          AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
+
           if [[ -z "$SLACK_USER_MAP" ]]; then
-            echo "ERROR: SLACK_USER_MAP secret is empty or not set."
+            echo "ERROR: SLACK_USER_MAP is empty"
             exit 1
           fi
-          # Extract Slack ID from JSON mapping
-          AUTHOR_SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$COMMIT_AUTHOR" '.[$user]')
-          # Debugging output
-          echo "Extracted Slack ID: $AUTHOR_SLACK_ID"
-          # If no Slack ID is found, handle the case properly
-          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "null" ]]; then
-            echo "ERROR: No Slack ID found for author: $COMMIT_AUTHOR"
+
+          SLACK_ID=$(echo "$SLACK_USER_MAP" | jq -r --arg user "$AUTHOR" '.[$user]')
+
+          if [[ -z "$SLACK_ID" || "$SLACK_ID" == "null" ]]; then
             echo "AUTHOR_SLACK_ID=unknown" >> $GITHUB_ENV
           else
-            echo "AUTHOR_SLACK_ID=$AUTHOR_SLACK_ID" >> $GITHUB_ENV
+            echo "AUTHOR_SLACK_ID=$SLACK_ID" >> $GITHUB_ENV
           fi
-      # - name: Download Scanner Report
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: scanner-report
-      #     path: .
-
-      # - name: Debug - Verify Downloaded Files
-      #   run: |
-      #     echo "Checking if scanner report was downloaded:"
-      #     ls -lah
-
-      # - name: Verify Scanner Report Download
-      #   run: |
-      #     if [ ! -s scanner-report.csv ]; then
-      #       echo "No scanner report found after download."
-      #       echo "SEND_FAILURE_NOTIFICATION=true" >> $GITHUB_ENV
-      #     else
-      #       echo "SEND_FAILURE_NOTIFICATION=false" >> $GITHUB_ENV
-      #     fi
 
       - name: Format Scanner Report for Slack
         id: format-report
         run: |
           if [ ! -s scanner-report.csv ]; then
-            echo "No scanner report available. Skipping Slack notification."
+            echo "No report for Slack"
             exit 0
           fi
-          echo "Extracting first 5 rows from scanner report..."
+
           echo "```" > slack_report.txt
           echo "| Problem | Severity | File | Line | Rule | Category |" >> slack_report.txt
           echo "|---------|----------|------|------|------|----------|" >> slack_report.txt
-          
-          awk -F',' 'NR>1 && NR<=6 { printf("| %s | %s | %s | %s | %s | %s |\n", $1, $2, $3, $4, $6, $9) }' scanner-report.csv >> slack_report.txt
+
+          awk -F',' 'NR>1 && NR<=6 { printf("| %s | %s | %s | %s | %s | %s |\n",
+            $1,$2,$3,$4,$6,$9) }' scanner-report.csv >> slack_report.txt
+
           echo "```" >> slack_report.txt
-          cat slack_report.txt
-          # Store formatted table as output
+
           REPORT_TABLE=$(cat slack_report.txt | jq -sR)
           echo "report_table=$REPORT_TABLE" >> $GITHUB_ENV
-      - name: Send Scanner Report Table to Slack
+
+      - name: Send DM to Developer on Slack
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: |
-          AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
-          SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
-          REPORT_TABLE="${{ env.report_table }}"
-          if [[ -z "$SCANNER_REPORT_URL" ]]; then
-            MESSAGE=":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
-          else
-            MESSAGE=":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <${SCANNER_REPORT_URL}|Click here>\n\n*🔍 Scanner Report Summary:*\n${REPORT_TABLE}"
-          fi
-          curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
-          --data "{\"channel\": \"${AUTHOR_SLACK_ID}\", \"text\": \"${MESSAGE}\" }" \
-          https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
-  
-      - name: Send Scanner Report URL to Slack
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-        run: |
-          AUTHOR_SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
-          SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
-          if [[ -z "$AUTHOR_SLACK_ID" || "$AUTHOR_SLACK_ID" == "unknown" ]]; then
-            echo "❌ No Slack ID found for commit author, skipping message."
+          SLACK_ID="${{ env.AUTHOR_SLACK_ID }}"
+          REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
+          TABLE="${{ env.report_table }}"
+
+          if [[ "$SLACK_ID" == "unknown" ]]; then
+            echo "No Slack ID, skipping DM"
             exit 0
           fi
-          if [[ -z "$SCANNER_REPORT_URL" ]]; then
-            echo "⚠️ No scanner report found. Sending failure notification to Slack."
-            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
-            --data '{
-              "channel": "'"$AUTHOR_SLACK_ID"'",
-              "text": ":x: *SFDX Code Scan Failed!*\nNo scanner report was generated."
-            }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
+
+          if [[ -z "$REPORT_URL" ]]; then
+            MSG=":x: Code Scan Failed – No report generated."
           else
-            echo "✅ Sending scanner report download link to Slack..."
-            curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-type: application/json" \
-            --data '{
-              "channel": "'"$AUTHOR_SLACK_ID"'",
-              "text": ":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Download Scanner Report:* <'"$SCANNER_REPORT_URL"'|Click here>"
-            }' https://slack.com/api/chat.postMessage || echo "⚠️ Slack message failed"
-          fi
-      - name: Send Scanner Report URL to Slack Channel
+            MSG="*SFDX Code Scan Completed*  
+            📄 Report: <$REPORT_URL|Download>  
+            🔍 Summary:  
+            $TABLE"
+                  fi
+
+                  curl -X POST \
+                    -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                    -H "Content-type: application/json" \
+                    --data "{\"channel\":\"$SLACK_ID\",\"text\":$MSG}" \
+                    https://slack.com/api/chat.postMessage
+
+      - name: Post Result in Slack Channel
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
         run: |
-          SCANNER_REPORT_URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
-          REPO_NAME=$(echo $GITHUB_REPOSITORY | cut -d'/' -f2)
-          BRANCH_NAME=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
-          COMMIT_AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
-          if [[ -n "$SCANNER_REPORT_URL" ]]; then
-            MESSAGE=":white_check_mark: *SFDX Code Scan Completed!*\n\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n🔗 *[Download Scanner Report]($SCANNER_REPORT_URL)*"
-          else
-            MESSAGE=":x: *SFDX Code Scan Failed!*\n\n📂 *Repository:* $REPO_NAME\n🌿 *Branch:* $BRANCH_NAME\n👤 *Commit Author:* $COMMIT_AUTHOR\n⚠️ No scanner report was generated."
-          fi
-          curl -X POST -H 'Content-type: application/json' --data "{\"text\": \"$MESSAGE\"}" "$SLACK_WEBHOOK_URL"
+          URL="${{ needs.quality-gate-code-check.outputs.scanner-report-url }}"
+          AUTHOR="${{ needs.quality-gate-code-check.outputs.commit-author }}"
+          REPO=$(echo $GITHUB_REPOSITORY | cut -d'/' -f2)
+          BRANCH=$(echo $GITHUB_REF | sed 's/refs\/heads\///')
+
+          if [[ -n "$URL" ]]; then
+            MSG="*SFDX Code Scan Completed*  
+          📁 Repo: $REPO  
+          🌿 Branch: $BRANCH  
+          👤 Author: $AUTHOR  
+          🔗 <${URL}|Download Scanner Report>"
+                    else
+                      MSG=":x: Scan Failed – No report generated  
+          📁 Repo: $REPO  
+          🌿 Branch: $BRANCH  
+          👤 Author: $AUTHOR"
+                    fi
+
+                    curl -X POST -H 'Content-type: application/json' \
+                      --data "{\"text\": \"$MSG\"}" \
+                      "$SLACK_WEBHOOK_URL"
+
+
+  ############################################################################
+  #                     CRITICAL PERMISSION SET CHECK                         #
+  ############################################################################
   quality-gate-critical-permissions-check:
     runs-on: ubuntu-latest
     needs: quality-gate-code-check
-    if: always()  # ✅ Ensures this job runs even if the first job fails
+    if: always()
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 2  # Ensures we get the previous commit for comparison
- 
+          fetch-depth: 2
+
       - name: Get changed files
         id: changed-files
         run: |
-          # Get the list of changed files in the PR
           git diff --name-only HEAD^ HEAD > changed_files.txt
- 
-          # Ensure filtered_files.txt is created
           touch filtered_files.txt
- 
-          # Filter profile and permission set files
-          grep -E 'force-app/main/default/(profiles|permissionsets)/.*\.(profile|permissionset)-meta\.xml' changed_files.txt > filtered_files.txt || echo "" > filtered_files.txt
- 
-      - name: Scan only changed Profiles and Permission Sets for Critical Permissions
+          grep -E 'force-app/main/default/(profiles|permissionsets)/.*\.(profile|permissionset)-meta\.xml' changed_files.txt > filtered_files.txt || echo ""
+
+      - name: Scan for Critical Permissions
         run: |
-          CRITICAL_PERMISSIONS=(
-              "AssignPermissionSets"
-              "AuthorApex"
-              "CustomizeApplication"
-              "FreezeUsers"
-              "ManageEncryptionKeys"
-              "ManageInternalUsers"
-              "ManagePasswordPolicies"
-              "ManageProfilesPermissionSets"
-              "ManageRoles"
-              "ManageSharing"
-              "ManageUsers"
-              "ModifyAllData"
-              "MonitorLoginHistory"
-              "MultiFactorAuthenticationRequired"
-              "PasswordNeverExpires"
-              "ResetPasswordsUnlockUsers"
-              "ViewAllData"
+          CRITICAL_PERMS=(
+            "AssignPermissionSets"
+            "AuthorApex"
+            "CustomizeApplication"
+            "FreezeUsers"
+            "ManageEncryptionKeys"
+            "ManageInternalUsers"
+            "ManagePasswordPolicies"
+            "ManageProfilesPermissionSets"
+            "ManageRoles"
+            "ManageSharing"
+            "ManageUsers"
+            "ModifyAllData"
+            "MonitorLoginHistory"
+            "MultiFactorAuthenticationRequired"
+            "PasswordNeverExpires"
+            "ResetPasswordsUnlockUsers"
+            "ViewAllData"
           )
- 
-          BLOCKED_FILES=()
- 
-          # Ensure filtered_files.txt exists before reading
-          if [ ! -f filtered_files.txt ]; then
-            echo "No profile or permission set files were modified."
-            exit 0
-          fi
- 
+
+          BLOCKED=()
+
           while IFS= read -r FILE; do
-            [[ -z "$FILE" ]] && continue  # Skip empty lines
- 
-            for PERMISSION in "${CRITICAL_PERMISSIONS[@]}"; do
-              if grep -q "$PERMISSION" "$FILE"; then
-                BLOCKED_FILES+=("$FILE")
+            [[ -z "$FILE" ]] && continue
+
+            for PERM in "${CRITICAL_PERMS[@]}"; do
+              if grep -q "$PERM" "$FILE"; then
+                BLOCKED+=("$FILE")
               fi
             done
+
           done < filtered_files.txt
- 
-          if [ ${#BLOCKED_FILES[@]} -gt 0 ]; then
-            echo "Critical permissions found in the following modified files:"
-            for FILE in "${BLOCKED_FILES[@]}"; do
-              echo "$FILE"
-            done
-            exit 1  # Fail the job
+
+          if [ ${#BLOCKED[@]} -gt 0 ]; then
+            echo "CRITICAL PERMISSIONS FOUND:"
+            for f in "${BLOCKED[@]}"; do echo "$f"; done
+            exit 1
           else
-            echo "No critical permissions found in modified files."
+            echo "No critical permissions found."
           fi
