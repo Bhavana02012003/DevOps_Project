@@ -365,23 +365,38 @@ jobs:
               echo "✅ No violations found. Skipping Salesforce upload."
               exit 0
             fi
+
             echo "🔄 Uploading scanner report to Salesforce..."
+
             # Send file to Salesforce
             response=$(curl -X POST "$INSTANCE_URL/services/data/v58.0/sobjects/ContentVersion" \
             -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
             -H "Content-Type: multipart/form-data" \
             -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
             -F "VersionData=@scanner-report.csv;type=text/csv")
+
+
+
             # 🔍 Debug: Print the full API response
             echo "📢 Salesforce API Response: $response"
+
             # Extract the ID safely (handles both array & object responses)
             contentVersionId=$(echo "$response" | jq -r 'if type=="array" then .[0].id else .id end' 2>/dev/null || echo "null")
+
             if [[ "$contentVersionId" == "null" || -z "$contentVersionId" ]]; then
               echo "❌ Error: Failed to extract ContentVersion ID from response."
               echo "🔴 Full API Response: $response"  # Log full response for debugging
               exit 1
             fi
+
             echo "✅ Successfully uploaded scanner report to Salesforce. ContentVersionId: $contentVersionId"
+        
+      # - name: Get Commit Author  # ✅ Fetch the commit author
+      #   id: commit-author
+      #   run: |
+      #     COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+      #     echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+      #     echo "Commit Author: $COMMIT_AUTHOR"
         
       # - name: Get Commit Author  # ✅ Fetch the commit author
       #   id: commit-author
