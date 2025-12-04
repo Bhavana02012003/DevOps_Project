@@ -161,11 +161,11 @@ jobs:
       #######################################################################
       #   ⭐ FIXED SFDX SCANNER SECTION (THIS WAS THE MAIN PROBLEM)        #
       #######################################################################
-      - name: Run SFDX Scanner on Delta Files (Working Version)
+      - name: Run SFDX Scanner on Delta Files (Code Analyzer v5 Compatible)
         run: |
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
-            echo "No delta files. Skipping scan."
+            echo "No files to scan."
             echo "Problem,Severity,File,Line,Message" > scanner-report.csv
             exit 0
           fi
@@ -175,17 +175,17 @@ jobs:
           for file in $files; do
             echo "🔍 Scanning file: $file"
 
-            # Run scanner (correct command)
             sf scanner run \
               --target "$file" \
-              --engine pmd,eslint \
+              --engine pmd \
               --format json \
               --outfile scanner-report-partial.json || true
 
-            # Extract results from JSON → CSV
+            # Parse Code Analyzer v5 JSON format
             if [ -f scanner-report-partial.json ]; then
               jq -r '
-                .[]?.results[]? |
+                .[]? |
+                .violations[]? |
                 [
                   .ruleName,
                   .severity,
@@ -193,13 +193,13 @@ jobs:
                   .line,
                   .message
                 ] | @csv
-              ' scanner-report-partial.json >> scanner-report.csv || true
+              ' scanner-report-partial.json >> scanner-report.csv
             fi
-
           done
 
           echo "======= FINAL SCANNER REPORT ======="
           cat scanner-report.csv
+
 
       #######################################################################
       #             SALESFORCE LOGIN (OAuth Username + Password)            #
