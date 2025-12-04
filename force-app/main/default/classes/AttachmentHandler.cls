@@ -34,7 +34,7 @@ public with sharing class AttachmentHandler {
 
             // Ensure the file is a CSV before creating an attachment
             if (fileVersion.FileExtension != 'csv') {
-                System.debug('⚠️ Skipping non-CSV file:: ' + fileVersion.Title);
+                System.debug('⚠️ Skipping non-CSV file: ' + fileVersion.Title);
                 return;
             }
 
