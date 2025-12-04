@@ -299,9 +299,10 @@ jobs:
               sf code-analyzer run \
               --target "$SCAN_PATH" \
               --config-file .sfdx-scanner-config.yml \
-              --format csv \
-              --outfile scanner-report-partial.csv \
+              --log-format csv \
+              --log-output scanner-report-partial.csv \
               || true
+
               # Skip if no content
               if [ ! -s scanner-report-partial.csv ]; then
                 echo "⚠️ No violations in $SCAN_PATH"
