@@ -345,7 +345,9 @@ jobs:
           echo "📋 Scanning files: $files"
           echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
 
-          UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
+          # 🛠 Correct GitHub workspace path
+          REPO_NAME="${{ github.repository##*/ }}"
+          UNWANTED_PATH="/home/runner/work/${REPO_NAME}/${REPO_NAME}/temp_scanner_files/"
 
           for file in $files; do
             if [[ "$file" == temp_scanner_files/* ]]; then
