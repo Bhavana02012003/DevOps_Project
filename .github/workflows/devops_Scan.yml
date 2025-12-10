@@ -327,6 +327,64 @@ jobs:
           done
           echo "✅ Final Scanner Report with TargetBranch:"
           cat scanner-report.csv
+
+
+      - name: Remap Temp Line Numbers to Actual Line Numbers
+        id: remap-lines
+        run: |
+          echo "🔄 Remapping temp file line numbers to actual original line numbers..."
+
+          if [ ! -f scanner-report.csv ]; then
+            echo "❌ scanner-report.csv not found."
+            exit 1
+          fi
+
+          if [ ! -f line_number_mapping.txt ]; then
+            echo "❌ line_number_mapping.txt not found."
+            exit 1
+          fi
+
+          # Build mapping index:  temp_file|tempLine → actualLine
+          echo "Building mapping index..."
+          awk -F',' '{
+              temp_file=$1
+              actual_line=$2
+              # To map later we need tempFile:actualLine
+              # But PMD CSV uses basename(path)
+              split(temp_file, arr, "/")
+              base=arr[length(arr)]
+              map[base "|" NR] = actual_line
+          } END {
+              for(k in map) print k "," map[k]
+          }' line_number_mapping.txt > mapping_index.txt
+
+          echo "Mapping index created:"
+          cat mapping_index.txt
+
+          echo "Generating final scanner report with actual line numbers..."
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report-final.csv
+
+          tail -n +2 scanner-report.csv | \
+          awk -F',' -v OFS=',' '
+              FNR==NR {
+                key=$3"|" $4
+                actual[key]=$6
+                next
+              }
+              {
+                key=$3"|" $4
+                if (key in actual) $12=actual[key]
+                else $12="N/A"
+                print
+              }
+          ' mapping_index.txt - >> scanner-report-final.csv
+
+          mv scanner-report-final.csv scanner-report.csv
+
+          echo "🎉 Line number remapping complete!"
+          echo "Updated scanner-report.csv:"
+          cat scanner-report.csv
+
           
       - name: Load Salesforce API URL
         id: load-api-url
