@@ -11,7 +11,7 @@ public with sharing class AttachmentHandler {
             ];
 
             if (caseRecord.File_Id__c == null) {
-                System.debug('⚠️ No file associated with this case.');
+                System.debug('⚠️ No file associated with this case..');
                 return;
                 
             }
@@ -56,7 +56,7 @@ public with sharing class AttachmentHandler {
 
             insert attachment;
 
-            System.debug('✅ CSV Attachment successfully created for Case ID:: ' + caseId);
+            System.debug('✅ CSV Attachment successfully created for Case ID: ' + caseId);
 
         } catch (Exception e) {
             System.debug('❌ Error creating CSV attachment: ' + e.getMessage());
