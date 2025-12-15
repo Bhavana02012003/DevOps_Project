@@ -227,10 +227,14 @@ jobs:
               while IFS=',' read -r problem severity file tempLine column rule description url category engine commit actualLine branch; do
                 [[ "$problem" == "Problem" ]] && continue
 
-                baseFile=$(basename "$file")
-                key="$baseFile|$tempLine"
+                cleanFile=$(echo "$file" | tr -d '"')
+                cleanLine=$(echo "$tempLine" | tr -d '"')
+
+                baseFile=$(basename "$cleanFile")
+                key="$baseFile|$cleanLine"
+
                 actual="${ACTUAL_LINE_MAP[$key]}"
-                [[ -z "$actual" ]] && actual="N/A"
+                [[ -z "$actual" || "$actual" == "0" ]] && actual="N/A"
 
                 echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH}" >> scanner-report.csv
               done < <(tail -n +2 scanner-report-partial.csv)
