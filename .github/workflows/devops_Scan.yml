@@ -82,16 +82,13 @@ jobs:
           > changed_cls_lwc_files.txt
           > line_number_mapping.txt
 
-          echo "Checking for changed files..."
+          echo "🔍 Detecting changed files..."
           changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' '*.lwc' || true)
 
-          if [ -z "$changed_files" ]; then
-            echo "No relevant files changed."
-            exit 0
-          fi
+          [ -z "$changed_files" ] && exit 0
 
           for file in $changed_files; do
-            echo "Processing file: $file"
+            echo "➡ Processing file: $file"
 
             extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
               /^@@/ {
@@ -106,43 +103,76 @@ jobs:
 
             [ -z "$extracted_lines" ] && continue
 
-            temp_file="temp_scanner_files/temp_${file//\//_}"
-            echo "public class TempWrapperClass {" > "$temp_file"
+            ####################################################################
+            # 🔹 APEX FILES — WITH SAFE ORPHAN HANDLING
+            ####################################################################
+            if [[ "$file" == *.cls ]]; then
+              temp_file="temp_scanner_files/temp_${file//\//_}"
+              echo "public class TempWrapperClass {" > "$temp_file"
 
-            temp_line_no=1
-            echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
-            ((temp_line_no++))
-
-            echo "    public static void tempMethod() {" >> "$temp_file"
-            echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
-            ((temp_line_no++))
-
-            echo "        /* Extracted logic */" >> "$temp_file"
-            echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
-            ((temp_line_no++))
-
-            while IFS=, read -r actual_line content; do
-              trimmed=$(echo "$content" | sed 's/^[[:space:]]*//')
-              echo "        $trimmed" >> "$temp_file"
-              echo "$temp_file,$temp_line_no,$actual_line" >> line_number_mapping.txt
+              temp_line_no=1
+              echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
               ((temp_line_no++))
-            done <<< "$extracted_lines"
 
-            echo "    }" >> "$temp_file"
-            echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
-            ((temp_line_no++))
+              echo "    public static void tempMethod() {" >> "$temp_file"
+              echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
+              ((temp_line_no++))
 
-            echo "}" >> "$temp_file"
-            echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
+              echo "        /* Extracted delta logic */" >> "$temp_file"
+              echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
+              ((temp_line_no++))
 
-            echo "$temp_file" >> changed_cls_lwc_files.txt
-            echo "Created temp file: $temp_file"
+              while IFS=, read -r actual_line content; do
+                trimmed=$(echo "$content" | sed 's/^[[:space:]]*//')
+
+                # 🔒 SAFE orphan control block handling
+                if [[ "$trimmed" =~ ^(\}|else|for|while|catch|finally)[[:space:]]*\{ ]]; then
+                  echo "        if (true) {" >> "$temp_file"
+                  echo "$temp_file,$temp_line_no,$actual_line" >> line_number_mapping.txt
+                  ((temp_line_no++))
+
+                  echo "            $trimmed" >> "$temp_file"
+                  echo "$temp_file,$temp_line_no,$actual_line" >> line_number_mapping.txt
+                  ((temp_line_no++))
+
+                  echo "        }" >> "$temp_file"
+                  echo "$temp_file,$temp_line_no,$actual_line" >> line_number_mapping.txt
+                  ((temp_line_no++))
+                else
+                  echo "        $trimmed" >> "$temp_file"
+                  echo "$temp_file,$temp_line_no,$actual_line" >> line_number_mapping.txt
+                  ((temp_line_no++))
+                fi
+              done <<< "$extracted_lines"
+
+              echo "    }" >> "$temp_file"
+              echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
+              ((temp_line_no++))
+
+              echo "}" >> "$temp_file"
+              echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
+
+              echo "$temp_file" >> changed_cls_lwc_files.txt
+              echo "✅ Apex temp file created: $temp_file"
+
+            ####################################################################
+            # 🔹 JS / HTML / LWC — DIRECT SCAN (NO TEMP FILE)
+            ####################################################################
+            else
+              echo "🟢 Direct scan: $file"
+              echo "$file" >> changed_cls_lwc_files.txt
+
+              while IFS=, read -r actual_line content; do
+                baseFile=$(basename "$file")
+                echo "$baseFile,$actual_line,$actual_line" >> line_number_mapping.txt
+              done <<< "$extracted_lines"
+            fi
           done
 
-          echo "==== LINE NUMBER MAPPING ===="
+          echo "================ LINE NUMBER MAPPING ================"
           cat line_number_mapping.txt
 
-      
+            
             
       # - name: Debug Extracted Line Number Mapping
       #   run: |
