@@ -331,67 +331,29 @@ jobs:
 
       - name: Remap Temp Line Numbers to Actual Line Numbers
         run: |
-          echo "🔄 Correctly remapping temp lines to original source lines..."
+          echo "🔄 Remapping temp lines using exact mapping..."
 
-          if [ ! -f scanner-report.csv ] || [ ! -f line_number_mapping.txt ]; then
-            echo "❌ Required files missing"
-            exit 1
-          fi
-
-          # Build mapping:
-          # key = baseTempFile|tempFileLineNumber
-          # value = originalSourceLine
           awk -F',' '
-          {
-            tempFile=$1
-            origLine=$2
-
-            split(tempFile, p, "/")
-            base=p[length(p)]
-
-            # increment per-file temp line counter
-            count[base]++
-            key=base "|" count[base]
-
-            map[key]=origLine
-          }
-          END {
-            for (k in map) {
-              print k "," map[k]
-            }
-          }' line_number_mapping.txt > mapping_index.txt
-
-          echo "📌 Mapping index:"
-          cat mapping_index.txt
-
-          echo "🛠 Rewriting scanner-report.csv with correct ActualLine..."
-
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report-final.csv
-
-          awk -F',' -v OFS=',' '
           NR==FNR {
-            split($1, k, "|")
-            lookup[k[1] "|" k[2]] = $2
+            # mapping: base|tempLine → actualLine
+            split($1,p,"/")
+            base=p[length(p)]
+            map[base "|" $2]=$3
             next
           }
           NR>1 {
-            file=$3
-            tempLine=$4
-            key=file "|" tempLine
-
-            if (key in lookup)
-              $12 = lookup[key]
+            split($3,p,"/")
+            base=p[length(p)]
+            key=base "|" $4
+            if (key in map)
+              $12=map[key]
             else
-              $12 = "N/A"
-
+              $12="N/A"
             print
-          }' mapping_index.txt scanner-report.csv >> scanner-report-final.csv
+          }' line_number_mapping.txt scanner-report.csv > scanner-report-final.csv
 
           mv scanner-report-final.csv scanner-report.csv
-
-          echo "✅ Final scanner report:"
           cat scanner-report.csv
-
           
       - name: Load Salesforce API URL
         id: load-api-url
