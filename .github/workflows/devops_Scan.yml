@@ -279,9 +279,35 @@ jobs:
       #       COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
       #       echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
       #       echo "Commit Author: $COMMIT_AUTHOR"
-         
+
+
+      - name: Build Actual Line Lookup
+        run: |
+          echo "🔧 Building actual line lookup map..."
+
+          awk -F',' '
+          {
+            fullpath=$1
+            actual=$2
+
+            n=split(fullpath, arr, "/")
+            file=arr[n]              # 👈 BASENAME ONLY
+
+            count[file]++
+            key=file "|" count[file]
+
+            print key "=" actual
+          }
+          ' line_number_mapping.txt > actual_line_lookup.env
+
       - name: Run SFDX Scanner on Changed Lines
         run: |
+
+          # 🔹 Load actual line mapping into memory
+          declare -A ACTUAL_LINE_MAP
+          while IFS='=' read -r key value; do
+            ACTUAL_LINE_MAP["$key"]="$value"
+          done < actual_line_lookup.env
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
             echo "No files to scan. Creating an empty report."
@@ -308,90 +334,23 @@ jobs:
               sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
             fi
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
-              tail -n +2 "scanner-report-partial.csv" | awk -F',' -v OFS=',' \
-                  -v commit_author="$COMMIT_AUTHOR" \
-                  -v target_branch="${{ env.TARGET_BRANCH }}" \
-                  -v unwanted_path="$UNWANTED_PATH" \
-                  -v orig_file="$file" \
-                  -v mode="$SCAN_MODE" '
-                {
-                  $3 = gensub(unwanted_path, "", "g", $3);  # Trim file path
-                  $11 = commit_author;  # Commit author
-                  if (NF < 12) $12 = "N/A";  # Actual line fallback
-                  $13 = target_branch;  # Branch
-                  print $0
-                }' >> scanner-report.csv
+              while IFS=',' read -r problem severity file tempLine column rule description url category engine commit actualLine branch; do
+                [[ "$problem" == "Problem" ]] && continue
+
+                baseFile=$(basename "$file")
+                key="$baseFile|$tempLine"
+                actual="${ACTUAL_LINE_MAP[$key]}"
+
+                [[ -z "$actual" ]] && actual="N/A"
+
+                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH}" >> scanner-report.csv
+              done < <(tail -n +2 scanner-report-partial.csv)
             else
               echo "⚠️ No violations found for: $file"
             fi
           done
           echo "✅ Final Scanner Report with TargetBranch:"
           cat scanner-report.csv
-
-
-      - name: Remap Temp Line Numbers to Actual Line Numbers
-        id: remap-lines
-        run: |
-          echo "🔄 Remapping temp file line numbers to actual original line numbers..."
-
-          if [ ! -f scanner-report.csv ]; then
-            echo "❌ scanner-report.csv not found."
-            exit 1
-          fi
-
-          if [ ! -f line_number_mapping.txt ]; then
-            echo "❌ line_number_mapping.txt not found."
-            exit 1
-          fi
-
-          echo "Building mapping index..."
-
-          # mapping_index.txt FORMAT:
-          # baseFilename , tempLine , actualLine
-          awk -F',' '
-            {
-              fullpath=$1
-              actual=$2       # original line number
-              tempLineNR=NR   # temp file line number = line_number_mapping.txt row number
-              
-              # Extract the basename of the temp file
-              n=split(fullpath, arr, "/")
-              base=arr[n]
-
-              # Store mapping
-              print base "," tempLineNR "," actual
-            }
-          ' line_number_mapping.txt > mapping_index.txt
-
-          echo "Generated mapping_index.txt:"
-          cat mapping_index.txt
-
-          echo "Generating final scanner-report-final.csv..."
-
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report-final.csv
-
-          awk -F',' -v OFS=',' '
-            NR==FNR {
-              # mapping file
-              key=$1 "|" $2   # base | tempLineNR
-              actual[$1 "|" $2] = $3
-              next
-            }
-            NR!=FNR {
-              base=$3
-              tempLine=$4
-              key = base "|" tempLine
-              if (key in actual) $12 = actual[key]
-              else $12 = "N/A"
-              print
-            }
-          ' mapping_index.txt scanner-report.csv >> scanner-report-final.csv
-
-          mv scanner-report-final.csv scanner-report.csv
-
-          echo "🎉 Remapping complete!"
-          cat scanner-report.csv
-
           
       - name: Load Salesforce API URL
         id: load-api-url
