@@ -11,7 +11,7 @@ public with sharing class AttachmentHandler {
             ];
 
             if (caseRecord.File_Id__c == null) {
-                System.debug('⚠️ No file associated with this case...');
+                System.debug('⚠️ No file associated with this case..');
                 return;
                 
             }

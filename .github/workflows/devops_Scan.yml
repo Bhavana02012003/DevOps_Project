@@ -329,35 +329,36 @@ jobs:
           cat scanner-report.csv
 
 
-      - name: Add Extracted Original Line Column
+      - name: Add Extracted Original Line Column (FIXED)
         run: |
-          echo "➕ Adding ExtractedOriginalLine column from extraction mapping..."
+          echo "➕ Adding ExtractedOriginalLine column (fixed matching & CSV handling)..."
 
           echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ExtractedOriginalLine" > scanner-report-final.csv
 
           awk -F',' -v OFS=',' '
           NR==FNR {
-            # Build map: baseFile -> last extracted original line
+            # mapping file: temp_file,originalLine,code
+            gsub(/"/, "", $1)
             split($1,p,"/")
             base=p[length(p)]
             extracted[base]=$2
             next
           }
           NR>1 {
+            # scanner report
+            gsub(/"/, "", $3)
             split($3,p,"/")
             base=p[length(p)]
 
-            if (base in extracted)
-              $14 = extracted[base]
-            else
-              $14 = "N/A"
+            extractedLine = (base in extracted ? extracted[base] : "N/A")
 
-            print
+            # Append new column safely
+            print $0, extractedLine
           }' line_number_mapping.txt scanner-report.csv >> scanner-report-final.csv
 
           mv scanner-report-final.csv scanner-report.csv
 
-          echo "✅ Updated scanner report:"
+          echo "✅ FINAL scanner report:"
           cat scanner-report.csv
           
       - name: Load Salesforce API URL
