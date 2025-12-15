@@ -329,30 +329,35 @@ jobs:
           cat scanner-report.csv
 
 
-      - name: Remap Temp Line Numbers to Actual Line Numbers
+      - name: Add Extracted Original Line Column
         run: |
-          echo "🔄 Remapping temp lines using exact mapping..."
+          echo "➕ Adding ExtractedOriginalLine column from extraction mapping..."
 
-          awk -F',' '
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ExtractedOriginalLine" > scanner-report-final.csv
+
+          awk -F',' -v OFS=',' '
           NR==FNR {
-            # mapping: base|tempLine → actualLine
+            # Build map: baseFile -> last extracted original line
             split($1,p,"/")
             base=p[length(p)]
-            map[base "|" $2]=$3
+            extracted[base]=$2
             next
           }
           NR>1 {
             split($3,p,"/")
             base=p[length(p)]
-            key=base "|" $4
-            if (key in map)
-              $12=map[key]
+
+            if (base in extracted)
+              $14 = extracted[base]
             else
-              $12="N/A"
+              $14 = "N/A"
+
             print
-          }' line_number_mapping.txt scanner-report.csv > scanner-report-final.csv
+          }' line_number_mapping.txt scanner-report.csv >> scanner-report-final.csv
 
           mv scanner-report-final.csv scanner-report.csv
+
+          echo "✅ Updated scanner report:"
           cat scanner-report.csv
           
       - name: Load Salesforce API URL
