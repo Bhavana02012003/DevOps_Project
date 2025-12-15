@@ -330,66 +330,66 @@ jobs:
 
 
       - name: Remap Temp Line Numbers to Actual Line Numbers
-        id: remap-lines
         run: |
-          echo "🔄 Remapping temp file line numbers to actual original line numbers..."
+          echo "🔄 Correctly remapping temp lines to original source lines..."
 
-          if [ ! -f scanner-report.csv ]; then
-            echo "❌ scanner-report.csv not found."
+          if [ ! -f scanner-report.csv ] || [ ! -f line_number_mapping.txt ]; then
+            echo "❌ Required files missing"
             exit 1
           fi
 
-          if [ ! -f line_number_mapping.txt ]; then
-            echo "❌ line_number_mapping.txt not found."
-            exit 1
-          fi
-
-          echo "Building mapping index..."
-
-          # mapping_index.txt FORMAT:
-          # baseFilename , tempLine , actualLine
+          # Build mapping:
+          # key = baseTempFile|tempFileLineNumber
+          # value = originalSourceLine
           awk -F',' '
-            {
-              fullpath=$1
-              actual=$2       # original line number
-              tempLineNR=NR   # temp file line number = line_number_mapping.txt row number
-              
-              # Extract the basename of the temp file
-              n=split(fullpath, arr, "/")
-              base=arr[n]
+          {
+            tempFile=$1
+            origLine=$2
 
-              # Store mapping
-              print base "," tempLineNR "," actual
+            split(tempFile, p, "/")
+            base=p[length(p)]
+
+            # increment per-file temp line counter
+            count[base]++
+            key=base "|" count[base]
+
+            map[key]=origLine
+          }
+          END {
+            for (k in map) {
+              print k "," map[k]
             }
-          ' line_number_mapping.txt > mapping_index.txt
+          }' line_number_mapping.txt > mapping_index.txt
 
-          echo "Generated mapping_index.txt:"
+          echo "📌 Mapping index:"
           cat mapping_index.txt
 
-          echo "Generating final scanner-report-final.csv..."
+          echo "🛠 Rewriting scanner-report.csv with correct ActualLine..."
 
           echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report-final.csv
 
           awk -F',' -v OFS=',' '
-            NR==FNR {
-              # mapping file
-              key=$1 "|" $2   # base | tempLineNR
-              actual[$1 "|" $2] = $3
-              next
-            }
-            NR!=FNR {
-              base=$3
-              tempLine=$4
-              key = base "|" tempLine
-              if (key in actual) $12 = actual[key]
-              else $12 = "N/A"
-              print
-            }
-          ' mapping_index.txt scanner-report.csv >> scanner-report-final.csv
+          NR==FNR {
+            split($1, k, "|")
+            lookup[k[1] "|" k[2]] = $2
+            next
+          }
+          NR>1 {
+            file=$3
+            tempLine=$4
+            key=file "|" tempLine
+
+            if (key in lookup)
+              $12 = lookup[key]
+            else
+              $12 = "N/A"
+
+            print
+          }' mapping_index.txt scanner-report.csv >> scanner-report-final.csv
 
           mv scanner-report-final.csv scanner-report.csv
 
-          echo "🎉 Remapping complete!"
+          echo "✅ Final scanner report:"
           cat scanner-report.csv
 
           
