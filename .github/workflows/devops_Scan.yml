@@ -85,7 +85,7 @@ jobs:
             echo "Detected changed files: $changed_files"
             if [ -z "$changed_files" ]; then
               echo "No .cls or .lwc files detected."
-              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ExtractedOriginalLine" > scanner-report.csv
               exit 0
             fi
             for file in $changed_files; do
@@ -285,11 +285,11 @@ jobs:
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
             echo "No files to scan. Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ExtractedOriginalLine" > scanner-report.csv
             exit 0
           fi
           echo "📋 Scanning files: $files"
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ExtractedOriginalLine" > scanner-report.csv
           UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
           for file in $files; do
             if [[ "$file" == temp_scanner_files/* ]]; then
@@ -331,31 +331,29 @@ jobs:
 
       - name: Add Extracted Original Line Column (FIXED)
         run: |
-          echo "➕ Adding ExtractedOriginalLine column (fixed matching & CSV handling)..."
+          echo "➕ Adding ExtractedOriginalLine column..."
 
+          # Create a NEW file, do NOT touch scanner-report.csv yet
           echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ExtractedOriginalLine" > scanner-report-final.csv
 
           awk -F',' -v OFS=',' '
           NR==FNR {
-            # mapping file: temp_file,originalLine,code
-            gsub(/"/, "", $1)
-            split($1,p,"/")
-            base=p[length(p)]
-            extracted[base]=$2
+            # line_number_mapping.txt format:
+            # temp_file_path,originalLine,code
+            split($1, p, "/")
+            base = p[length(p)]
+            map[base "|" $2] = $2
             next
           }
           NR>1 {
-            # scanner report
-            gsub(/"/, "", $3)
-            split($3,p,"/")
-            base=p[length(p)]
-
-            extractedLine = (base in extracted ? extracted[base] : "N/A")
-
-            # Append new column safely
-            print $0, extractedLine
+            split($3, p, "/")
+            base = p[length(p)]
+            key = base "|" $4
+            extracted = (key in map ? map[key] : "N/A")
+            print $0, extracted
           }' line_number_mapping.txt scanner-report.csv >> scanner-report-final.csv
 
+          # NOW replace the file safely
           mv scanner-report-final.csv scanner-report.csv
 
           echo "✅ FINAL scanner report:"
@@ -423,15 +421,6 @@ jobs:
       #     echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
       #     echo "Commit Author: $COMMIT_AUTHOR"
 
-
-      
-      - name: Ensure Scanner Report Exists
-        if: always()  # ✅ Ensures it runs even if commit is blocked
-        run: |
-            if [ ! -s scanner-report.csv ]; then
-              echo "No scanner report generated, creating a dummy report."
-              echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
-            fi
       - name: Debug - List Files Before Upload
         if: always()
         run: |
@@ -463,7 +452,7 @@ jobs:
         run: |
           if [ ! -f scanner-report.csv ]; then
             echo "❌ scanner-report.csv file not found! Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine" > scanner-report.csv
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ExtractedOriginalLine" > scanner-report.csv
           fi
           mkdir -p /tmp/artifact_backup
           cp scanner-report.csv /tmp/artifact_backup/${{ env.REPORT_FILE }}
