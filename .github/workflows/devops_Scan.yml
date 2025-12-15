@@ -144,17 +144,17 @@ jobs:
 
       
             
-      - name: Debug Extracted Line Number Mapping
-        run: |
-            echo "====== FINAL LINE NUMBER MAPPING ======"
-            cat line_number_mapping.txt || echo "❌ No line mappings found!"
+      # - name: Debug Extracted Line Number Mapping
+      #   run: |
+      #       echo "====== FINAL LINE NUMBER MAPPING ======"
+      #       cat line_number_mapping.txt || echo "❌ No line mappings found!"
         
-            echo "====== CHECKING FILE PATH FORMATTING ======"
-            while IFS=, read -r problem severity file temp_line column rule description url category engine; do
-              formatted_file_path=$(basename "$file")
-              echo "Checking: $formatted_file_path, Temp Line: $temp_line"
-              grep "$formatted_file_path,$temp_line" line_number_mapping.txt || echo "❌ No match found for $formatted_file_path,$temp_line"
-            done < <(tail -n +2 scanner-report-temp.csv)
+      #       echo "====== CHECKING FILE PATH FORMATTING ======"
+      #       while IFS=, read -r problem severity file temp_line column rule description url category engine; do
+      #         formatted_file_path=$(basename "$file")
+      #         echo "Checking: $formatted_file_path, Temp Line: $temp_line"
+      #         grep "$formatted_file_path,$temp_line" line_number_mapping.txt || echo "❌ No match found for $formatted_file_path,$temp_line"
+      #       done < <(tail -n +2 scanner-report-temp.csv)
         
         
         
@@ -174,12 +174,20 @@ jobs:
 
           awk -F',' '
           {
-            file=$1
+            fullpath=$1
             tempLine=$2
             actualLine=$3
+
+            n=split(fullpath, arr, "/")
+            file=arr[n]   # 👈 BASENAME ONLY
+
             print file "|" tempLine "=" actualLine
           }
           ' line_number_mapping.txt > actual_line_lookup.env
+
+          echo "=== ACTUAL LINE LOOKUP ==="
+          cat actual_line_lookup.env
+
 
 
       - name: Run SFDX Scanner on Changed Lines
