@@ -2,6 +2,9 @@ public with sharing class File {
 
     private static final String VULN_OBJECT_LABEL = 'Vulnerability';
 
+    /* ============================================================
+       ENTRY POINT
+    ============================================================ */
     public static void processNewFiles(List<ContentVersion> contentVersions) {
         List<Id> contentDocIds = new List<Id>();
         for (ContentVersion cv : contentVersions) {
@@ -14,6 +17,9 @@ public with sharing class File {
         }
     }
 
+    /* ============================================================
+       MAIN PROCESSOR
+    ============================================================ */
     public static void importVulnerabilityData(List<Id> contentDocIds) {
         try {
             /* ---------------- CURRENT SCAN RUN ---------------- */
@@ -24,7 +30,6 @@ public with sharing class File {
             if (String.isBlank(vulnObjectApi)) return;
 
             Schema.SObjectType sType = Schema.getGlobalDescribe().get(vulnObjectApi);
-            Map<String, Schema.SObjectField> fields = sType.getDescribe().fields.getMap();
 
             /* ---------------- LOAD FILES ---------------- */
             List<ContentVersion> fileList = [
@@ -38,8 +43,8 @@ public with sharing class File {
             /* ---------------- MASTER ---------------- */
             Map<String, SObject> masterMap = new Map<String, SObject>();
             for (SObject v : Database.query(
-                'SELECT Id, Problem__c, Rule__c, File__c, Line__c, Engine__c, TargetBranch__c, ' +
-                'Violation_Status__c, Last_Seen_Run_Id__c FROM ' + vulnObjectApi
+                'SELECT Id, Problem__c, Rule__c, File__c, Line__c, Engine__c, TargetBranch__c,' +
+                ' Violation_Status__c, Last_Seen_Run_Id__c FROM ' + vulnObjectApi
             )) {
                 masterMap.put(buildKey(v), v);
             }
@@ -91,24 +96,42 @@ public with sharing class File {
                 }
             }
 
-            /* ---------------- CLOSE LOGIC ---------------- */
+            /* ---------------- CLOSE LOGIC (DELTA SAFE) ---------------- */
+            Set<String> scannedFilesThisRun = new Set<String>();
+            for (String key : seenThisRun) {
+                List<String> parts = key.split('\\|');
+                if (parts.size() >= 3) {
+                    scannedFilesThisRun.add(parts[2]); // File__c
+                }
+            }
+
             for (SObject v : masterMap.values()) {
+                String fileName = (String)v.get('File__c');
                 String lastSeenRun = (String)v.get('Last_Seen_Run_Id__c');
-                if (lastSeenRun != currentRunId) {
+
+                if (
+                    scannedFilesThisRun.contains(fileName) &&
+                    lastSeenRun != currentRunId
+                ) {
                     v.put('Violation_Status__c', 'Closed');
+                    v.put('Last_Seen_Date__c', System.now());
                     toUpdate.add(v);
                 }
             }
 
+            /* ---------------- DML ---------------- */
             if (!toInsert.isEmpty()) insert toInsert;
             if (!toUpdate.isEmpty()) update toUpdate;
 
         } catch (Exception e) {
-            System.debug(e.getMessage());
+            System.debug('❌ Vulnerability Processing Error: ' + e.getMessage());
+            System.debug(e.getStackTraceString());
         }
     }
 
-    /* ---------------- HELPERS ---------------- */
+    /* ============================================================
+       HELPERS
+    ============================================================ */
 
     private static String resolveVulnerabilityObjectApiName() {
         for (String api : Schema.getGlobalDescribe().keySet()) {
@@ -132,7 +155,7 @@ public with sharing class File {
     }
 
     private static void safePut(SObject r, String f, Object v) {
-        try { r.put(f, v); } catch (Exception e) {}
+        try { r.put(f, v); } catch (Exception ignore) {}
     }
 
     public static List<String> parseCSVLine(String l) {
