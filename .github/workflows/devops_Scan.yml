@@ -233,11 +233,11 @@ jobs:
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
             echo "No files to scan. Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ScanRunId" > scanner-report.csv
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ScanRunId,ScannedFile" > scanner-report.csv
             exit 0
           fi
           echo "📋 Scanning files: $files"
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ScanRunId" > scanner-report.csv
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ScanRunId,ScannedFile" > scanner-report.csv
           UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
           for file in $files; do
             if [[ "$file" == temp_scanner_files/* ]]; then
@@ -268,10 +268,14 @@ jobs:
                 actual="${ACTUAL_LINE_MAP[$key]}"
                 [[ -z "$actual" || "$actual" == "0" ]] && actual="N/A"
 
-                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH},${SCAN_RUN_ID}" >> scanner-report.csv
+                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH},${SCAN_RUN_ID},$baseFile" >> scanner-report.csv
               done < <(tail -n +2 scanner-report-partial.csv)
             else
               echo "⚠️ No violations found for: $file"
+            fi
+            # If this file never appeared in scanner-report.csv, it means ZERO violations
+            if ! awk -F',' -v f="$baseFile" 'NR>1 && $3==f {found=1} END{exit !found}' scanner-report.csv; then
+              echo ",,,,$baseFile,,,,,,,${TARGET_BRANCH},${SCAN_RUN_ID},$baseFile" >> scanner-report.csv
             fi
           done
           echo "✅ Final Scanner Report with TargetBranch:"
