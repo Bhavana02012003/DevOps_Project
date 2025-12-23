@@ -13,6 +13,8 @@ concurrency:
 jobs:
   quality-gate-code-check:
     runs-on: ubuntu-latest
+    env:
+      SCAN_RUN_ID: ${{ github.run_id }}
     outputs:
       scanner-report-path: ${{ steps.upload-report.outputs.artifact-path }}  # Outputs the artifact path to pass to the next job
       block-pr: ${{ steps.block-check.outputs.block-status }}  # Pass the block status
@@ -231,11 +233,11 @@ jobs:
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
             echo "No files to scan. Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ScanRunId" > scanner-report.csv
             exit 0
           fi
           echo "📋 Scanning files: $files"
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch,ScanRunId" > scanner-report.csv
           UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
           for file in $files; do
             if [[ "$file" == temp_scanner_files/* ]]; then
@@ -266,7 +268,7 @@ jobs:
                 actual="${ACTUAL_LINE_MAP[$key]}"
                 [[ -z "$actual" || "$actual" == "0" ]] && actual="N/A"
 
-                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH}" >> scanner-report.csv
+                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH},${SCAN_RUN_ID}" >> scanner-report.csv
               done < <(tail -n +2 scanner-report-partial.csv)
             else
               echo "⚠️ No violations found for: $file"
