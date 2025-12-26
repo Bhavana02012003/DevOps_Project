@@ -22,18 +22,16 @@ public with sharing class File {
     ============================================================ */
     public static void importVulnerabilityData(List<Id> contentDocIds) {
         try {
-            /* ---------------- CURRENT SCAN RUN ---------------- */
-            String currentRunId = String.valueOf(Crypto.getRandomLong());
 
-            /* ---------------- RESOLVE OBJECT ---------------- */
+            String currentRunId = String.valueOf(System.now().getTime());
+
             String vulnObjectApi = resolveVulnerabilityObjectApiName();
             if (String.isBlank(vulnObjectApi)) return;
 
             Schema.SObjectType sType = Schema.getGlobalDescribe().get(vulnObjectApi);
 
-            /* ---------------- LOAD FILES ---------------- */
             List<ContentVersion> fileList = [
-                SELECT Id, VersionData
+                SELECT Id, Title, VersionData
                 FROM ContentVersion
                 WHERE ContentDocumentId IN :contentDocIds
                 ORDER BY CreatedDate DESC
@@ -49,13 +47,13 @@ public with sharing class File {
                 masterMap.put(buildKey(v), v);
             }
 
-            /* ---------------- DELTA ---------------- */
-            Set<String> seenThisRun = new Set<String>();
+            /* ---------------- DELTA INSERT / UPDATE ---------------- */
             List<SObject> toInsert = new List<SObject>();
             List<SObject> toUpdate = new List<SObject>();
 
             for (ContentVersion cv : fileList) {
-                if (cv.VersionData == null) continue;
+                if (cv.VersionData == null || !cv.Title.endsWith('.csv')) continue;
+                if (cv.Title.toLowerCase().contains('scanned_files')) continue;
 
                 List<String> lines = cv.VersionData.toString().split('\\n');
                 if (lines.size() < 2) continue;
@@ -82,7 +80,6 @@ public with sharing class File {
                     safePut(delta, 'Last_Seen_Date__c', System.now());
 
                     String key = buildKey(delta);
-                    seenThisRun.add(key);
 
                     if (masterMap.containsKey(key)) {
                         SObject existing = masterMap.get(key);
@@ -94,40 +91,28 @@ public with sharing class File {
                         delta.put('First_Seen_Run_Id__c', currentRunId);
                         toInsert.add(delta);
                     }
-
                 }
             }
 
-            /* ---------------- DELTA-SAFE CLOSE LOGIC ---------------- */
+            /* ============================================================
+               ✅ FILE-BASED AUTO CLOSE LOGIC (NEW — REQUIRED)
+            ============================================================ */
 
-            /* ---------------- DELTA-SAFE CLOSE LOGIC (FIXED) ---------------- */
-
-            // 1️⃣ Track files scanned in this run
             Set<String> scannedFilesThisRun = new Set<String>();
 
             for (ContentVersion cv : fileList) {
-                List<String> lines = cv.VersionData.toString().split('\\n');
-                if (lines.size() < 2) continue;
-
-                List<String> headers = parseCSVLine(lines[0]);
-                Map<String, Integer> col = new Map<String, Integer>();
-                for (Integer i = 0; i < headers.size(); i++) {
-                    col.put(headers[i].trim().toLowerCase(), i);
-                }
-
-                for (Integer r = 1; r < lines.size(); r++) {
-                    List<String> cols = parseCSVLine(lines[r]);
-                    if (cols.size() <= col.get('file')) continue;
-                    scannedFilesThisRun.add(cols[col.get('file')]);
+                if (cv.Title != null && cv.Title.toLowerCase().contains('scanned_files')) {
+                    List<String> lines = cv.VersionData.toString().split('\\n');
+                    for (Integer i = 1; i < lines.size(); i++) {
+                        scannedFilesThisRun.add(lines[i].trim());
+                    }
                 }
             }
 
-            // 2️⃣ Close OPEN violations not seen again
             for (SObject existing : masterMap.values()) {
-
-                String fileName   = (String) existing.get('File__c');
-                String lastSeen   = (String) existing.get('Last_Seen_Run_Id__c');
-                String status     = (String) existing.get('Violation_Status__c');
+                String fileName = (String) existing.get('File__c');
+                String lastSeen = (String) existing.get('Last_Seen_Run_Id__c');
+                String status   = (String) existing.get('Violation_Status__c');
 
                 if (
                     scannedFilesThisRun.contains(fileName) &&

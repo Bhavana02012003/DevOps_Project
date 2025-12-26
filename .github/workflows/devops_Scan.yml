@@ -198,6 +198,19 @@ jobs:
       #       echo "Commit Author: $COMMIT_AUTHOR"
 
 
+      - name: Generate scanned files list
+        run: |
+          echo "File" > scanned_files.csv
+          if [ -f changed_cls_lwc_files.txt ]; then
+            while read f; do
+              echo "$(basename "$f")" >> scanned_files.csv
+            done < changed_cls_lwc_files.txt
+          fi
+          echo "Scanned files list:"
+          cat scanned_files.csv
+
+
+
       - name: Build Actual Line Lookup
         run: |
           echo "🔧 Building actual line lookup map..."
@@ -318,7 +331,8 @@ jobs:
             -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
             -H "Content-Type: multipart/form-data" \
             -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
-            -F "VersionData=@scanner-report.csv;type=text/csv")
+            -F "VersionData=@scanner-report.csv;type=text/csv" \
+            -F "VersionData=@scanned_files.csv;type=text/csv")
             # 🔍 Debug: Print the full API response
             echo "📢 Salesforce API Response: $response"
             # Extract the ID safely (handles both array & object responses)
