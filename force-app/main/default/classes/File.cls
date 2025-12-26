@@ -100,26 +100,38 @@ public with sharing class File {
 
             /* ---------------- DELTA-SAFE CLOSE LOGIC ---------------- */
 
+            /* ---------------- DELTA-SAFE CLOSE LOGIC (FIXED) ---------------- */
+
+            // 1️⃣ Track files scanned in this run
             Set<String> scannedFilesThisRun = new Set<String>();
 
-            for (String key : seenThisRun) {
-                List<String> parts = key.split('\\|');
-                scannedFilesThisRun.add(parts[2]); // File__c
+            for (ContentVersion cv : fileList) {
+                List<String> lines = cv.VersionData.toString().split('\\n');
+                if (lines.size() < 2) continue;
+
+                List<String> headers = parseCSVLine(lines[0]);
+                Map<String, Integer> col = new Map<String, Integer>();
+                for (Integer i = 0; i < headers.size(); i++) {
+                    col.put(headers[i].trim().toLowerCase(), i);
+                }
+
+                for (Integer r = 1; r < lines.size(); r++) {
+                    List<String> cols = parseCSVLine(lines[r]);
+                    if (cols.size() <= col.get('file')) continue;
+                    scannedFilesThisRun.add(cols[col.get('file')]);
+                }
             }
 
+            // 2️⃣ Close OPEN violations not seen again
             for (SObject existing : masterMap.values()) {
 
-                String fileName = (String) existing.get('File__c');
-                String lastSeenRun = (String) existing.get('Last_Seen_Run_Id__c');
-                String status = (String) existing.get('Violation_Status__c');
+                String fileName   = (String) existing.get('File__c');
+                String lastSeen   = (String) existing.get('Last_Seen_Run_Id__c');
+                String status     = (String) existing.get('Violation_Status__c');
 
-                // Close ONLY if:
-                // 1️⃣ File was scanned this run
-                // 2️⃣ Violation not seen again
-                // 3️⃣ Currently Open
                 if (
                     scannedFilesThisRun.contains(fileName) &&
-                    lastSeenRun != currentRunId &&
+                    lastSeen != currentRunId &&
                     status == 'Open'
                 ) {
                     existing.put('Violation_Status__c', 'Closed');
