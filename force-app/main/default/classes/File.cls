@@ -23,7 +23,7 @@ public with sharing class File {
     public static void importVulnerabilityData(List<Id> contentDocIds) {
         try {
             /* ---------------- CURRENT SCAN RUN ---------------- */
-            String currentRunId = String.valueOf(System.now().getTime());
+            String currentRunId = String.valueOf(Crypto.getRandomLong());
 
             /* ---------------- RESOLVE OBJECT ---------------- */
             String vulnObjectApi = resolveVulnerabilityObjectApiName();
@@ -91,31 +91,40 @@ public with sharing class File {
                         existing.put('Last_Seen_Date__c', System.now());
                         toUpdate.add(existing);
                     } else {
+                        delta.put('First_Seen_Run_Id__c', currentRunId);
                         toInsert.add(delta);
                     }
+
                 }
             }
 
-            /* ---------------- CLOSE LOGIC (DELTA SAFE) ---------------- */
+            /* ---------------- DELTA-SAFE CLOSE LOGIC ---------------- */
+
             Set<String> scannedFilesThisRun = new Set<String>();
+
             for (String key : seenThisRun) {
                 List<String> parts = key.split('\\|');
-                if (parts.size() >= 3) {
-                    scannedFilesThisRun.add(parts[2]); // File__c
-                }
+                scannedFilesThisRun.add(parts[2]); // File__c
             }
 
-            for (SObject v : masterMap.values()) {
-                String fileName = (String)v.get('File__c');
-                String lastSeenRun = (String)v.get('Last_Seen_Run_Id__c');
+            for (SObject existing : masterMap.values()) {
 
+                String fileName = (String) existing.get('File__c');
+                String lastSeenRun = (String) existing.get('Last_Seen_Run_Id__c');
+                String status = (String) existing.get('Violation_Status__c');
+
+                // Close ONLY if:
+                // 1️⃣ File was scanned this run
+                // 2️⃣ Violation not seen again
+                // 3️⃣ Currently Open
                 if (
                     scannedFilesThisRun.contains(fileName) &&
-                    lastSeenRun != currentRunId
+                    lastSeenRun != currentRunId &&
+                    status == 'Open'
                 ) {
-                    v.put('Violation_Status__c', 'Closed');
-                    v.put('Last_Seen_Date__c', System.now());
-                    toUpdate.add(v);
+                    existing.put('Violation_Status__c', 'Closed');
+                    existing.put('Last_Seen_Date__c', System.now());
+                    toUpdate.add(existing);
                 }
             }
 
