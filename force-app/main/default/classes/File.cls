@@ -101,29 +101,48 @@ public with sharing class File {
             Set<String> scannedFilesThisRun = new Set<String>();
 
             for (ContentVersion cv : fileList) {
-                if (cv.Title != null && cv.Title.toLowerCase().contains('scanned_files')) {
-                    List<String> lines = cv.VersionData.toString().split('\\n');
-                    for (Integer i = 1; i < lines.size(); i++) {
-                        scannedFilesThisRun.add(lines[i].trim());
+                if (cv.VersionData == null) continue;
+                if (cv.Title != null && cv.Title.toLowerCase().contains('scanned_files')) continue;
+
+                List<String> lines = cv.VersionData.toString().split('\\n');
+                if (lines.size() < 2) continue;
+
+                List<String> headers = parseCSVLine(lines[0]);
+                Map<String, Integer> col = new Map<String, Integer>();
+                for (Integer i = 0; i < headers.size(); i++) {
+                    col.put(headers[i].trim().toLowerCase(), i);
+                }
+
+                for (Integer r = 1; r < lines.size(); r++) {
+                    List<String> cols = parseCSVLine(lines[r]);
+                    if (cols.isEmpty()) continue;
+
+                    SObject delta = sType.newSObject();
+                    safePut(delta, 'Problem__c', cols[col.get('problem')]);
+                    safePut(delta, 'Rule__c', cols[col.get('rule')]);
+                    safePut(delta, 'File__c', cols[col.get('file')]);
+                    safePut(delta, 'Line__c', cols[col.get('templine')]);
+                    safePut(delta, 'Engine__c', cols[col.get('engine')]);
+                    safePut(delta, 'TargetBranch__c', cols[col.get('targetbranch')]);
+                    safePut(delta, 'Violation_Status__c', 'Open');
+                    safePut(delta, 'Last_Seen_Run_Id__c', currentRunId);
+                    safePut(delta, 'Last_Seen_Date__c', System.now());
+
+                    String key = buildKey(delta);
+
+                    if (masterMap.containsKey(key)) {
+                        SObject existing = masterMap.get(key);
+                        existing.put('Violation_Status__c', 'Open');
+                        existing.put('Last_Seen_Run_Id__c', currentRunId);
+                        existing.put('Last_Seen_Date__c', System.now());
+                        toUpdate.add(existing);
+                    } else {
+                        delta.put('First_Seen_Run_Id__c', currentRunId);
+                        toInsert.add(delta);
                     }
                 }
             }
 
-            for (SObject existing : masterMap.values()) {
-                String fileName = (String) existing.get('File__c');
-                String lastSeen = (String) existing.get('Last_Seen_Run_Id__c');
-                String status   = (String) existing.get('Violation_Status__c');
-
-                if (
-                    scannedFilesThisRun.contains(fileName) &&
-                    lastSeen != currentRunId &&
-                    status == 'Open'
-                ) {
-                    existing.put('Violation_Status__c', 'Closed');
-                    existing.put('Last_Seen_Date__c', System.now());
-                    toUpdate.add(existing);
-                }
-            }
 
             /* ---------------- DML ---------------- */
             if (!toInsert.isEmpty()) insert toInsert;
