@@ -22,109 +22,69 @@ public with sharing class File {
     ============================================================ */
     public static void importVulnerabilityData(List<Id> contentDocIds) {
         try {
-            /* ---------------- CURRENT SCAN RUN ---------------- */
-            String currentRunId = String.valueOf(System.now().getTime());
 
-            /* ---------------- RESOLVE OBJECT ---------------- */
-            String vulnObjectApi = resolveVulnerabilityObjectApiName();
-            if (String.isBlank(vulnObjectApi)) return;
+            String vulnApiName = resolveVulnerabilityObjectApiName();
+            if (String.isBlank(vulnApiName)) {
+                System.debug('❌ Vulnerability object not found by label');
+                return;
+            }
 
-            Schema.SObjectType sType = Schema.getGlobalDescribe().get(vulnObjectApi);
+            Schema.SObjectType vulnType =
+                Schema.getGlobalDescribe().get(vulnApiName);
 
-            /* ---------------- LOAD FILES ---------------- */
-            List<ContentVersion> fileList = [
+            List<SObject> newRecords = new List<SObject>();
+
+            List<ContentVersion> files = [
                 SELECT Id, VersionData
                 FROM ContentVersion
                 WHERE ContentDocumentId IN :contentDocIds
                 ORDER BY CreatedDate DESC
             ];
-            if (fileList.isEmpty()) return;
 
-            /* ---------------- MASTER ---------------- */
-            Map<String, SObject> masterMap = new Map<String, SObject>();
-            for (SObject v : Database.query(
-                'SELECT Id, Problem__c, Rule__c, File__c, Line__c, Engine__c, TargetBranch__c,' +
-                ' Violation_Status__c, Last_Seen_Run_Id__c FROM ' + vulnObjectApi
-            )) {
-                masterMap.put(buildKey(v), v);
-            }
+            for (ContentVersion file : files) {
 
-            /* ---------------- DELTA ---------------- */
-            Set<String> seenThisRun = new Set<String>();
-            List<SObject> toInsert = new List<SObject>();
-            List<SObject> toUpdate = new List<SObject>();
+                if (file.VersionData == null) continue;
 
-            for (ContentVersion cv : fileList) {
-                if (cv.VersionData == null) continue;
+                String csv = file.VersionData.toString();
+                List<String> rows = csv.split('\\n');
+                if (rows.size() < 2) continue;
 
-                List<String> lines = cv.VersionData.toString().split('\\n');
-                if (lines.size() < 2) continue;
-
-                List<String> headers = parseCSVLine(lines[0]);
-                Map<String, Integer> col = new Map<String, Integer>();
+                List<String> headers = parseCSVLine(rows[0]);
+                Map<String, Integer> colIndex = new Map<String, Integer>();
                 for (Integer i = 0; i < headers.size(); i++) {
-                    col.put(headers[i].trim().toLowerCase(), i);
+                    colIndex.put(headers[i].trim().toLowerCase(), i);
                 }
 
-                for (Integer r = 1; r < lines.size(); r++) {
-                    List<String> cols = parseCSVLine(lines[r]);
-                    if (cols.size() < headers.size()) continue;
+                for (Integer r = 1; r < rows.size(); r++) {
+                    List<String> cols = parseCSVLine(rows[r]);
+                    if (cols.isEmpty()) continue;
 
-                    SObject delta = sType.newSObject();
-                    safePut(delta, 'Problem__c', cols[col.get('problem')]);
-                    safePut(delta, 'Rule__c', cols[col.get('rule')]);
-                    safePut(delta, 'File__c', cols[col.get('file')]);
-                    safePut(delta, 'Line__c', cols[col.get('templine')]);
-                    safePut(delta, 'Engine__c', cols[col.get('engine')]);
-                    safePut(delta, 'TargetBranch__c', cols[col.get('targetbranch')]);
-                    safePut(delta, 'Violation_Status__c', 'Open');
-                    safePut(delta, 'Last_Seen_Run_Id__c', currentRunId);
-                    safePut(delta, 'Last_Seen_Date__c', System.now());
+                    SObject vuln = vulnType.newSObject();
+                    safePut(vuln, 'Problem__c', cols[colIndex.get('problem')]);
+                    safePut(vuln, 'Severity__c', cols[colIndex.get('severity')]);
+                    safePut(vuln, 'File__c', cols[colIndex.get('file')]);
+                    safePut(vuln, 'Line__c', cols[colIndex.get('templine')]);
+                    safePut(vuln, 'Column__c', cols[colIndex.get('column')]);
+                    safePut(vuln, 'Rule__c', cols[colIndex.get('rule')]);
+                    safePut(vuln, 'Description__c', cols[colIndex.get('description')]);
+                    safePut(vuln, 'URL__c', cols[colIndex.get('url')]);
+                    safePut(vuln, 'Category__c', cols[colIndex.get('category')]);
+                    safePut(vuln, 'Engine__c', cols[colIndex.get('engine')]);
+                    safePut(vuln, 'Commit__c', cols[colIndex.get('commit')]);
+                    safePut(vuln, 'ActualLine__c', cols[colIndex.get('actualline')]);
+                    safePut(vuln, 'TargetBranch__c', cols[colIndex.get('targetbranch')]);
 
-                    String key = buildKey(delta);
-                    seenThisRun.add(key);
-
-                    if (masterMap.containsKey(key)) {
-                        SObject existing = masterMap.get(key);
-                        existing.put('Violation_Status__c', 'Open');
-                        existing.put('Last_Seen_Run_Id__c', currentRunId);
-                        existing.put('Last_Seen_Date__c', System.now());
-                        toUpdate.add(existing);
-                    } else {
-                        toInsert.add(delta);
-                    }
+                    newRecords.add(vuln);
                 }
             }
 
-            /* ---------------- CLOSE LOGIC (DELTA SAFE) ---------------- */
-            Set<String> scannedFilesThisRun = new Set<String>();
-            for (String key : seenThisRun) {
-                List<String> parts = key.split('\\|');
-                if (parts.size() >= 3) {
-                    scannedFilesThisRun.add(parts[2]); // File__c
-                }
+            if (!newRecords.isEmpty()) {
+                insert newRecords;
+                System.debug('✅ Created ' + newRecords.size() + ' Vulnerability records');
             }
-
-            for (SObject v : masterMap.values()) {
-                String fileName = (String)v.get('File__c');
-                String lastSeenRun = (String)v.get('Last_Seen_Run_Id__c');
-
-                if (
-                    scannedFilesThisRun.contains(fileName) &&
-                    lastSeenRun != currentRunId
-                ) {
-                    v.put('Violation_Status__c', 'Closed');
-                    v.put('Last_Seen_Date__c', System.now());
-                    toUpdate.add(v);
-                }
-            }
-
-            /* ---------------- DML ---------------- */
-            if (!toInsert.isEmpty()) insert toInsert;
-            if (!toUpdate.isEmpty()) update toUpdate;
 
         } catch (Exception e) {
-            System.debug('❌ Vulnerability Processing Error: ' + e.getMessage());
+            System.debug('❌ Error: ' + e.getMessage());
             System.debug(e.getStackTraceString());
         }
     }
@@ -143,32 +103,27 @@ public with sharing class File {
         return null;
     }
 
-    private static String buildKey(SObject r) {
-        return String.join(new List<String>{
-            String.valueOf(r.get('Problem__c')),
-            String.valueOf(r.get('Rule__c')),
-            String.valueOf(r.get('File__c')),
-            String.valueOf(r.get('Line__c')),
-            String.valueOf(r.get('Engine__c')),
-            String.valueOf(r.get('TargetBranch__c'))
-        }, '|');
+    private static void safePut(SObject s, String field, Object value) {
+        try {
+            s.put(field, value);
+        } catch (Exception ignore) {}
     }
 
-    private static void safePut(SObject r, String f, Object v) {
-        try { r.put(f, v); } catch (Exception ignore) {}
-    }
-
-    public static List<String> parseCSVLine(String l) {
-        List<String> out = new List<String>();
-        Boolean q = false;
-        String c = '';
-        for (Integer i = 0; i < l.length(); i++) {
-            String ch = l.substring(i, i+1);
-            if (ch == '"') q = !q;
-            else if (ch == ',' && !q) { out.add(c); c = ''; }
-            else c += ch;
+    public static List<String> parseCSVLine(String line) {
+        List<String> result = new List<String>();
+        Boolean inQuotes = false;
+        String current = '';
+        for (Integer i = 0; i < line.length(); i++) {
+            String ch = line.substring(i, i + 1);
+            if (ch == '"') inQuotes = !inQuotes;
+            else if (ch == ',' && !inQuotes) {
+                result.add(current);
+                current = '';
+            } else {
+                current += ch;
+            }
         }
-        out.add(c);
-        return out;
+        result.add(current);
+        return result;
     }
 }
