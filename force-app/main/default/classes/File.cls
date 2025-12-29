@@ -1,13 +1,15 @@
 public with sharing class File {
 
-    private static final String VULN_LABEL = 'Vulnerability';
+    // ---- CONFIG ----
+    private static final String VULN_OBJECT_API = 'Vulnerability__c';
+
     private static final String STATUS_OPEN   = 'Open';
     private static final String STATUS_CLOSED = 'Closed';
 
-    /* ===================== ENTRY ===================== */
-    public static void processNewFiles(List<ContentVersion> cvs) {
+    /* ===================== ENTRY POINT ===================== */
+    public static void processNewFiles(List<ContentVersion> contentVersions) {
         Set<Id> docIds = new Set<Id>();
-        for (ContentVersion cv : cvs) {
+        for (ContentVersion cv : contentVersions) {
             if (cv.ContentDocumentId != null) {
                 docIds.add(cv.ContentDocumentId);
             }
@@ -20,18 +22,19 @@ public with sharing class File {
     /* ===================== MAIN ===================== */
     public static void importVulnerabilityData(List<Id> contentDocIds) {
 
-        String vulnApi = resolveVulnerabilityObjectApiName();
-        if (String.isBlank(vulnApi)) {
-            throw new AuraHandledException(
-                'Vulnerability object not found by label'
-            );
+        // 1) Validate object exists in THIS org at runtime
+        Map<String, Schema.SObjectType> gd = Schema.getGlobalDescribe();
+        if (!gd.containsKey(VULN_OBJECT_API)) {
+            // This is the REAL reason you see "Invalid type" when you hardcode Vulnerability__c
+            System.debug('❌ Object not found in this org: ' + VULN_OBJECT_API);
+            return;
         }
 
-        Schema.SObjectType vulnType =
-            Schema.getGlobalDescribe().get(vulnApi);
+        Schema.SObjectType vulnType = gd.get(VULN_OBJECT_API);
 
+        // 2) Load latest file versions
         List<ContentVersion> files = [
-            SELECT Id, VersionData
+            SELECT Id, VersionData, ContentDocumentId
             FROM ContentVersion
             WHERE ContentDocumentId IN :contentDocIds
             ORDER BY CreatedDate DESC
@@ -41,37 +44,44 @@ public with sharing class File {
 
             if (cv.VersionData == null) continue;
 
-            List<String> rows = cv.VersionData.toString().split('\n');
+            // Handle CRLF + LF
+            String csv = cv.VersionData.toString();
+            csv = csv.replace('\r\n', '\n').replace('\r', '\n');
+
+            List<String> rows = csv.split('\n');
             if (rows.size() < 2) continue;
 
-            Map<String,Integer> idx = buildHeaderIndex(rows[0]);
+            Map<String, Integer> idx = buildHeaderIndex(rows[0]);
 
-            Set<String> currentKeys = new Set<String>();
+            Set<String> currentKeys  = new Set<String>();
             Set<String> scannedFiles = new Set<String>();
 
-            List<SObject> toInsert = new List<SObject>();
-            List<SObject> toUpdate = new List<SObject>();
+            List<SObject> staged = new List<SObject>();
 
             String repo;
             String branch;
 
-            /* ---------- CSV PARSE ---------- */
+            // 3) Parse CSV lines
             for (Integer i = 1; i < rows.size(); i++) {
 
-                List<String> c = parseCSVLine(rows[i]);
-                if (c.isEmpty()) continue;
+                if (String.isBlank(rows[i])) continue;
 
-                String fileName = get(c, idx, 'file');
-                String problem  = get(c, idx, 'problem');
-                String rule     = get(c, idx, 'rule');
+                List<String> cols = parseCSVLine(rows[i]);
+                if (cols.isEmpty()) continue;
 
+                String fileName = get(cols, idx, 'file');
+                String problem  = get(cols, idx, 'problem');
+                String rule     = get(cols, idx, 'rule');
+
+                // Keep this minimal to avoid skipping all rows
                 if (String.isBlank(fileName) || String.isBlank(problem)) continue;
 
-                repo   = repo   == null ? get(c, idx, 'repo') : repo;
-                branch = branch == null ? get(c, idx, 'targetbranch') : branch;
+                if (repo == null)   repo   = get(cols, idx, 'repo');
+                if (branch == null) branch = get(cols, idx, 'targetbranch');
 
                 scannedFiles.add(fileName);
 
+                // 4) Create stable key (same as your approach)
                 String keySource = String.join(new List<String>{
                     safe(repo),
                     safe(branch),
@@ -86,43 +96,51 @@ public with sharing class File {
 
                 currentKeys.add(vKey);
 
+                // 5) Create dynamic SObject record
                 SObject v = vulnType.newSObject();
                 v.put('Violation_Key__c', vKey);
                 v.put('Problem__c', problem);
-                v.put('Severity__c', get(c, idx, 'severity'));
+                v.put('Severity__c', get(cols, idx, 'severity'));
                 v.put('File__c', fileName);
-                v.put('Line__c', get(c, idx, 'templine'));
+                v.put('Line__c', get(cols, idx, 'templine'));
+                v.put('Column__c', get(cols, idx, 'column'));
                 v.put('Rule__c', rule);
-                v.put('Category__c', get(c, idx, 'category'));
-                v.put('Engine__c', get(c, idx, 'engine'));
-                v.put('Repo__c', repo);
+                v.put('Description__c', get(cols, idx, 'description'));
+                v.put('URL__c', get(cols, idx, 'url'));
+                v.put('Category__c', get(cols, idx, 'category'));
+                v.put('Engine__c', get(cols, idx, 'engine'));
+                v.put('Commit__c', get(cols, idx, 'commit'));
+                v.put('ActualLine__c', get(cols, idx, 'actualline'));
                 v.put('TargetBranch__c', branch);
+                v.put('Repo__c', repo);
+
                 v.put('Violation_Status__c', STATUS_OPEN);
                 v.put('Last_Seen__c', System.now());
 
-                toInsert.add(v);
+                staged.add(v);
             }
 
-            if (toInsert.isEmpty()) continue;
+            if (staged.isEmpty()) continue;
 
-            /* ---------- EXISTING ---------- */
-            Map<String, SObject> existing = new Map<String, SObject>();
+            // 6) Fetch existing by key
+            Map<String, SObject> existingByKey = new Map<String, SObject>();
             for (SObject e : Database.query(
-                'SELECT Id, Violation_Key__c FROM ' + vulnApi +
+                'SELECT Id, Violation_Key__c FROM ' + VULN_OBJECT_API +
                 ' WHERE Violation_Key__c IN :currentKeys'
             )) {
-                existing.put((String)e.get('Violation_Key__c'), e);
+                existingByKey.put((String)e.get('Violation_Key__c'), e);
             }
 
-            List<SObject> finalInsert = new List<SObject>();
+            List<SObject> toInsert = new List<SObject>();
+            List<SObject> toUpdate = new List<SObject>();
 
-            for (SObject v : toInsert) {
+            for (SObject v : staged) {
                 String k = (String)v.get('Violation_Key__c');
-                if (!existing.containsKey(k)) {
+                if (!existingByKey.containsKey(k)) {
                     v.put('First_Seen__c', System.now());
-                    finalInsert.add(v);
+                    toInsert.add(v);
                 } else {
-                    SObject upd = existing.get(k);
+                    SObject upd = existingByKey.get(k);
                     upd.put('Violation_Status__c', STATUS_OPEN);
                     upd.put('Closed_On__c', null);
                     upd.put('Last_Seen__c', System.now());
@@ -130,84 +148,89 @@ public with sharing class File {
                 }
             }
 
-            Database.SaveResult[] insRes =
-                Database.insert(finalInsert, false);
-            Database.SaveResult[] updRes =
-                Database.update(toUpdate, false);
+            // 7) DML (partial success)
+            Database.SaveResult[] insRes = Database.insert(toInsert, false);
+            Database.SaveResult[] updRes = Database.update(toUpdate, false);
+            logResults('INSERT', insRes);
+            logResults('UPDATE', updRes);
 
-            logResults(insRes);
-            logResults(updRes);
+            // 8) Auto-close fixed ones (same file + repo + branch, not present now)
+            if (!String.isBlank(repo) && !String.isBlank(branch) && !scannedFiles.isEmpty()) {
 
-            /* ---------- AUTO CLOSE ---------- */
-            List<SObject> toClose = Database.query(
-                'SELECT Id FROM ' + vulnApi +
-                ' WHERE Violation_Status__c = :STATUS_OPEN' +
-                ' AND File__c IN :scannedFiles' +
-                ' AND TargetBranch__c = :branch' +
-                ' AND Repo__c = :repo' +
-                ' AND Violation_Key__c NOT IN :currentKeys'
-            );
+                List<SObject> toClose = Database.query(
+                    'SELECT Id FROM ' + VULN_OBJECT_API +
+                    ' WHERE Violation_Status__c = :STATUS_OPEN' +
+                    ' AND File__c IN :scannedFiles' +
+                    ' AND TargetBranch__c = :branch' +
+                    ' AND Repo__c = :repo' +
+                    ' AND Violation_Key__c NOT IN :currentKeys'
+                );
 
-            for (SObject cRec : toClose) {
-                cRec.put('Violation_Status__c', STATUS_CLOSED);
-                cRec.put('Closed_On__c', System.now());
+                for (SObject cRec : toClose) {
+                    cRec.put('Violation_Status__c', STATUS_CLOSED);
+                    cRec.put('Closed_On__c', System.now());
+                }
+
+                Database.SaveResult[] closeRes = Database.update(toClose, false);
+                logResults('CLOSE', closeRes);
             }
-
-            if (!toClose.isEmpty()) Database.update(toClose, false);
         }
     }
 
-    /* ===================== HELPERS ===================== */
-
-    private static void logResults(Database.SaveResult[] r) {
-        if (r == null) return;
-        for (Database.SaveResult sr : r) {
+    /* ===================== LOGGING ===================== */
+    private static void logResults(String label, Database.SaveResult[] results) {
+        if (results == null) return;
+        for (Database.SaveResult sr : results) {
             if (!sr.isSuccess()) {
                 for (Database.Error e : sr.getErrors()) {
-                    System.debug('❌ DML ERROR: ' + e.getMessage());
+                    System.debug('❌ ' + label + ' ERROR: ' + e.getStatusCode() + ' - ' + e.getMessage());
                 }
             }
         }
     }
 
-    private static String resolveVulnerabilityObjectApiName() {
-        for (String api : Schema.getGlobalDescribe().keySet()) {
-            if (Schema.getGlobalDescribe().get(api)
-                .getDescribe().getLabel() == VULN_LABEL) {
-                return api;
-            }
-        }
-        return null;
-    }
-
-    private static Map<String,Integer> buildHeaderIndex(String h) {
+    /* ===================== HELPERS ===================== */
+    private static Map<String,Integer> buildHeaderIndex(String header) {
         Map<String,Integer> m = new Map<String,Integer>();
-        List<String> p = parseCSVLine(h);
-        for (Integer i = 0; i < p.size(); i++) {
-            m.put(p[i].toLowerCase().trim(), i);
+        List<String> h = parseCSVLine(header);
+        for (Integer i = 0; i < h.size(); i++) {
+            m.put(h[i].toLowerCase().trim().replace(' ', ''), i);
         }
         return m;
     }
 
-    private static String get(List<String> r, Map<String,Integer> m, String k) {
-        return (m.containsKey(k) && m.get(k) < r.size()) ? r[m.get(k)] : null;
+    // Supports both "targetbranch" and "target branch"
+    private static String get(List<String> row, Map<String,Integer> idx, String key) {
+        if (row == null || idx == null || String.isBlank(key)) return null;
+        String k = key.toLowerCase().trim().replace(' ', '');
+        if (idx.containsKey(k) && idx.get(k) < row.size()) return row[idx.get(k)];
+        return null;
     }
 
     private static String safe(String s) {
         return s == null ? '' : s.trim();
     }
 
-    private static List<String> parseCSVLine(String line) {
-        List<String> res = new List<String>();
-        Boolean q = false;
-        String c = '';
+    // Basic CSV parsing with quotes support
+    public static List<String> parseCSVLine(String line) {
+        List<String> cols = new List<String>();
+        if (line == null) return cols;
+
+        Boolean inQuotes = false;
+        String current = '';
+
         for (Integer i = 0; i < line.length(); i++) {
-            String ch = line.substring(i,i+1);
-            if (ch == '"') q = !q;
-            else if (ch == ',' && !q) { res.add(c.trim()); c=''; }
-            else c+=ch;
+            String ch = line.substring(i, i + 1);
+            if (ch == '"') {
+                inQuotes = !inQuotes;
+            } else if (ch == ',' && !inQuotes) {
+                cols.add(current.trim());
+                current = '';
+            } else {
+                current += ch;
+            }
         }
-        res.add(c.trim());
-        return res;
+        cols.add(current.trim());
+        return cols;
     }
 }
