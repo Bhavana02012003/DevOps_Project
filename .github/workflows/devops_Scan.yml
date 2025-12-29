@@ -231,12 +231,15 @@ jobs:
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
             echo "No files to scan. Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,CommitAuthor,ActualLine,TargetBranch,Repo,CommitSha,RunId" > scanner-report.csv
             exit 0
           fi
           echo "📋 Scanning files: $files"
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,CommitAuthor,ActualLine,TargetBranch,Repo,CommitSha,RunId" > scanner-report.csv
           UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
+          repoName="${GITHUB_REPOSITORY##*/}"
+          commitSha="${{ github.sha }}"
+          runId="${{ github.run_id }}"
           for file in $files; do
             if [[ "$file" == temp_scanner_files/* ]]; then
               echo "🧠 Modified file (delta logic): $file"
@@ -266,7 +269,7 @@ jobs:
                 actual="${ACTUAL_LINE_MAP[$key]}"
                 [[ -z "$actual" || "$actual" == "0" ]] && actual="N/A"
 
-                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH}" >> scanner-report.csv
+                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH},$repoName,$commitSha,$runId" >> scanner-report.csv
               done < <(tail -n +2 scanner-report-partial.csv)
             else
               echo "⚠️ No violations found for: $file"
