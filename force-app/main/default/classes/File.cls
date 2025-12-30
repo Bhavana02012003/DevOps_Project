@@ -1,106 +1,99 @@
 public with sharing class File {
 
-    private static final String VULN_OBJECT = 'Vulnerability__c';
+    // IMPORTANT: DO NOT hardcode Vulnerability__c type
+    private static final String VULN_OBJECT_API = 'Vulnerability__c';
 
     /* ================= ENTRY ================= */
-    public static void processNewFiles(List<ContentVersion> newFiles) {
-        Set<Id> docIds = new Set<Id>();
-        for (ContentVersion cv : newFiles) {
+    public static void processNewFiles(List<ContentVersion> contentVersions) {
+
+        Set<Id> contentDocIds = new Set<Id>();
+
+        for (ContentVersion cv : contentVersions) {
             if (cv.ContentDocumentId != null) {
-                docIds.add(cv.ContentDocumentId);
+                contentDocIds.add(cv.ContentDocumentId);
             }
         }
-        if (!docIds.isEmpty()) {
-            System.enqueueJob(new ImportJob(new List<Id>(docIds)));
-        }
-    }
 
-    /* ================= QUEUEABLE ================= */
-    public class ImportJob implements Queueable {
-
-        private List<Id> docIds;
-
-        public ImportJob(List<Id> docIds) {
-            this.docIds = docIds;
-        }
-
-        public void execute(QueueableContext qc) {
-            importCsv(docIds);
+        if (!contentDocIds.isEmpty()) {
+            importVulnerabilityData(new List<Id>(contentDocIds));
         }
     }
 
     /* ================= CORE ================= */
-    private static void importCsv(List<Id> docIds) {
+    private static void importVulnerabilityData(List<Id> contentDocIds) {
 
-        if (!Schema.getGlobalDescribe().containsKey(VULN_OBJECT)) {
-            System.debug('❌ Vulnerability__c does not exist');
+        // 1️⃣ Check object exists (runtime-safe)
+        Map<String, Schema.SObjectType> gd = Schema.getGlobalDescribe();
+        if (!gd.containsKey(VULN_OBJECT_API)) {
+            System.debug('❌ Object not found: ' + VULN_OBJECT_API);
             return;
         }
 
-        Schema.SObjectType sType =
-            Schema.getGlobalDescribe().get(VULN_OBJECT);
+        Schema.SObjectType vulnType = gd.get(VULN_OBJECT_API);
 
-        List<ContentVersion> files = [
-            SELECT Id, Title, FileExtension, VersionData
+        // 2️⃣ Get latest CSV files
+        List<ContentVersion> versions = [
+            SELECT Id, VersionData
             FROM ContentVersion
-            WHERE ContentDocumentId IN :docIds
+            WHERE ContentDocumentId IN :contentDocIds
             AND IsLatest = true
         ];
 
-        for (ContentVersion cv : files) {
+        List<SObject> recordsToInsert = new List<SObject>();
 
-            if (cv.VersionData == null || cv.FileExtension != 'csv') continue;
+        for (ContentVersion cv : versions) {
+
+            if (cv.VersionData == null) continue;
 
             String csv = cv.VersionData.toString()
-                .replace('\r\n','\n')
-                .replace('\r','\n');
+                .replace('\r\n', '\n')
+                .replace('\r', '\n');
 
             List<String> rows = csv.split('\n');
             if (rows.size() < 2) continue;
 
-            Map<String,Integer> headerIndex = buildHeaderIndex(rows[0]);
-            List<SObject> records = new List<SObject>();
+            Map<String, Integer> headerIndex = buildHeaderIndex(rows[0]);
 
+            // 3️⃣ Parse rows
             for (Integer i = 1; i < rows.size(); i++) {
 
                 if (String.isBlank(rows[i])) continue;
 
                 List<String> cols = parseCSVLine(rows[i]);
 
-                String fileName = getValue(cols, headerIndex, 'file');
-                String problem  = getValue(cols, headerIndex, 'problem');
+                String problem = getValue(cols, headerIndex, 'problem');
+                String file    = getValue(cols, headerIndex, 'file');
 
-                if (String.isBlank(fileName) || String.isBlank(problem)) continue;
+                if (String.isBlank(problem) || String.isBlank(file)) continue;
 
-                SObject v = sType.newSObject();
-                v.put('Problem__c', problem);
-                v.put('File__c', fileName);
-                v.put('Severity__c', getValue(cols, headerIndex, 'severity'));
-                v.put('Rule__c', getValue(cols, headerIndex, 'rule'));
-                v.put('Category__c', getValue(cols, headerIndex, 'category'));
-                v.put('Engine__c', getValue(cols, headerIndex, 'engine'));
-                v.put('Commit__c', getValue(cols, headerIndex, 'commit'));
+                // 4️⃣ Create dynamic record
+                SObject vuln = vulnType.newSObject();
 
-                // 🔥 THIS WAS THE BREAKING ISSUE
-                v.put('Line__c', getValue(cols, headerIndex, 'templine'));
+                vuln.put('Problem__c', problem);
+                vuln.put('Severity__c', getValue(cols, headerIndex, 'severity'));
+                vuln.put('File__c', file);
+                vuln.put('Line__c', getValue(cols, headerIndex, 'templine'));
+                vuln.put('Column__c', getValue(cols, headerIndex, 'column'));
+                vuln.put('Rule__c', getValue(cols, headerIndex, 'rule'));
+                vuln.put('Description__c', getValue(cols, headerIndex, 'description'));
+                vuln.put('URL__c', getValue(cols, headerIndex, 'url'));
+                vuln.put('Category__c', getValue(cols, headerIndex, 'category'));
+                vuln.put('Engine__c', getValue(cols, headerIndex, 'engine'));
+                vuln.put('Commit_Author__c', getValue(cols, headerIndex, 'commitauthor'));
+                vuln.put('ActualLine__c', getValue(cols, headerIndex, 'actualline'));
+                vuln.put('TargetBranch__c', getValue(cols, headerIndex, 'targetbranch'));
+                vuln.put('Repo__c', getValue(cols, headerIndex, 'repo'));
+                vuln.put('Commit_Sha__c', getValue(cols, headerIndex, 'commitsha'));
+                vuln.put('Run_Id__c', getValue(cols, headerIndex, 'runid'));
+                vuln.put('Violation_Status__c', 'Open');
 
-                v.put('Column__c', getValue(cols, headerIndex, 'column'));
-                v.put('ActualLine__c', getValue(cols, headerIndex, 'actualline'));
-                v.put('TargetBranch__c', getValue(cols, headerIndex, 'targetbranch'));
-                v.put('Repo__c', getValue(cols, headerIndex, 'repo'));
-
-                v.put('Violation_Status__c', 'Open');
-
-                records.add(v);
+                recordsToInsert.add(vuln);
             }
+        }
 
-            if (records.isEmpty()) {
-                System.debug('⚠️ NO RECORDS CREATED – CHECK CSV HEADERS');
-                continue;
-            }
-
-            Database.SaveResult[] results =
-                Database.insert(records, false);
+        // 5️⃣ Insert
+        if (!recordsToInsert.isEmpty()) {
+            Database.SaveResult[] results = Database.insert(recordsToInsert, false);
 
             for (Database.SaveResult r : results) {
                 if (!r.isSuccess()) {
@@ -110,51 +103,61 @@ public with sharing class File {
                 }
             }
 
-            System.debug('✅ INSERTED RECORD COUNT: ' + records.size());
+            System.debug('✅ Insert attempted: ' + recordsToInsert.size());
+        } else {
+            System.debug('⚠️ No records created from CSV');
         }
     }
 
     /* ================= HELPERS ================= */
 
-    private static Map<String,Integer> buildHeaderIndex(String header) {
-        Map<String,Integer> mapIdx = new Map<String,Integer>();
+    private static Map<String, Integer> buildHeaderIndex(String header) {
+        Map<String, Integer> indexMap = new Map<String, Integer>();
         List<String> headers = parseCSVLine(header);
+
         for (Integer i = 0; i < headers.size(); i++) {
-            mapIdx.put(normalize(headers[i]), i);
+            indexMap.put(normalize(headers[i]), i);
         }
-        return mapIdx;
+        return indexMap;
     }
 
     private static String getValue(
         List<String> row,
-        Map<String,Integer> idx,
+        Map<String, Integer> headerIndex,
         String key
     ) {
-        String k = normalize(key);
-        return idx.containsKey(k) && idx.get(k) < row.size()
-            ? row[idx.get(k)]
-            : null;
+        String normalizedKey = normalize(key);
+        if (headerIndex.containsKey(normalizedKey)
+            && headerIndex.get(normalizedKey) < row.size()) {
+            return row[headerIndex.get(normalizedKey)];
+        }
+        return null;
     }
 
     private static String normalize(String s) {
         return s == null ? ''
             : s.toLowerCase()
-                .replace(' ','')
-                .replace('_','')
-                .replace('-','');
+                .replace(' ', '')
+                .replace('_', '')
+                .replace('-', '');
     }
 
+    // CSV parser (quoted-safe)
     private static List<String> parseCSVLine(String line) {
         List<String> cols = new List<String>();
         Boolean inQuotes = false;
         String cur = '';
+
         for (Integer i = 0; i < line.length(); i++) {
-            String c = line.substring(i,i+1);
-            if (c == '"') inQuotes = !inQuotes;
-            else if (c == ',' && !inQuotes) {
+            String c = line.substring(i, i + 1);
+            if (c == '"') {
+                inQuotes = !inQuotes;
+            } else if (c == ',' && !inQuotes) {
                 cols.add(cur.trim());
                 cur = '';
-            } else cur += c;
+            } else {
+                cur += c;
+            }
         }
         cols.add(cur.trim());
         return cols;
