@@ -77,14 +77,19 @@ jobs:
         run: |
           #!/bin/bash
           set -e
+
           mkdir -p temp_scanner_files
           > changed_cls_lwc_files.txt
           > line_number_mapping.txt
+
           echo "🔍 Detecting changed files..."
           changed_files=$(git diff --name-only HEAD~1 HEAD -- '*.cls' '*.js' '*.html' '*.lwc' || true)
+
           [ -z "$changed_files" ] && exit 0
+
           for file in $changed_files; do
             echo "➡ Processing file: $file"
+
             extracted_lines=$(git diff --unified=0 HEAD~1 HEAD -- "$file" | awk '
               /^@@/ {
                 match($0, /\+([0-9]+)/, arr);
@@ -95,32 +100,41 @@ jobs:
                 line++
               }
             ')
+
             [ -z "$extracted_lines" ] && continue
+
             ####################################################################
             # 🔹 APEX FILES — WITH SAFE ORPHAN HANDLING
             ####################################################################
             if [[ "$file" == *.cls ]]; then
               temp_file="temp_scanner_files/temp_${file//\//_}"
               echo "public class TempWrapperClass {" > "$temp_file"
+
               temp_line_no=1
               echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
               ((temp_line_no++))
+
               echo "    public static void tempMethod() {" >> "$temp_file"
               echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
               ((temp_line_no++))
+
               echo "        /* Extracted delta logic */" >> "$temp_file"
               echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
               ((temp_line_no++))
+
               while IFS=, read -r actual_line content; do
                 trimmed=$(echo "$content" | sed 's/^[[:space:]]*//')
+
                 # 🔒 SAFE orphan control block handling
                 if [[ "$trimmed" =~ ^(\}|else|for|while|catch|finally)[[:space:]]*\{ ]]; then
                   echo "        if (true) {" >> "$temp_file"
                   echo "$temp_file,$temp_line_no,$actual_line" >> line_number_mapping.txt
                   ((temp_line_no++))
+
                   echo "            $trimmed" >> "$temp_file"
                   echo "$temp_file,$temp_line_no,$actual_line" >> line_number_mapping.txt
                   ((temp_line_no++))
+
                   echo "        }" >> "$temp_file"
                   echo "$temp_file,$temp_line_no,$actual_line" >> line_number_mapping.txt
                   ((temp_line_no++))
@@ -130,27 +144,34 @@ jobs:
                   ((temp_line_no++))
                 fi
               done <<< "$extracted_lines"
+
               echo "    }" >> "$temp_file"
               echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
               ((temp_line_no++))
+
               echo "}" >> "$temp_file"
               echo "$temp_file,$temp_line_no,0" >> line_number_mapping.txt
+
               echo "$temp_file" >> changed_cls_lwc_files.txt
               echo "✅ Apex temp file created: $temp_file"
+
             ####################################################################
             # 🔹 JS / HTML / LWC — DIRECT SCAN (NO TEMP FILE)
             ####################################################################
             else
               echo "🟢 Direct scan: $file"
               echo "$file" >> changed_cls_lwc_files.txt
+
               while IFS=, read -r actual_line content; do
                 baseFile=$(basename "$file")
                 echo "$baseFile,$actual_line,$actual_line" >> line_number_mapping.txt
               done <<< "$extracted_lines"
             fi
           done
+
           echo "================ LINE NUMBER MAPPING ================"
           cat line_number_mapping.txt
+
             
             
       # - name: Debug Extracted Line Number Mapping
@@ -180,20 +201,28 @@ jobs:
       - name: Build Actual Line Lookup
         run: |
           echo "🔧 Building actual line lookup map..."
+
           awk -F',' '
           {
             fullpath=$1
             tempLine=$2
             actualLine=$3
+
             n=split(fullpath, arr, "/")
             file=arr[n]   # 👈 BASENAME ONLY
+
             print file "|" tempLine "=" actualLine
           }
           ' line_number_mapping.txt > actual_line_lookup.env
+
           echo "=== ACTUAL LINE LOOKUP ==="
           cat actual_line_lookup.env
+
+
+
       - name: Run SFDX Scanner on Changed Lines
         run: |
+
           # 🔹 Load actual line mapping into memory
           declare -A ACTUAL_LINE_MAP
           while IFS='=' read -r key value; do
@@ -202,15 +231,12 @@ jobs:
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
             echo "No files to scan. Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,CommitAuthor,ActualLine,TargetBranch,Repo,CommitSha,RunId" > scanner-report.csv
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
             exit 0
           fi
           echo "📋 Scanning files: $files"
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,CommitAuthor,ActualLine,TargetBranch,Repo,CommitSha,RunId" > scanner-report.csv
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
           UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
-          repoName="${GITHUB_REPOSITORY##*/}"
-          commitSha="${{ github.sha }}"
-          runId="${{ github.run_id }}"
           for file in $files; do
             if [[ "$file" == temp_scanner_files/* ]]; then
               echo "🧠 Modified file (delta logic): $file"
@@ -230,13 +256,17 @@ jobs:
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
               while IFS=',' read -r problem severity file tempLine column rule description url category engine commit actualLine branch; do
                 [[ "$problem" == "Problem" ]] && continue
+
                 cleanFile=$(echo "$file" | tr -d '"')
                 cleanLine=$(echo "$tempLine" | tr -d '"')
+
                 baseFile=$(basename "$cleanFile")
                 key="$baseFile|$cleanLine"
+
                 actual="${ACTUAL_LINE_MAP[$key]}"
                 [[ -z "$actual" || "$actual" == "0" ]] && actual="N/A"
-                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH},$repoName,$commitSha,$runId" >> scanner-report.csv
+
+                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH}" >> scanner-report.csv
               done < <(tail -n +2 scanner-report-partial.csv)
             else
               echo "⚠️ No violations found for: $file"
