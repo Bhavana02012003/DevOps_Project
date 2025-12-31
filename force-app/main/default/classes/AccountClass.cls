@@ -52,7 +52,7 @@ public with sharing class AccountClass {
         acc.SLAExpirationDate__c = SLAExpirationDate;
 
         try {
-            System.debug('Tests');
+            System.debug('Test');
             insert acc;  // Insert the Account record
             return acc.Id;  // Return the ID of the new Account
         } catch (Exception ex) {

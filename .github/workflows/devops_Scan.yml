@@ -733,6 +733,8 @@ jobs:
             echo "Critical permissions found in the following modified files:"
             for FILE in "${BLOCKED_FILES[@]}"; do
               echo "$FILE"
+
+              
             done
             exit 1  # Fail the job
           else
