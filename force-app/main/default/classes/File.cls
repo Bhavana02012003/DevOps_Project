@@ -2,7 +2,6 @@ public with sharing class File {
 
     private static final String VULN_OBJECT_API = 'Vulnerability__c';
 
-    /* ================= ENTRY ================= */
     public static void processNewFiles(List<ContentVersion> contentVersions) {
 
         Set<Id> contentDocIds = new Set<Id>();
@@ -18,7 +17,6 @@ public with sharing class File {
         }
     }
 
-    /* ================= CORE ================= */
     private static void importVulnerabilityData(List<Id> contentDocIds) {
 
         Map<String, Schema.SObjectType> gd = Schema.getGlobalDescribe();
@@ -42,6 +40,7 @@ public with sharing class File {
 
             if (cv.VersionData == null) continue;
 
+            // ✅ CORRECT & SUPPORTED IN APEX
             String csv = cv.VersionData.toString()
                 .replace('\r\n', '\n')
                 .replace('\r', '\n');
@@ -75,38 +74,17 @@ public with sharing class File {
                 vuln.put('Category__c', getValue(cols, headerIndex, 'category'));
                 vuln.put('Engine__c', getValue(cols, headerIndex, 'engine'));
 
-                /* ================= SAFE AUTO-POPULATION ================= */
-
-                // Commit Author → supports CommitAuthor OR Commit
                 String commitAuthor =
                     getValue(cols, headerIndex, 'commitauthor') != null
                     ? getValue(cols, headerIndex, 'commitauthor')
                     : getValue(cols, headerIndex, 'commit');
 
                 vuln.put('Commit_Author__c', commitAuthor);
-
                 vuln.put('ActualLine__c', getValue(cols, headerIndex, 'actualline'));
                 vuln.put('TargetBranch__c', getValue(cols, headerIndex, 'targetbranch'));
-
-                // Repo (safe)
-                vuln.put('Repo__c',
-                    getValue(cols, headerIndex, 'repo')
-                );
-
-                // Commit SHA → supports CommitSha OR Commit_Sha
-                vuln.put('Commit_Sha__c',
-                    getValue(cols, headerIndex, 'commitsha') != null
-                    ? getValue(cols, headerIndex, 'commitsha')
-                    : getValue(cols, headerIndex, 'commit_sha')
-                );
-
-                // Run Id → supports RunId OR Run_Id
-                vuln.put('Run_Id__c',
-                    getValue(cols, headerIndex, 'runid') != null
-                    ? getValue(cols, headerIndex, 'runid')
-                    : getValue(cols, headerIndex, 'run_id')
-                );
-
+                vuln.put('Repo__c', getValue(cols, headerIndex, 'repo'));
+                vuln.put('Commit_Sha__c', getValue(cols, headerIndex, 'commitsha'));
+                vuln.put('Run_Id__c', getValue(cols, headerIndex, 'runid'));
                 vuln.put('Violation_Status__c', 'Open');
 
                 recordsToInsert.add(vuln);
