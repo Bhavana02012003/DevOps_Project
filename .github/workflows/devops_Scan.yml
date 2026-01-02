@@ -223,56 +223,52 @@ jobs:
       - name: Run SFDX Scanner on Changed Lines
         run: |
 
-          # 🔹 Load actual line mapping into memory
           declare -A ACTUAL_LINE_MAP
           while IFS='=' read -r key value; do
             ACTUAL_LINE_MAP["$key"]="$value"
           done < actual_line_lookup.env
+
           files=$(cat changed_cls_lwc_files.txt)
           if [ -z "$files" ]; then
             echo "No files to scan. Creating an empty report."
-            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
+            echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,CommitAuthor,ActualLine,TargetBranch,Repo,CommitSha,RunId" > scanner-report.csv
             exit 0
           fi
+
           echo "📋 Scanning files: $files"
-          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,Commit,ActualLine,TargetBranch" > scanner-report.csv
-          UNWANTED_PATH="/home/runner/work/${{ github.repository }}/temp_scanner_files/"
+
+          # 🔹 UPDATED CSV HEADER
+          echo "Problem,Severity,File,TempLine,Column,Rule,Description,URL,Category,Engine,CommitAuthor,ActualLine,TargetBranch,Repo,CommitSha,RunId" > scanner-report.csv
+
           for file in $files; do
             if [[ "$file" == temp_scanner_files/* ]]; then
-              echo "🧠 Modified file (delta logic): $file"
               SCAN_PATH="$file"
-              SCAN_MODE="Delta"
             else
-              echo "🆕 New file (full scan): $file"
               SCAN_PATH="$file"
-              SCAN_MODE="Full"
             fi
-            # Determine if it's Apex and needs ruleset config
+
             if [[ "$SCAN_PATH" == *.cls ]]; then
-              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || echo "⚠️ Scanner failed for $SCAN_PATH"
+              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" --pmdconfig "force-app/main/default/Custom_apex_ruleset.xml" || true
             else
-              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || echo "⚠️ Scanner failed for $SCAN_PATH"
+              sf scanner:run --target "$SCAN_PATH" --format "csv" --outfile "scanner-report-partial.csv" || true
             fi
+
             if [ -f "scanner-report-partial.csv" ] && [ -s "scanner-report-partial.csv" ]; then
               while IFS=',' read -r problem severity file tempLine column rule description url category engine commit actualLine branch; do
                 [[ "$problem" == "Problem" ]] && continue
 
-                cleanFile=$(echo "$file" | tr -d '"')
-                cleanLine=$(echo "$tempLine" | tr -d '"')
-
-                baseFile=$(basename "$cleanFile")
-                key="$baseFile|$cleanLine"
+                baseFile=$(basename "$file")
+                key="$baseFile|$tempLine"
 
                 actual="${ACTUAL_LINE_MAP[$key]}"
                 [[ -z "$actual" || "$actual" == "0" ]] && actual="N/A"
 
-                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,${TARGET_BRANCH}" >> scanner-report.csv
+                echo "$problem,$severity,$baseFile,$tempLine,$column,$rule,$description,$url,$category,$engine,$COMMIT_AUTHOR,$actual,$TARGET_BRANCH,$GITHUB_REPOSITORY,$GITHUB_SHA,$GITHUB_RUN_ID" >> scanner-report.csv
               done < <(tail -n +2 scanner-report-partial.csv)
-            else
-              echo "⚠️ No violations found for: $file"
             fi
           done
-          echo "✅ Final Scanner Report with TargetBranch:"
+
+          echo "✅ Final Scanner Report:"
           cat scanner-report.csv
           
       - name: Load Salesforce API URL
