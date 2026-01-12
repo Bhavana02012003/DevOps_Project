@@ -1,0 +1,13 @@
+name: Weekly SFDX Full Code Scan
+
+on:
+  workflow_dispatch:        # ✅ Enables manual trigger from Actions tab
+  schedule:
+    - cron: '10 13 * * 1'    # Runs every Monday at 6:40 PM IST (1:10 PM UTC)
+
+jobs:
+  test-trigger-only:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test step
+        run: echo "✅ This is a test workflow to confirm it runs"

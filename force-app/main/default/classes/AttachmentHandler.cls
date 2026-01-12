@@ -26,7 +26,7 @@ public with sharing class AttachmentHandler {
             ];
 
             if (fileVersions.isEmpty()) {
-                System.debug('⚠️ File not found for ContentDocumentId: ' + caseRecord.File_Id__c);
+                System.debug('⚠️ File not found for ContentDocumentId:: ' + caseRecord.File_Id__c);
                 return;
             }
 

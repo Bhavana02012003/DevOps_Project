@@ -1,0 +1,162 @@
+name: SFDX PR Hard Quality Gate
+
+on:
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  quality-gate-code-check:
+    name: SFDX Code Scan – PR Hard Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      # -------------------------------------------------
+      # SETUP
+      # -------------------------------------------------
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Install Salesforce CLI
+        run: npm install @salesforce/cli --global
+
+      - name: Install Scanner Plugin
+        run: sf plugins install @salesforce/sfdx-scanner
+
+      # -------------------------------------------------
+      # DETECT CHANGED FILES (WITH SAFE FALLBACK)
+      # -------------------------------------------------
+      - name: Detect Files to Scan
+        run: |
+          git fetch origin ${{ github.base_ref }}
+
+          changed_files=$(git diff --name-only \
+            origin/${{ github.base_ref }}...HEAD \
+            -- '*.cls' '*.js' '*.html' '*.lwc' || true)
+
+          if [ -z "$changed_files" ]; then
+            echo "⚠️ No delta detected. Falling back to full scan."
+            changed_files=$(git ls-files '*.cls' '*.js' '*.html' '*.lwc')
+          fi
+
+          echo "$changed_files" > files_to_scan.txt
+
+          echo "📋 Files to scan:"
+          cat files_to_scan.txt
+
+      # -------------------------------------------------
+      # RUN SCANNER (PMD RULESET FOR APEX)
+      # -------------------------------------------------
+      - name: Run SFDX Scanner
+        run: |
+          echo "Problem,Severity,File,Line,Rule,Category" > scanner-report.csv
+
+          while read -r file; do
+            [ -z "$file" ] && continue
+
+            echo "🔍 Scanning $file"
+
+            if [[ "$file" == *.cls ]]; then
+              sf scanner:run \
+                --target "$file" \
+                --format csv \
+                --outfile tmp.csv \
+                --pmdconfig force-app/main/default/Custom_apex_ruleset.xml || true
+            else
+              sf scanner:run \
+                --target "$file" \
+                --format csv \
+                --outfile tmp.csv || true
+            fi
+
+            if [ -f tmp.csv ]; then
+              tail -n +2 tmp.csv >> scanner-report.csv
+            fi
+          done < files_to_scan.txt
+
+          echo "✅ Final Scanner Report:"
+          cat scanner-report.csv
+
+      # -------------------------------------------------
+      # 🚨 HARD QUALITY GATE
+      # -------------------------------------------------
+      - name: HARD FAIL – Block PR on Violations
+        run: |
+          if [ ! -f scanner-report.csv ]; then
+            echo "❌ scanner-report.csv not found"
+            exit 1
+          fi
+
+          echo "🔍 Evaluating scanner-report.csv"
+
+          apex=$(awk -F',' '
+            NR>1 {
+              sev=$2; file=$3
+              gsub(/"/,"",sev); gsub(/"/,"",file)
+              if (sev == 3 && file ~ /\.cls$/) c++
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          lwc=$(awk -F',' '
+            NR>1 {
+              sev=$2; file=$3
+              gsub(/"/,"",sev); gsub(/"/,"",file)
+              if (sev >= 2 && file ~ /\.(js|html|lwc)$/) c++
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          echo "Apex Severity 3 Issues : $apex"
+          echo "LWC Severity 2+ Issues : $lwc"
+
+          if [ "$apex" -gt 0 ] || [ "$lwc" -gt 0 ]; then
+            echo "🚫 HARD GATE FAILED – BLOCKING PR"
+            exit 1
+          fi
+
+          echo "✅ HARD GATE PASSED – PR CAN MERGE"
+
+      # -------------------------------------------------
+      # ARTIFACT (OPTIONAL BUT USEFUL)
+      # -------------------------------------------------
+      - name: Upload Scanner Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: sfdx-pr-scanner-report
+          path: scanner-report.csv
+
+
+
+  # -------------------------------------------------
+  # PERMISSION SET / PROFILE CHECK (UNCHANGED)
+  # -------------------------------------------------
+  quality-gate-critical-permissions-check:
+    name: Critical Permission Gate
+    runs-on: ubuntu-latest
+    needs: quality-gate-code-check
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect Permission Changes
+        run: |
+          git diff --name-only HEAD^ HEAD \
+          | grep -E '(profiles|permissionsets).*meta.xml' > perms.txt || true
+
+          CRITICAL=(ModifyAllData ManageUsers AuthorApex)
+
+          while read f; do
+            for p in "${CRITICAL[@]}"; do
+              grep -q "$p" "$f" && exit 1
+            done
+          done < perms.txt
