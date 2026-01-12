@@ -131,18 +131,41 @@ jobs:
             exit 1
           fi
 
-          apex=$(awk -F',' '$2==3 && $3~/.cls/ {c++} END{print c+0}' scanner-report.csv)
-          lwc=$(awk -F',' '$2>=2 && $3~/(js|html|lwc)/ {c++} END{print c+0}' scanner-report.csv)
+          echo "🔍 Evaluating scanner-report.csv"
+          cat scanner-report.csv
+
+          apex=$(awk -F',' '
+            NR>1 {
+              severity=$2
+              file=$3
+              gsub(/"/,"",severity)
+              gsub(/"/,"",file)
+              if (severity == 3 && file ~ /\.cls$/) c++
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          lwc=$(awk -F',' '
+            NR>1 {
+              severity=$2
+              file=$3
+              gsub(/"/,"",severity)
+              gsub(/"/,"",file)
+              if (severity >= 2 && file ~ /\.(js|html|lwc)$/) c++
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
 
           echo "Apex Sev3: $apex"
           echo "LWC Sev2+: $lwc"
 
           if [ "$apex" -gt 0 ] || [ "$lwc" -gt 0 ]; then
-            echo "🚫 HARD GATE FAILED"
+            echo "🚫 HARD GATE FAILED – BLOCKING PR"
             exit 1
           fi
 
           echo "✅ HARD GATE PASSED"
+
 
   # -------------------------------------------------
   # PERMISSION SET / PROFILE CHECK (UNCHANGED)
