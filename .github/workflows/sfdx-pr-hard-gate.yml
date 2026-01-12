@@ -1,0 +1,171 @@
+name: SFDX PR Hard Quality Gate
+
+on:
+  pull_request:
+    branches:
+      - "**"
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  quality-gate-code-check:
+    name: SFDX Code Scan – PR Hard Gate
+    runs-on: ubuntu-latest
+
+    outputs:
+      commit-author: ${{ steps.commit-author.outputs.commit-author }}
+
+    steps:
+      # -------------------------------------------------
+      # BASIC SETUP
+      # -------------------------------------------------
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Install Salesforce CLI
+        run: npm install @salesforce/cli --global
+
+      - name: Install Scanner Plugin
+        run: sf plugins install @salesforce/sfdx-scanner
+
+      - name: Get Commit Author
+        id: commit-author
+        run: |
+          AUTHOR="${{ github.event.pull_request.user.login }}"
+          echo "commit-author=$AUTHOR" >> $GITHUB_OUTPUT
+          echo "COMMIT_AUTHOR=$AUTHOR" >> $GITHUB_ENV
+
+      - name: Get Repo & Branch Info
+        run: |
+          echo "TARGET_BRANCH=${{ github.base_ref }}" >> $GITHUB_ENV
+          echo "SOURCE_BRANCH=${{ github.head_ref }}" >> $GITHUB_ENV
+          echo "REPO_NAME=${{ github.repository }}" >> $GITHUB_ENV
+
+      # -------------------------------------------------
+      # 🔥 PR-BASED DELTA EXTRACTION (IMPORTANT)
+      # -------------------------------------------------
+      - name: Detect Changed Files (PR Delta)
+        run: |
+          mkdir -p temp_scanner_files
+          > changed_cls_lwc_files.txt
+          > line_number_mapping.txt
+
+          git fetch origin ${{ github.base_ref }}
+
+          changed_files=$(git diff --name-only \
+            origin/${{ github.base_ref }}...HEAD \
+            -- '*.cls' '*.js' '*.html' '*.lwc' || true)
+
+          [ -z "$changed_files" ] && exit 0
+
+          for file in $changed_files; do
+            extracted=$(git diff --unified=0 \
+              origin/${{ github.base_ref }}...HEAD -- "$file" | awk '
+              /^@@/ {
+                match($0, /\+([0-9]+)/, a); line=a[1]; next
+              }
+              /^\+/ && $0 !~ /^\+\+\+/ {
+                print line "," substr($0,2); line++
+              }')
+
+            [ -z "$extracted" ] && continue
+
+            if [[ "$file" == *.cls ]]; then
+              temp="temp_scanner_files/temp_${file//\//_}"
+              echo "public class TempWrapperClass {" > "$temp"
+              echo "  public static void tempMethod() {" >> "$temp"
+
+              while IFS=, read -r ln code; do
+                echo "    ${code}" >> "$temp"
+                echo "$(basename "$file"),$ln,$ln" >> line_number_mapping.txt
+              done <<< "$extracted"
+
+              echo "  }" >> "$temp"
+              echo "}" >> "$temp"
+              echo "$temp" >> changed_cls_lwc_files.txt
+            else
+              echo "$file" >> changed_cls_lwc_files.txt
+              while IFS=, read -r ln code; do
+                echo "$(basename "$file"),$ln,$ln" >> line_number_mapping.txt
+              done <<< "$extracted"
+            fi
+          done
+
+      # -------------------------------------------------
+      # RUN SCANNER
+      # -------------------------------------------------
+      - name: Run SFDX Scanner
+        run: |
+          echo "Problem,Severity,File,Line,Rule,Category" > scanner-report.csv
+
+          files=$(cat changed_cls_lwc_files.txt || true)
+          [ -z "$files" ] && exit 0
+
+          for f in $files; do
+            sf scanner:run --target "$f" --format csv --outfile tmp.csv || true
+            [ -f tmp.csv ] && tail -n +2 tmp.csv >> scanner-report.csv
+          done
+
+      - name: Upload Scanner Report (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sfdx-pr-scanner-report
+          path: scanner-report.csv
+
+      # -------------------------------------------------
+      # 🚨 HARD GATE (THIS BLOCKS PR)
+      # -------------------------------------------------
+      - name: HARD FAIL – Block PR on Violations
+        run: |
+          if [ ! -f scanner-report.csv ]; then
+            echo "❌ No scanner report"
+            exit 1
+          fi
+
+          apex=$(awk -F',' '$2==3 && $3~/.cls/ {c++} END{print c+0}' scanner-report.csv)
+          lwc=$(awk -F',' '$2>=2 && $3~/(js|html|lwc)/ {c++} END{print c+0}' scanner-report.csv)
+
+          echo "Apex Sev3: $apex"
+          echo "LWC Sev2+: $lwc"
+
+          if [ "$apex" -gt 0 ] || [ "$lwc" -gt 0 ]; then
+            echo "🚫 HARD GATE FAILED"
+            exit 1
+          fi
+
+          echo "✅ HARD GATE PASSED"
+
+  # -------------------------------------------------
+  # PERMISSION SET / PROFILE CHECK (UNCHANGED)
+  # -------------------------------------------------
+  quality-gate-critical-permissions-check:
+    name: Critical Permission Gate
+    runs-on: ubuntu-latest
+    needs: quality-gate-code-check
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect Permission Changes
+        run: |
+          git diff --name-only HEAD^ HEAD \
+          | grep -E '(profiles|permissionsets).*meta.xml' > perms.txt || true
+
+          CRITICAL=(ModifyAllData ManageUsers AuthorApex)
+
+          while read f; do
+            for p in "${CRITICAL[@]}"; do
+              grep -q "$p" "$f" && exit 1
+            done
+          done < perms.txt
