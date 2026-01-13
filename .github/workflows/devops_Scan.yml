@@ -515,6 +515,7 @@ jobs:
             echo "Apex Severity 3 Issues: $apex_severity_count"
             
             # Count LWC severity 2 or higher violations
+            # LWC
             lwc_severity_count=$(awk -F',' 'NR>1 {
               severity = $2; gsub(/"/, "", severity); 
               file = $3; gsub(/"/, "", file); 
