@@ -53,7 +53,7 @@ public with sharing class AccountClass {
 
         try {
             //System.debug('Testing');
-            insert acc;  // Insert the Account record
+            insert acc;  // Insert the Account record data
             return acc.Id;  // Return the ID of the new Account
         } catch (Exception ex) {
             //System.debug('Error:: ' + ex.getMessage());
