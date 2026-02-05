@@ -1,0 +1,36 @@
+engines:
+  pmd:
+    file_extensions: 
+      apex: [".cls", ".trigger"]
+      visualforce: [".page", ".component"]
+  eslint:
+    disable_engine: true
+  retire-js:
+    disable_engine: true
+  regex:
+    disable_engine: true
+  flow:
+    disable_engine: true
+  sfge:
+    disable_engine: true
+  cpd:
+    disable_engine: true
+
+rules:
+  pmd:
+  #Security
+    ApexCRUDViolation:
+      severity: 2
+      tags: ["Security"]
+      
+    ApexBadCrypto:
+        severity: 2
+        tags: ["Security"]
+
+      VfCsrf:
+      severity: 2
+      tags: ["Security","Visualforce"]
+
+    VfUnescapeEl:
+      severity: 2
+      tags: ["Security","Visualforce"]
