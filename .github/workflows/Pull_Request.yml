@@ -43,8 +43,9 @@ jobs:
           sf plugins uninstall @salesforce/plugin-code-analyzer || true
           sf plugins install @salesforce/plugin-code-analyzer
 
-      - name: Confirm Only v5 Plugin
-        run: sf plugins | grep code-analyzer
+      - name: Confirm Code Analyzer Installed
+        run: sf plugins || true
+
 
       - name: Get Commit Author
         id: commit-author

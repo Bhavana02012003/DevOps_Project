@@ -1,8 +1,9 @@
 engines:
   pmd:
-    file_extensions: 
+    file_extensions:
       apex: [".cls", ".trigger"]
       visualforce: [".page", ".component"]
+
   eslint:
     disable_engine: true
   retire-js:
@@ -18,19 +19,20 @@ engines:
 
 rules:
   pmd:
-  #Security
+
+    # Security Rules
     ApexCRUDViolation:
       severity: 2
       tags: ["Security"]
-      
-    ApexBadCrypto:
-        severity: 2
-        tags: ["Security"]
 
-      VfCsrf:
+    ApexBadCrypto:
       severity: 2
-      tags: ["Security","Visualforce"]
+      tags: ["Security"]
+
+    VfCsrf:
+      severity: 2
+      tags: ["Security", "Visualforce"]
 
     VfUnescapeEl:
       severity: 2
-      tags: ["Security","Visualforce"]
+      tags: ["Security", "Visualforce"]
