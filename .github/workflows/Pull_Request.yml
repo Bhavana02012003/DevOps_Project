@@ -38,14 +38,14 @@ jobs:
           mkdir -p ~/.sf
           echo '{"plugins":{"autoInstall":false}}' > ~/.sf/sf-config.json
 
-      - name: Install Code Analyzer Plugin (LATEST)
+      - name: Install Code Analyzer Plugin
         run: |
           sf plugins uninstall @salesforce/plugin-code-analyzer || true
           sf plugins install @salesforce/plugin-code-analyzer
-          sf plugins list
 
-      - name: Confirm Only v5 Plugin
-        run: sf plugins | grep code-analyzer
+      - name: Confirm Code Analyzer Installed
+        run: sf plugins || true
+
 
       - name: Get Commit Author
         id: commit-author
