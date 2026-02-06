@@ -3,7 +3,7 @@ name: Apex PMD Scan (PRs, CSV, fail-on-violation)
 on:
   pull_request:
     branches:
-      - "ESOINT3"
+      - '**'
 
 jobs:
   apex-pmd-scan-pull:
@@ -98,15 +98,17 @@ jobs:
           set -euo pipefail
 
           echo "Resolving diff range..."
-          git fetch --no-tags --prune --depth=50 origin +refs/heads/*:refs/remotes/origin/*
 
-          if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.base_ref }}" ]]; then
-            RANGE="origin/${{ github.base_ref }}...${{ github.sha }}"
-            echo "Using PR diff range: $RANGE"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            RANGE="$BASE_SHA...$HEAD_SHA"
+            echo "Using PR REAL diff: $RANGE"
           else
             RANGE="HEAD~1..HEAD"
-            echo "Using fallback diff range: $RANGE"
+            echo "Using fallback diff: $RANGE"
           fi
+
           echo "RANGE=$RANGE" >> "$GITHUB_OUTPUT"
 
           changed_files=$(git diff --name-only $RANGE -- '*.cls' '*.js' '*.html' || true)
