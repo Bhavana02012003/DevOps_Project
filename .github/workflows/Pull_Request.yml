@@ -38,10 +38,11 @@ jobs:
           mkdir -p ~/.sf
           echo '{"plugins":{"autoInstall":false}}' > ~/.sf/sf-config.json
 
-      - name: Install Code Analyzer Plugin v5
+      - name: Install Code Analyzer Plugin (LATEST)
         run: |
           sf plugins uninstall @salesforce/plugin-code-analyzer || true
-          sf plugins install @salesforce/plugin-code-analyzer@5.1.0
+          sf plugins install @salesforce/plugin-code-analyzer
+          sf plugins list
 
       - name: Confirm Only v5 Plugin
         run: sf plugins | grep code-analyzer
@@ -411,7 +412,6 @@ jobs:
                 --rule-selector StdCyclomaticComplexity \
                 --rule-selector ApexUnitTestClassShouldHaveAsserts \
                 --output-file tmp.csv \
-                --config-file code-analyzer.yml \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
             else
               sf code-analyzer run \
