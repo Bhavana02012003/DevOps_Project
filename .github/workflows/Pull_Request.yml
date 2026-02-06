@@ -620,18 +620,18 @@ jobs:
 
           # ✅ Block policy:
           # Fail if ANY severity 1-2 exists (most severe in Code Analyzer)
-          if [[ "$sev_1_2" -gt 0 ]]; then
-            echo "🚫 HARD GATE FAILED – Found severity 1-2 violations"
-            echo "---- Violations (first 200 lines) ----"
-            sed -n '1,200p' scanner-report.csv || true
-            exit 1
-          fi
-
-          # If you also want to block on Apex>=3 or JS/HTML>=2, uncomment:
-          # if [[ "$apex_ge_3" -gt 0 || "$lwc_ge_2" -gt 0 ]]; then
-          #   echo "🚫 HARD GATE FAILED – BLOCKING PR"
+          # if [[ "$sev_1_2" -gt 0 ]]; then
+          #   echo "🚫 HARD GATE FAILED – Found severity 1-2 violations"
+          #   echo "---- Violations (first 200 lines) ----"
           #   sed -n '1,200p' scanner-report.csv || true
           #   exit 1
           # fi
+
+          # If you also want to block on Apex>=3 or JS/HTML>=2, uncomment:
+          if [[ "$apex_ge_3" -gt 0 || "$lwc_ge_2" -gt 0 ]]; then
+            echo "🚫 HARD GATE FAILED – BLOCKING PR"
+            sed -n '1,200p' scanner-report.csv || true
+            exit 1
+          fi
 
           echo "✅ HARD GATE PASSED – PR CAN MERGE"
