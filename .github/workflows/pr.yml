@@ -512,8 +512,8 @@ jobs:
               PR_Author__c: $author,
               PR_Reviewer__c: $reviewer,
               PR_Review_Comment__c: $comment,
-              PR_Check_Name__c: $allNames,
-              PR_Check_Status__c: $allStats
+              Code_Analyzer_Check_Name__c: $allNames,
+              Code_Analyzer_Check_Status__c: $allStats
             }')
  
           CHECK_FIELDS_JSON='${{ steps.fetch_checks.outputs.SF_CHECK_FIELDS_JSON }}'
