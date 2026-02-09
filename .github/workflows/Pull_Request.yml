@@ -449,19 +449,32 @@ jobs:
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
-          response=$(curl -X POST "https://login.salesforce.com/services/oauth2/token" \
+          echo "Authenticating with Salesforce..."
+
+          response=$(curl -s -X POST "https://login.salesforce.com/services/oauth2/token" \
             -d "grant_type=password" \
             -d "client_id=${{ secrets.SF_CLIENT_ID }}" \
             -d "client_secret=${{ secrets.SF_CLIENT_SECRET }}" \
             -d "username=${{ secrets.SF_USERNAME }}" \
             -d "password=${{ secrets.SF_PASSWORD }}${{ secrets.SF_SECURITY_TOKEN }}" )
+
+          echo "Auth response received."
+
           SF_ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
-          if [ -z "$SF_ACCESS_TOKEN" ]; then
-            echo "Salesforce authentication failed."
+          SF_INSTANCE_URL=$(echo "$response" | jq -r '.instance_url')
+
+          echo "Instance URL: $SF_INSTANCE_URL"
+
+          if [[ -z "$SF_ACCESS_TOKEN" || "$SF_ACCESS_TOKEN" == "null" ]]; then
+            echo "❌ Salesforce authentication failed"
+            echo "$response"
             exit 1
           fi
+
           echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> $GITHUB_ENV
-          echo "Successfully authenticated with Salesforce."
+          echo "SF_INSTANCE_URL=$SF_INSTANCE_URL" >> $GITHUB_ENV
+
+          echo "✅ Salesforce login successful"
 
       - name: Upload Scanner Report to Salesforce
         if: success()
@@ -474,7 +487,7 @@ jobs:
 
           echo "Uploading scanner report to Salesforce..."
 
-          response=$(curl -X POST "<Sandbox-URL>/services/data/v61.0/sobjects/ContentVersion" \
+          response=$(curl -X POST "$SF_INSTANCE_URL/services/data/v61.0/sobjects/ContentVersion" \
             -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
             -H "Content-Type: multipart/form-data" \
             -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
