@@ -84,7 +84,9 @@ jobs:
           echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "$GITHUB_ENV"
           echo "SOURCE_BRANCH=${SOURCE_BRANCH}" >> "$GITHUB_ENV"
           echo "COMMIT_LABEL=${COMMIT_LABEL}" >> "$GITHUB_ENV"
-          FILE_TITLE="Code Scanner Report_${REPO_NAME}_${TARGET_BRANCH}_${COMMIT_LABEL}"
+          SAFE_LABEL=$(echo "${COMMIT_LABEL}" | tr ' ' '_' | tr -cd '[:alnum:]_')
+          FILE_TITLE="Code_Scanner_Report_${REPO_NAME}_${TARGET_BRANCH}_${SAFE_LABEL}"
+          echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
           echo "Target Branch = ${TARGET_BRANCH}"
           echo "Source Branch = ${SOURCE_BRANCH}"
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
@@ -548,7 +550,9 @@ jobs:
 
           mkdir -p Artifact
 
-          FILE_NAME="${{ env.FILE_TITLE }}.csv"
+          FILE_NAME="${FILE_TITLE}.csv"
+          echo "Saving report as: Artifact/$FILE_NAME"
+
           cp ../scanner-report.csv "Artifact/$FILE_NAME"
 
           git add Artifact/$FILE_NAME
