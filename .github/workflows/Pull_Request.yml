@@ -434,8 +434,7 @@ jobs:
 
                 if [[ "$isTemp" -eq 1 ]]; then
                   key="${tempBase}|${startLine}"
-                  mapped="${ACTUAL_LINE_MAP[$key]}"
-                  [[ -z "$mapped" || "$mapped" == "0" ]] && mapped="N/A"
+                  mapped="${ACTUAL_LINE_MAP[$key]:-N/A}"
                   actualLine="$mapped"
                 fi
 
