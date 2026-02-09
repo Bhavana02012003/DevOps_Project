@@ -36,3 +36,8 @@ rules:
     VfUnescapeEl:
       severity: 2
       tags: ["Security", "Visualforce"]
+
+    # Best Practice Rule
+    AvoidDebugStatements:
+      severity: 3
+      tags: ["Best Practices"]
