@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - '**'
+permissions:
+  contents: write
+
 
 jobs:
   apex-pmd-scan-pull:
@@ -528,6 +531,7 @@ jobs:
 
           echo "Preparing Scanner_Reports branch push..."
 
+          # Ensure report exists
           if [[ ! -s scanner-report.csv ]]; then
             echo "Creating placeholder scanner-report.csv"
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
@@ -537,17 +541,20 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           BRANCH_NAME="Scanner_Reports"
+          REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-          echo "Fetching remote branches..."
-          git fetch origin
+          echo "Creating clean clone of repo for artifact push..."
+          rm -rf scanner_reports_repo
+          git clone "$REPO_URL" scanner_reports_repo
 
-          echo "Creating local tracking branch if not exists..."
+          cd scanner_reports_repo
 
-          # Create local branch tracking remote OR create new branch if remote not exists
-          if git ls-remote --exit-code --heads origin $BRANCH_NAME; then
-            git checkout -B $BRANCH_NAME origin/$BRANCH_NAME
+          echo "Checking if Scanner_Reports branch exists..."
+          if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
+            git checkout "$BRANCH_NAME"
           else
-            git checkout -b $BRANCH_NAME
+            echo "Branch does not exist. Creating new branch..."
+            git checkout -b "$BRANCH_NAME"
           fi
 
           mkdir -p Artifact
@@ -555,13 +562,13 @@ jobs:
           FILE_NAME="${FILE_TITLE}.csv"
           echo "Saving report as Artifact/$FILE_NAME"
 
-          cp scanner-report.csv "Artifact/$FILE_NAME"
+          cp ../scanner-report.csv "Artifact/$FILE_NAME"
 
-          git add Artifact/$FILE_NAME
+          git add "Artifact/$FILE_NAME"
           git commit -m "Auto upload scanner report (run ${{ github.run_id }})" || echo "No changes to commit"
 
           echo "Pushing to remote branch..."
-          git push origin $BRANCH_NAME
+          git push origin "$BRANCH_NAME" || git push -u origin "$BRANCH_NAME"
 
           echo "✅ Scanner report pushed successfully"
 
