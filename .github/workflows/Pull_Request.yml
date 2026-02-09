@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - '**'
+permissions:
+  contents: write
+
 
 jobs:
   apex-pmd-scan-pull:
@@ -538,26 +541,34 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           BRANCH_NAME="Scanner_Reports"
+          REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-          # Fetch branch if exists
-          git fetch origin $BRANCH_NAME || true
+          echo "Creating clean clone of repo for artifact push..."
+          rm -rf scanner_reports_repo
+          git clone "$REPO_URL" scanner_reports_repo
 
-          # Create clean worktree directory
-          rm -rf scanner_reports_worktree
-          git worktree add scanner_reports_worktree origin/$BRANCH_NAME || git worktree add -b $BRANCH_NAME scanner_reports_worktree
+          cd scanner_reports_repo
 
-          cd scanner_reports_worktree
+          echo "Checking if Scanner_Reports branch exists..."
+          if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
+            git checkout "$BRANCH_NAME"
+          else
+            echo "Branch does not exist. Creating new branch..."
+            git checkout -b "$BRANCH_NAME"
+          fi
 
           mkdir -p Artifact
 
           FILE_NAME="${FILE_TITLE}.csv"
-          echo "Saving report as: Artifact/$FILE_NAME"
+          echo "Saving report as Artifact/$FILE_NAME"
 
           cp ../scanner-report.csv "Artifact/$FILE_NAME"
 
-          git add Artifact/$FILE_NAME
+          git add "Artifact/$FILE_NAME"
           git commit -m "Auto upload scanner report (run ${{ github.run_id }})" || echo "No changes to commit"
-          git push origin $BRANCH_NAME
+
+          echo "Pushing to remote branch..."
+          git push origin "$BRANCH_NAME" || git push -u origin "$BRANCH_NAME"
 
           echo "✅ Scanner report pushed successfully"
 
