@@ -518,14 +518,17 @@ jobs:
           echo "Listing files before uploading scanner report:"
           ls -lah
 
-      - name: Commit and Push Scanner Report to `Scanner_Reports` Branch
+      - name: Commit and Push Scanner Report to Scanner_Reports Branch
         if: always()
         shell: bash
         run: |
           set -euo pipefail
 
+          echo "Preparing Scanner_Reports branch push..."
+
+          # Ensure report exists
           if [[ ! -s scanner-report.csv ]]; then
-            echo "scanner-report.csv missing or empty. Creating placeholder."
+            echo "Creating placeholder scanner-report.csv"
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
           fi
 
@@ -533,32 +536,27 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           BRANCH_NAME="Scanner_Reports"
-          echo "✅ Target Branch: $BRANCH_NAME"
 
-          git stash push --include-untracked -m "stash scanner report" || true
+          # Fetch branch if exists
+          git fetch origin $BRANCH_NAME || true
 
-          if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
-            echo "✅ Remote branch $BRANCH_NAME exists."
-            git fetch origin "$BRANCH_NAME":"$BRANCH_NAME"
-            git checkout "$BRANCH_NAME"
-          else
-            echo "❌ Remote branch $BRANCH_NAME does not exist. Creating it..."
-            git checkout -b "$BRANCH_NAME"
-            git push --set-upstream origin "$BRANCH_NAME"
-          fi
+          # Create clean worktree directory
+          rm -rf scanner_reports_worktree
+          git worktree add scanner_reports_worktree origin/$BRANCH_NAME || git worktree add -b $BRANCH_NAME scanner_reports_worktree
 
-          git pull origin "$BRANCH_NAME" --rebase || true
-          git stash pop || true
+          cd scanner_reports_worktree
 
           mkdir -p Artifact
-          OUTFILE="Artifact/${{ env.FILE_TITLE }}"
-          cp scanner-report.csv "$OUTFILE"
 
-          git add "$OUTFILE"
-          git commit -m "Add scanner report (PR #${{ github.event.pull_request.number }}, run ${{ github.run_id }})" || echo "No changes to commit"
-          git push origin "$BRANCH_NAME"
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          FILE_NAME="${{ env.FILE_TITLE }}.csv"
+          cp ../scanner-report.csv "Artifact/$FILE_NAME"
+
+          git add Artifact/$FILE_NAME
+          git commit -m "Auto upload scanner report (run ${{ github.run_id }})" || echo "No changes to commit"
+          git push origin $BRANCH_NAME
+
+          echo "✅ Scanner report pushed successfully"
+
 
       # ✅ UPDATED: Blocking step with Severity buckets (1-2 vs 3-5) and printed summary
       - name: HARD FAIL Block PR on Violations + Severity buckets
