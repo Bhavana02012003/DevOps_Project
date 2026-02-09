@@ -528,7 +528,6 @@ jobs:
 
           echo "Preparing Scanner_Reports branch push..."
 
-          # Ensure report exists
           if [[ ! -s scanner-report.csv ]]; then
             echo "Creating placeholder scanner-report.csv"
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
@@ -539,24 +538,29 @@ jobs:
 
           BRANCH_NAME="Scanner_Reports"
 
-          # Fetch branch if exists
-          git fetch origin $BRANCH_NAME || true
+          echo "Fetching remote branches..."
+          git fetch origin
 
-          # Create clean worktree directory
-          rm -rf scanner_reports_worktree
-          git worktree add scanner_reports_worktree origin/$BRANCH_NAME || git worktree add -b $BRANCH_NAME scanner_reports_worktree
+          echo "Creating local tracking branch if not exists..."
 
-          cd scanner_reports_worktree
+          # Create local branch tracking remote OR create new branch if remote not exists
+          if git ls-remote --exit-code --heads origin $BRANCH_NAME; then
+            git checkout -B $BRANCH_NAME origin/$BRANCH_NAME
+          else
+            git checkout -b $BRANCH_NAME
+          fi
 
           mkdir -p Artifact
 
           FILE_NAME="${FILE_TITLE}.csv"
-          echo "Saving report as: Artifact/$FILE_NAME"
+          echo "Saving report as Artifact/$FILE_NAME"
 
-          cp ../scanner-report.csv "Artifact/$FILE_NAME"
+          cp scanner-report.csv "Artifact/$FILE_NAME"
 
           git add Artifact/$FILE_NAME
           git commit -m "Auto upload scanner report (run ${{ github.run_id }})" || echo "No changes to commit"
+
+          echo "Pushing to remote branch..."
           git push origin $BRANCH_NAME
 
           echo "✅ Scanner report pushed successfully"
