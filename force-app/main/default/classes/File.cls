@@ -61,30 +61,30 @@ public with sharing class File {
 
                 List<String> cols = parseCSVLine(rows[i]);
 
-                String problem = getValue(cols, headerIndex, 'problem');
-                String file    = getValue(cols, headerIndex, 'file');
+                String rule = getValue(cols, headerIndex, 'rule');
+                String file = getValue(cols, headerIndex, 'file');
 
-                if (String.isBlank(problem) || String.isBlank(file)) continue;
+                if (String.isBlank(rule) || String.isBlank(file)) continue;
 
-                // 4️⃣ Create dynamic record
                 SObject vuln = vulnType.newSObject();
 
-                vuln.put('Problem__c', problem);
-                vuln.put('Severity__c', getValue(cols, headerIndex, 'severity'));
-                vuln.put('File__c', file);
-                vuln.put('Line__c', getValue(cols, headerIndex, 'templine'));
-                vuln.put('Column__c', getValue(cols, headerIndex, 'column'));
-                vuln.put('Rule__c', getValue(cols, headerIndex, 'rule'));
-                vuln.put('Description__c', getValue(cols, headerIndex, 'description'));
-                vuln.put('URL__c', getValue(cols, headerIndex, 'url'));
-                vuln.put('Category__c', getValue(cols, headerIndex, 'category'));
+                // ⭐ CORE FIELDS FROM CSV
+                vuln.put('Rule__c', rule);
                 vuln.put('Engine__c', getValue(cols, headerIndex, 'engine'));
-                vuln.put('Commit_Author__c', getValue(cols, headerIndex, 'commitauthor'));
+                vuln.put('Severity__c', getValue(cols, headerIndex, 'severity'));
+                vuln.put('Category__c', getValue(cols, headerIndex, 'tags'));
+                vuln.put('File__c', file);
+                vuln.put('Line__c', getValue(cols, headerIndex, 'startline'));
+                vuln.put('Column__c', getValue(cols, headerIndex, 'startcolumn'));
+                vuln.put('Description__c', getValue(cols, headerIndex, 'message'));
+                vuln.put('URL__c', getValue(cols, headerIndex, 'resources'));
+
+                // ⭐ CI/CD METADATA
+                vuln.put('Commit__c', getValue(cols, headerIndex, 'commitauthor'));
                 vuln.put('ActualLine__c', getValue(cols, headerIndex, 'actualline'));
                 vuln.put('TargetBranch__c', getValue(cols, headerIndex, 'targetbranch'));
-                vuln.put('Repo__c', getValue(cols, headerIndex, 'repo'));
-                vuln.put('Commit_Sha__c', getValue(cols, headerIndex, 'commitsha'));
-                vuln.put('Run_Id__c', getValue(cols, headerIndex, 'runid'));
+
+                // ⭐ DEFAULT STATUS
                 vuln.put('Violation_Status__c', 'Open');
 
                 recordsToInsert.add(vuln);
