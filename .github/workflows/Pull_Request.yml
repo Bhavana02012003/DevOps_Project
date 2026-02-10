@@ -434,6 +434,7 @@ jobs:
               tail -n +2 tmp.csv | while IFS= read -r row; do
                 [[ -z "$row" ]] && continue
 
+                # Extract startLine from PMD row (6th column)
                 startLine=$(echo "$row" | awk -F',' '{print $6}' | tr -d '"')
                 actualLine="$startLine"
 
@@ -443,14 +444,12 @@ jobs:
                   actualLine="$mapped"
                 fi
 
-                # 🔥 CSV SANITIZATION (THIS FIXES GITHUB TABLE UI)
-                safeRow=$(printf '%s\n' "$row" | sed 's/"/""/g')
+                # Escape ONLY appended fields
                 safeAuthor=$(printf '%s\n' "$COMMIT_AUTHOR" | sed 's/"/""/g')
                 safeBranch=$(printf '%s\n' "$TARGET_BRANCH" | sed 's/"/""/g')
 
-                echo "\"${safeRow}\",\"${safeAuthor}\",\"${safeAuthor}\",\"${actualLine}\",\"${safeBranch}\"" \
-                  | sed 's/^"//;s/"$//' \
-                  >> scanner-report.csv
+                # 🔥 APPEND NEW COLUMNS CORRECTLY (DO NOT QUOTE WHOLE ROW)
+                echo "${row},\"${safeAuthor}\",\"${safeAuthor}\",\"${actualLine}\",\"${safeBranch}\"" >> scanner-report.csv
               done
 
             fi
