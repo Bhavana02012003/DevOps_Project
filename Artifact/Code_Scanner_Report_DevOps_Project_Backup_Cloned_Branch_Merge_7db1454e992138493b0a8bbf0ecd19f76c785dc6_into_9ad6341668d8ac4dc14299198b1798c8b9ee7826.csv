@@ -1,0 +1,2 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"IfElseStmtsMustUseBraces","pmd",3,"Recommended,CodeStyle,Apex","temp_scanner_files/temp_force-app_main_default_classes_File.cls",5,71,5,80,"Avoid using if...else statements without curly braces","https://docs.pmd-code.org/pmd-doc-7.20.0/pmd_rules_apex_codestyle.html#ifelsestmtsmustusebraces","Bhavana02012003","Bhavana02012003","N/A","Backup_Cloned_Branch"
