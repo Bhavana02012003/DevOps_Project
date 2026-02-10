@@ -19,7 +19,10 @@ public with sharing class File {
         }
     }
 
-    
+    public static void processNewContentDocuments(Set<Id> contentDocIds) {
+        importVulnerabilityData(new List<Id>(contentDocIds));
+    }
+
 
     /* ================= CORE ================= */
     private static void importVulnerabilityData(List<Id> contentDocIds) {
