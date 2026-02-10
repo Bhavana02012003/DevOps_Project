@@ -443,8 +443,16 @@ jobs:
                   actualLine="$mapped"
                 fi
 
-                echo "${row},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> scanner-report.csv
+                # 🔥 CSV SANITIZATION (THIS FIXES GITHUB TABLE UI)
+                safeRow=$(printf '%s\n' "$row" | sed 's/"/""/g')
+                safeAuthor=$(printf '%s\n' "$COMMIT_AUTHOR" | sed 's/"/""/g')
+                safeBranch=$(printf '%s\n' "$TARGET_BRANCH" | sed 's/"/""/g')
+
+                echo "\"${safeRow}\",\"${safeAuthor}\",\"${safeAuthor}\",\"${actualLine}\",\"${safeBranch}\"" \
+                  | sed 's/^"//;s/"$//' \
+                  >> scanner-report.csv
               done
+
             fi
           done < files_to_scan.txt
 
