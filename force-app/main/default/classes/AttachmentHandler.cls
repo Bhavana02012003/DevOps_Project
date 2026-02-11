@@ -3,18 +3,14 @@ public with sharing class AttachmentHandler {
     public static void createAttachmentForCase(String caseId) {
         try {
             // Fetch the related Scanner Report Case record
-            Scanner_Report_Case__c caseRecord = [
+            List<Scanner_Report_Case__c> cases = [
                 SELECT Id, File_Id__c, File_Name__c 
                 FROM Scanner_Report_Case__c 
-                WHERE Id = :caseId 
-                LIMIT 1
+                WHERE Id = :caseId LIMIT 1
             ];
 
-            if (caseRecord.File_Id__c == null) {
-                System.debug('⚠️ No file associated with this case.');
-                return;
-                
-            }
+            if (cases.isEmpty()) return;
+            Scanner_Report_Case__c caseRecord = cases[0];
 
             // Retrieve the CSV file from ContentVersion
             List<ContentVersion> fileVersions = [
