@@ -20,6 +20,11 @@ public with sharing class File {
     }
 
     public static void processNewContentDocuments(Set<Id> contentDocIds) {
+
+        // ⭐⭐⭐ ADD THIS LINE (this is the missing piece)
+        createScannerReportCases(contentDocIds);
+
+        // 🔒 EXISTING LOGIC (UNCHANGED)
         importVulnerabilityData(new List<Id>(contentDocIds));
     }
 
@@ -167,4 +172,45 @@ public with sharing class File {
         cols.add(cur.trim());
         return cols;
     }
+
+    /* ================= SCANNER REPORT CASE CREATION ================= */
+private static void createScannerReportCases(Set<Id> contentDocIds) {
+
+    List<ContentDocument> docs = [
+        SELECT Id, Title
+        FROM ContentDocument
+        WHERE Id IN :contentDocIds
+    ];
+
+    List<Scanner_Report_Case__c> casesToInsert = new List<Scanner_Report_Case__c>();
+
+    for (ContentDocument doc : docs) {
+
+        // 🔥 SAME CONDITION YOU WERE USING
+        if (doc.Title != null && doc.Title.contains('Code_Scanner_Report')) {
+
+            // Prevent duplicates
+            List<Scanner_Report_Case__c> existing = [
+                SELECT Id FROM Scanner_Report_Case__c
+                WHERE File_Id__c = :doc.Id LIMIT 1
+            ];
+
+            if (!existing.isEmpty()) continue;
+
+            Scanner_Report_Case__c newCase = new Scanner_Report_Case__c();
+            newCase.File_Id__c = doc.Id;
+            newCase.File_Name__c = doc.Title;
+            newCase.Status__c = 'New';
+            newCase.OwnerId = UserInfo.getUserId();
+
+            casesToInsert.add(newCase);
+        }
+    }
+
+    if (!casesToInsert.isEmpty()) {
+        insert casesToInsert;
+        System.debug('✅ Scanner Report Cases Created: ' + casesToInsert.size());
+    }
+}
+
 }
