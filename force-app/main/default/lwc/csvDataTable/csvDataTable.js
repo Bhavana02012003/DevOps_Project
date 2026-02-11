@@ -76,16 +76,16 @@ export default class CsvDataTable extends LightningElement {
 
         if (row.filterType === 'apex') {
             this.modalTitle = 'Apex Class Violations';
-            this.filteredData = this.data.filter(item => item.File && item.File.includes('classes'));
+            this.filteredData = this.data.filter(item => item.file && item.file.includes('classes'));
         } else if (row.filterType === 'lwc') {
             this.modalTitle = 'LWC Violations';
-            this.filteredData = this.data.filter(item => item.File && item.File.includes('lwc'));
+            this.filteredData = this.data.filter(item => item.file && item.file.includes('lwc'));
         } else if (row.filterType === 'aura') {
             this.modalTitle = 'Aura Violations';
-            this.filteredData = this.data.filter(item => item.File && item.File.includes('aura'));
+            this.filteredData = this.data.filter(item => item.file && item.file.includes('aura'));
         } else if (row.filterType === 'objects') {
             this.modalTitle = 'Objects Violations';
-            this.filteredData = this.data.filter(item => item.File && item.File.includes('objects'));
+            this.filteredData = this.data.filter(item => item.file && item.file.includes('objects'));
         }
 
         this.setModalPagination();
