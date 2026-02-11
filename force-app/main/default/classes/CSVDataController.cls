@@ -14,115 +14,104 @@ public with sharing class CSVDataController {
         CSVDataResponse response = new CSVDataResponse();
 
         try {
-            // 🔥 STEP 1: Get File linked to Case (ContentDocumentLink)
-            List<ContentDocumentLink> links = [
+            // STEP 1 — Get File linked to Case
+            ContentDocumentLink link = [
                 SELECT ContentDocumentId
                 FROM ContentDocumentLink
                 WHERE LinkedEntityId = :caseId
                 LIMIT 1
             ];
 
-            if (links.isEmpty()) {
-                System.debug('❌ No File linked to Case');
-                return response;
-            }
-
-            Id docId = links[0].ContentDocumentId;
-
-            // 🔥 STEP 2: Get latest CSV version
+            // STEP 2 — Get latest version
             ContentVersion fileVersion = [
-                SELECT VersionData, Title
+                SELECT VersionData
                 FROM ContentVersion
-                WHERE ContentDocumentId = :docId
+                WHERE ContentDocumentId = :link.ContentDocumentId
                 ORDER BY CreatedDate DESC
                 LIMIT 1
             ];
 
-            // 🔥 STEP 3: Read CSV
+            // STEP 3 — Convert Blob → String safely
             String csvContent = fileVersion.VersionData.toString();
+            csvContent = csvContent.replace('\r\n','\n').replace('\r','\n');
+
             List<String> lines = csvContent.split('\n');
+            if(lines.size() <= 1) return response;
 
-            if (lines.isEmpty()) return response;
+            // STEP 4 — Read headers
+            List<String> headers = parseCSVLine(lines[0]);
 
-            // 🔥 Support Code Analyzer v4 + v5 headers
-            List<String> headers = normalizeHeaders(lines[0]);
+            for(Integer i=0;i<headers.size();i++){
+                headers[i] = normalize(headers[i]);
+            }
 
-            // 🔥 STEP 4: Parse rows
-            for (Integer i = 1; i < lines.size(); i++) {
+            // STEP 5 — Parse rows (🔥 NEW SAFE PARSER)
+            for(Integer i=1;i<lines.size();i++){
 
-                if (String.isBlank(lines[i])) continue;
+                if(String.isBlank(lines[i])) continue;
 
                 List<String> values = parseCSVLine(lines[i]);
 
-                if (values.size() != headers.size()) continue;
+                // 🔥 FIX: allow column mismatch (Code Analyzer adds new cols)
+                if(values.size() < headers.size()) continue;
 
-                Map<String,String> rowData = new Map<String,String>();
+                Map<String,String> row = new Map<String,String>();
 
-                for (Integer j=0; j<headers.size(); j++) {
-                    rowData.put(headers[j], values[j]);
+                for(Integer j=0;j<headers.size();j++){
+                    row.put(headers[j], values[j]);
                 }
 
-                // 🔥 Count violations
-                if (rowData.containsKey('file')) {
-                    String filePath = rowData.get('file').toLowerCase();
+                // 🔥 COUNT VIOLATIONS
+                if(row.containsKey('file')){
+                    String filePath = row.get('file').toLowerCase();
 
-                    if (filePath.contains('classes')) response.clsViolationCount++;
-                    else if (filePath.contains('lwc')) response.lwcViolationCount++;
-                    else if (filePath.contains('aura')) response.auraViolationCount++;
-                    else if (filePath.contains('objects')) response.objectsViolationCount++;
+                    if(filePath.contains('classes')) response.clsViolationCount++;
+                    else if(filePath.contains('lwc')) response.lwcViolationCount++;
+                    else if(filePath.contains('aura')) response.auraViolationCount++;
+                    else if(filePath.contains('objects')) response.objectsViolationCount++;
                 }
 
-                response.csvData.add(rowData);
+                response.csvData.add(row);
             }
 
-        } catch (Exception e) {
-            System.debug('❌ CSV ERROR: ' + e.getMessage());
+        } catch(Exception e){
+            System.debug('CSV ERROR: '+e.getMessage());
         }
 
         return response;
     }
 
-    // ⭐ Normalize headers for Code Analyzer v4 + v5
-    private static List<String> normalizeHeaders(String headerRow) {
-
-        List<String> rawHeaders = parseCSVLine(headerRow);
-        List<String> normalized = new List<String>();
-
-        for(String h : rawHeaders) {
-
-            h = h.toLowerCase()
-                 .replace(' ', '')
-                 .replace('_', '');
-
-            // 🔥 map camelCase → lowercase
-            if(h == 'startline') h = 'startline';
-            if(h == 'startcolumn') h = 'startcolumn';
-
-            normalized.add(h);
-        }
-
-        return normalized;
+    // 🔥 Normalize headers
+    private static String normalize(String h){
+        return h.toLowerCase()
+                .replace(' ','')
+                .replace('_','')
+                .replace('"','');
     }
 
-    // ⭐ Proper CSV parser (handles commas inside quotes)
-    private static List<String> parseCSVLine(String line) {
+    // 🔥 SUPER SAFE CSV PARSER (handles quotes + commas)
+    private static List<String> parseCSVLine(String line){
 
         List<String> cols = new List<String>();
         Boolean inQuotes = false;
         String cur = '';
 
-        for (Integer i=0; i<line.length(); i++) {
+        for(Integer i=0;i<line.length();i++){
             String c = line.substring(i,i+1);
 
-            if (c == '"') inQuotes = !inQuotes;
-            else if (c == ',' && !inQuotes) {
-                cols.add(cur.replace('"','').trim());
+            if(c == '"'){
+                inQuotes = !inQuotes;
+            }
+            else if(c == ',' && !inQuotes){
+                cols.add(cur.trim());
                 cur = '';
             }
-            else cur += c;
+            else{
+                cur += c;
+            }
         }
 
-        cols.add(cur.replace('"','').trim());
+        cols.add(cur.trim());
         return cols;
     }
 }
