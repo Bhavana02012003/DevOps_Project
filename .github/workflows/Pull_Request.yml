@@ -488,6 +488,35 @@ jobs:
 
           echo "✅ Salesforce login successful"
 
+
+      - name: Create Scanner Report Case in Salesforce
+        id: create_case
+        run: |
+          echo "Creating Scanner Report Case..."
+
+          caseResponse=$(curl -s -X POST "$SF_INSTANCE_URL/services/data/v61.0/sobjects/Case" \
+            -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"Subject\": \"Automated Code Scanner Report\",
+              \"Status\": \"New\",
+              \"Origin\": \"GitHub DevOps\",
+              \"Type\": \"Scanner Report\"
+            }")
+
+          echo "Case Response: $caseResponse"
+
+          CASE_ID=$(echo "$caseResponse" | jq -r '.id')
+
+          if [[ "$CASE_ID" == "null" || -z "$CASE_ID" ]]; then
+            echo "❌ Failed to create Case"
+            exit 1
+          fi
+
+          echo "CASE_ID=$CASE_ID" >> $GITHUB_ENV
+          echo "✅ Scanner Report Case Created: $CASE_ID"
+
+
       - name: Upload Scanner Report to Salesforce
         if: success()
         run: |
@@ -502,7 +531,11 @@ jobs:
           response=$(curl -X POST "$SF_INSTANCE_URL/services/data/v61.0/sobjects/ContentVersion" \
             -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
             -H "Content-Type: multipart/form-data" \
-            -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
+            -F "entity_content={
+              \"Title\":\"${{ env.FILE_TITLE }}\",
+              \"PathOnClient\":\"scanner-report.csv\",
+              \"FirstPublishLocationId\":\"$CASE_ID\"
+            };type=application/json" \
             -F "VersionData=@scanner-report.csv;type=text/csv")
 
           echo "Salesforce API Response: $response"
