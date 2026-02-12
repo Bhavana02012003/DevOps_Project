@@ -10,121 +10,76 @@ public with sharing class CSVDataController {
 
     // IMPORTANT: Do NOT make this cacheable, because files get attached AFTER case creation
     @AuraEnabled(cacheable=false)
-    public static CSVDataResponse getCSVData(String caseId) {
+public static CSVDataResponse getCSVData(String caseId) {
 
-        CSVDataResponse response = new CSVDataResponse();
+    CSVDataResponse response = new CSVDataResponse();
 
-        if (String.isBlank(caseId)) {
+    try {
+
+        if(String.isBlank(caseId)) return response;
+
+        // 🔥 THE REAL FIX — find CSV using FirstPublishLocationId
+        ContentVersion fileVersion = [
+            SELECT Id, Title, VersionData, CreatedDate
+            FROM ContentVersion
+            WHERE FirstPublishLocationId = :caseId
+            AND FileExtension = 'csv'
+            ORDER BY CreatedDate DESC
+            LIMIT 1
+        ];
+
+        if(fileVersion == null){
+            System.debug('❌ No CSV found for this case');
             return response;
         }
 
-        try {
-            // 1) Get ALL files linked to this Case
-            List<ContentDocumentLink> links = [
-                SELECT ContentDocumentId
-                FROM ContentDocumentLink
-                WHERE LinkedEntityId = :caseId
-            ];
+        // Convert Blob → String
+        String csvContent = fileVersion.VersionData.toString();
+        csvContent = csvContent.replace('\r\n','\n').replace('\r','\n');
 
-            if (links.isEmpty()) {
-                System.debug('❌ No files linked to this Case');
-                return response;
-            }
+        List<List<String>> rows = parseCSV(csvContent);
+        if(rows.size() <= 1) return response;
 
-            Set<Id> docIds = new Set<Id>();
-            for (ContentDocumentLink l : links) {
-                if (l.ContentDocumentId != null) docIds.add(l.ContentDocumentId);
-            }
-
-            if (docIds.isEmpty()) return response;
-
-            // 2) From those linked docs, pick the LATEST CSV ContentVersion
-            //    (This avoids picking an older header-only CSV)
-            List<ContentVersion> versions = [
-                SELECT Id, ContentDocumentId, Title, PathOnClient, FileExtension, CreatedDate, VersionData
-                FROM ContentVersion
-                WHERE ContentDocumentId IN :docIds
-                  AND IsLatest = true
-                  AND FileExtension = 'csv'
-                ORDER BY CreatedDate DESC
-                LIMIT 1
-            ];
-
-            if (versions.isEmpty()) {
-                System.debug('❌ No latest CSV found among linked files');
-                return response;
-            }
-
-            ContentVersion fileVersion = versions[0];
-
-            if (fileVersion.VersionData == null) {
-                System.debug('❌ CSV VersionData is null');
-                return response;
-            }
-
-            // 3) Convert Blob -> String
-            String csvContent = fileVersion.VersionData.toString();
-            csvContent = csvContent.replace('\r\n', '\n').replace('\r', '\n');
-
-            // 4) Parse CSV using a safe parser that respects quotes/commas
-            List<List<String>> rows = parseCSV(csvContent);
-
-            if (rows == null || rows.size() <= 1) {
-                System.debug('⚠️ CSV has no data rows (only header or empty)');
-                return response;
-            }
-
-            // 5) Headers (normalized)
-            List<String> headersRaw = rows[0];
-            List<String> headers = new List<String>();
-            for (String h : headersRaw) {
-                headers.add(normalizeHeader(h));
-            }
-
-            // 6) Data rows
-            Integer rowCounter = 0;
-            for (Integer i = 1; i < rows.size(); i++) {
-                List<String> values = rows[i];
-                if (values == null || values.isEmpty()) continue;
-
-                // If row has fewer columns than header, skip
-                if (values.size() < headers.size()) continue;
-
-                Map<String, String> row = new Map<String, String>();
-
-                // ✅ Add synthetic Id for lightning-datatable key-field="Id"
-                rowCounter++;
-                row.put('Id', String.valueOf(rowCounter));
-
-                for (Integer j = 0; j < headers.size(); j++) {
-                    row.put(headers[j], values[j]);
-                }
-
-                // Count violations by file path
-                String filePath = '';
-                if (row.containsKey('file') && row.get('file') != null) {
-                    filePath = row.get('file').toLowerCase();
-                }
-
-                if (!String.isBlank(filePath)) {
-                    // Works for both real paths and your temp_scanner_files names
-                    if (filePath.contains('classes')) response.clsViolationCount++;
-                    else if (filePath.contains('lwc')) response.lwcViolationCount++;
-                    else if (filePath.contains('aura')) response.auraViolationCount++;
-                    else if (filePath.contains('objects')) response.objectsViolationCount++;
-                }
-
-                response.csvData.add(row);
-            }
-
-            System.debug('✅ Parsed rows: ' + response.csvData.size());
-
-        } catch (Exception e) {
-            System.debug('❌ CSV ERROR: ' + e.getMessage() + ' | ' + e.getStackTraceString());
+        // Headers
+        List<String> headers = new List<String>();
+        for(String h : rows[0]){
+            headers.add(normalizeHeader(h));
         }
 
-        return response;
+        Integer counter = 0;
+
+        // Rows
+        for(Integer i=1;i<rows.size();i++){
+            List<String> values = rows[i];
+            if(values.size() < headers.size()) continue;
+
+            Map<String,String> row = new Map<String,String>();
+            counter++;
+            row.put('Id', String.valueOf(counter));
+
+            for(Integer j=0;j<headers.size();j++){
+                row.put(headers[j], values[j]);
+            }
+
+            // Count violations
+            String filePath = row.get('file');
+            if(filePath != null){
+                filePath = filePath.toLowerCase();
+                if(filePath.contains('classes')) response.clsViolationCount++;
+                else if(filePath.contains('lwc')) response.lwcViolationCount++;
+                else if(filePath.contains('aura')) response.auraViolationCount++;
+                else if(filePath.contains('objects')) response.objectsViolationCount++;
+            }
+
+            response.csvData.add(row);
+        }
+
+    } catch(Exception e){
+        System.debug('CSV ERROR: '+e.getMessage());
     }
+
+    return response;
+}
 
     // Normalize headers to match your JS usage (item.file, etc.)
     private static String normalizeHeader(String h) {
