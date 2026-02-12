@@ -1,11 +1,10 @@
 import { LightningElement, api, wire, track } from 'lwc';
 import getCSVData from '@salesforce/apex/CSVDataController.getCSVData';
 
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 5; // Display 5 rows per page
 
 export default class CsvDataTable extends LightningElement {
     @api recordId;
-
     @track data = [];
     @track columns = [];
     @track summaryData = [];
@@ -15,6 +14,7 @@ export default class CsvDataTable extends LightningElement {
     @track isModalOpen = false;
     @track modalTitle = '';
 
+    // Pagination variables
     currentPage = 1;
     totalPages = 1;
     disablePrev = true;
@@ -25,17 +25,18 @@ export default class CsvDataTable extends LightningElement {
     disablePrevModal = true;
     disableNextModal = true;
 
+    // Table columns for summary data
     summaryColumns = [
         { label: 'Violation Type', fieldName: 'category', type: 'text' },
-        {
-            label: 'Count',
-            fieldName: 'count',
-            type: 'button',
-            typeAttributes: {
-                label: { fieldName: 'count' },
-                variant: 'brand',
+        { 
+            label: 'Count', 
+            fieldName: 'count', 
+            type: 'button', 
+            typeAttributes: { 
+                label: { fieldName: 'count' }, 
+                variant: 'brand', 
                 name: 'view_details'
-            }
+            } 
         }
     ];
 
@@ -44,141 +45,88 @@ export default class CsvDataTable extends LightningElement {
         if (error) {
             console.error('Error fetching CSV data:', error);
             this.data = [];
-            this.paginatedData = [];
-            this.summaryData = [];
             return;
         }
 
         if (data) {
             this.data = data.csvData || [];
+            this.setPagination();
 
-            // ✅ Build columns (exclude Id so it doesn’t show as a column)
             if (this.data.length > 0) {
-                const fields = Object.keys(this.data[0]).filter(f => f !== 'Id' && f !== 'id');
-                this.columns = fields.map(field => ({
+                this.columns = Object.keys(this.data[0]).map(field => ({
                     label: field.replace(/_/g, ' '),
                     fieldName: field,
                     type: 'text'
                 }));
-            } else {
-                this.columns = [];
             }
 
+            // Ensure all counts are valid
             this.summaryData = [
                 { category: 'Total Apex Class Violations', count: data.clsViolationCount || 0, filterType: 'apex' },
                 { category: 'Total LWC Violations', count: data.lwcViolationCount || 0, filterType: 'lwc' },
                 { category: 'Total Aura Violations', count: data.auraViolationCount || 0, filterType: 'aura' },
                 { category: 'Total Objects Violations', count: data.objectsViolationCount || 0, filterType: 'objects' }
             ];
-
-            this.setPagination();
         }
     }
 
-    // Main pagination
-    setPagination() {
-        this.totalPages = Math.ceil((this.data.length || 0) / PAGE_SIZE) || 0;
-        this.currentPage = 1;
-        this.updatePaginatedData();
-    }
-
-    updatePaginatedData() {
-        if (!this.data || this.data.length === 0) {
-            this.paginatedData = [];
-            this.disablePrev = true;
-            this.disableNext = true;
-            return;
-        }
-
-        const start = (this.currentPage - 1) * PAGE_SIZE;
-        const end = start + PAGE_SIZE;
-        this.paginatedData = this.data.slice(start, end);
-
-        this.disablePrev = this.currentPage <= 1;
-        this.disableNext = this.currentPage >= this.totalPages;
-    }
-
-    handleNextPage() {
-        if (this.currentPage < this.totalPages) {
-            this.currentPage++;
-            this.updatePaginatedData();
-        }
-    }
-
-    handlePrevPage() {
-        if (this.currentPage > 1) {
-            this.currentPage--;
-            this.updatePaginatedData();
-        }
-    }
-
-    // Row action -> Modal filter
+    // Handle Click Event for Filtering Data in Modal
     handleRowAction(event) {
         const row = event.detail.row;
 
-        const needle =
-            row.filterType === 'apex' ? 'classes' :
-            row.filterType === 'lwc' ? 'lwc' :
-            row.filterType === 'aura' ? 'aura' :
-            row.filterType === 'objects' ? 'objects' :
-            '';
-
-        this.modalTitle =
-            row.filterType === 'apex' ? 'Apex Class Violations' :
-            row.filterType === 'lwc' ? 'LWC Violations' :
-            row.filterType === 'aura' ? 'Aura Violations' :
-            row.filterType === 'objects' ? 'Objects Violations' :
-            'Violations';
-
-        this.filteredData = (this.data || []).filter(item => {
-            const f = (item.file || '').toLowerCase();
-            return needle ? f.includes(needle) : true;
-        });
+        if (row.filterType === 'apex') {
+            this.modalTitle = 'Apex Class Violations';
+            this.filteredData = this.data.filter(item => item.file && item.file.includes('classes'));
+        } else if (row.filterType === 'lwc') {
+            this.modalTitle = 'LWC Violations';
+            this.filteredData = this.data.filter(item => item.file && item.file.includes('lwc'));
+        } else if (row.filterType === 'aura') {
+            this.modalTitle = 'Aura Violations';
+            this.filteredData = this.data.filter(item => item.file && item.file.includes('aura'));
+        } else if (row.filterType === 'objects') {
+            this.modalTitle = 'Objects Violations';
+            this.filteredData = this.data.filter(item => item.file && item.file.includes('objects'));
+        }
 
         this.setModalPagination();
         this.isModalOpen = true;
     }
 
-    // Modal pagination
+    // Ensure pagination works
+    setPagination() {
+        this.totalPages = Math.ceil(this.data.length / PAGE_SIZE);
+        this.currentPage = 1;
+        this.updatePaginatedData();
+    }
+
+    updatePaginatedData() {
+        const start = (this.currentPage - 1) * PAGE_SIZE;
+        const end = start + PAGE_SIZE;
+        this.paginatedData = this.data.slice(start, end);
+
+        this.disablePrev = this.currentPage === 1;
+        this.disableNext = this.currentPage === this.totalPages;
+    }
+
+    // Pagination for modal
     setModalPagination() {
-        this.modalTotalPages = Math.ceil((this.filteredData.length || 0) / PAGE_SIZE) || 0;
+        this.modalTotalPages = Math.ceil(this.filteredData.length / PAGE_SIZE);
         this.modalCurrentPage = 1;
         this.updatePaginatedFilteredData();
     }
 
     updatePaginatedFilteredData() {
-        if (!this.filteredData || this.filteredData.length === 0) {
-            this.paginatedFilteredData = [];
-            this.disablePrevModal = true;
-            this.disableNextModal = true;
-            return;
-        }
-
         const start = (this.modalCurrentPage - 1) * PAGE_SIZE;
         const end = start + PAGE_SIZE;
         this.paginatedFilteredData = this.filteredData.slice(start, end);
 
-        this.disablePrevModal = this.modalCurrentPage <= 1;
-        this.disableNextModal = this.modalCurrentPage >= this.modalTotalPages;
+        this.disablePrevModal = this.modalCurrentPage === 1;
+        this.disableNextModal = this.modalCurrentPage === this.modalTotalPages;
     }
 
-    handleNextPageModal() {
-        if (this.modalCurrentPage < this.modalTotalPages) {
-            this.modalCurrentPage++;
-            this.updatePaginatedFilteredData();
-        }
-    }
-
-    handlePrevModalPage() {
-        if (this.modalCurrentPage > 1) {
-            this.modalCurrentPage--;
-            this.updatePaginatedFilteredData();
-        }
-    }
-
+    // Close Modal
     closeModal() {
         this.isModalOpen = false;
         this.filteredData = [];
-        this.paginatedFilteredData = [];
     }
 }

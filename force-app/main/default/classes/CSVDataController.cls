@@ -8,124 +8,110 @@ public with sharing class CSVDataController {
         @AuraEnabled public Integer objectsViolationCount = 0;
     }
 
-    // IMPORTANT: Do NOT make this cacheable, because files get attached AFTER case creation
-    @AuraEnabled(cacheable=false)
-public static CSVDataResponse getCSVData(String caseId) {
+    @AuraEnabled(cacheable=true)
+    public static CSVDataResponse getCSVData(String caseId) {
 
-    CSVDataResponse response = new CSVDataResponse();
+        CSVDataResponse response = new CSVDataResponse();
 
-    try {
+        try {
+            // STEP 1 — Get File linked to Case
+            ContentDocumentLink link = [
+                SELECT ContentDocumentId
+                FROM ContentDocumentLink
+                WHERE LinkedEntityId = :caseId
+                LIMIT 1
+            ];
 
-        if(String.isBlank(caseId)) return response;
+            // STEP 2 — Get latest version
+            ContentVersion fileVersion = [
+                SELECT VersionData
+                FROM ContentVersion
+                WHERE ContentDocumentId = :link.ContentDocumentId
+                ORDER BY CreatedDate DESC
+                LIMIT 1
+            ];
 
-        // 🔥 THE REAL FIX — find CSV using FirstPublishLocationId
-        ContentVersion fileVersion = [
-            SELECT Id, Title, VersionData, CreatedDate
-            FROM ContentVersion
-            WHERE FirstPublishLocationId = :caseId
-            AND FileExtension = 'csv'
-            ORDER BY CreatedDate DESC
-            LIMIT 1
-        ];
+            // STEP 3 — Convert Blob → String safely
+            String csvContent = fileVersion.VersionData.toString();
+            csvContent = csvContent.replace('\r\n','\n').replace('\r','\n');
 
-        if(fileVersion == null){
-            System.debug('❌ No CSV found for this case');
-            return response;
-        }
+            List<String> lines = csvContent.split('\n');
+            if(lines.size() <= 1) return response;
 
-        // Convert Blob → String
-        String csvContent = fileVersion.VersionData.toString();
-        csvContent = csvContent.replace('\r\n','\n').replace('\r','\n');
+            // STEP 4 — Read headers
+            List<String> headers = parseCSVLine(lines[0]);
 
-        List<List<String>> rows = parseCSV(csvContent);
-        if(rows.size() <= 1) return response;
-
-        // Headers
-        List<String> headers = new List<String>();
-        for(String h : rows[0]){
-            headers.add(normalizeHeader(h));
-        }
-
-        Integer counter = 0;
-
-        // Rows
-        for(Integer i=1;i<rows.size();i++){
-            List<String> values = rows[i];
-            if(values.size() < headers.size()) continue;
-
-            Map<String,String> row = new Map<String,String>();
-            counter++;
-            row.put('Id', String.valueOf(counter));
-
-            for(Integer j=0;j<headers.size();j++){
-                row.put(headers[j], values[j]);
+            for(Integer i=0;i<headers.size();i++){
+                headers[i] = normalize(headers[i]);
             }
 
-            // Count violations
-            String filePath = row.get('file');
-            if(filePath != null){
-                filePath = filePath.toLowerCase();
-                if(filePath.contains('classes')) response.clsViolationCount++;
-                else if(filePath.contains('lwc')) response.lwcViolationCount++;
-                else if(filePath.contains('aura')) response.auraViolationCount++;
-                else if(filePath.contains('objects')) response.objectsViolationCount++;
-            }
+            // STEP 5 — Parse rows (🔥 NEW SAFE PARSER)
+            for(Integer i=1;i<lines.size();i++){
 
-            response.csvData.add(row);
-        }
+                if(String.isBlank(lines[i])) continue;
 
-    } catch(Exception e){
-        System.debug('CSV ERROR: '+e.getMessage());
-    }
+                List<String> values = parseCSVLine(lines[i]);
 
-    return response;
-}
+                // 🔥 FIX: allow column mismatch (Code Analyzer adds new cols)
+                if(values.size() < headers.size()) continue;
 
-    // Normalize headers to match your JS usage (item.file, etc.)
-    private static String normalizeHeader(String h) {
-        if (h == null) return '';
-        String x = h.toLowerCase();
-        x = x.replace('"', '').replace(' ', '').replace('_', '').replace('-', '');
-        return x;
-    }
+                Map<String,String> row = new Map<String,String>();
 
-    // -------- CSV Parser (handles quotes, commas, escaped quotes, newlines in quotes) --------
-    private static List<List<String>> parseCSV(String input) {
-        List<List<String>> rows = new List<List<String>>();
-        if (String.isBlank(input)) return rows;
-
-        List<String> currentRow = new List<String>();
-        String currentField = '';
-        Boolean inQuotes = false;
-
-        for (Integer i = 0; i < input.length(); i++) {
-            String c = input.substring(i, i + 1);
-
-            if (c == '"') {
-                // escaped quote inside quoted field: ""
-                if (inQuotes && i + 1 < input.length() && input.substring(i + 1, i + 2) == '"') {
-                    currentField += '"';
-                    i++;
-                } else {
-                    inQuotes = !inQuotes;
+                for(Integer j=0;j<headers.size();j++){
+                    row.put(headers[j], values[j]);
                 }
-            } else if (c == ',' && !inQuotes) {
-                currentRow.add(currentField);
-                currentField = '';
-            } else if (c == '\n' && !inQuotes) {
-                currentRow.add(currentField);
-                rows.add(currentRow);
-                currentRow = new List<String>();
-                currentField = '';
-            } else {
-                currentField += c;
+
+                // 🔥 COUNT VIOLATIONS
+                if(row.containsKey('file')){
+                    String filePath = row.get('file').toLowerCase();
+
+                    if(filePath.contains('classes')) response.clsViolationCount++;
+                    else if(filePath.contains('lwc')) response.lwcViolationCount++;
+                    else if(filePath.contains('aura')) response.auraViolationCount++;
+                    else if(filePath.contains('objects')) response.objectsViolationCount++;
+                }
+
+                response.csvData.add(row);
+            }
+
+        } catch(Exception e){
+            System.debug('CSV ERROR: '+e.getMessage());
+        }
+
+        return response;
+    }
+
+    // 🔥 Normalize headers
+    private static String normalize(String h){
+        return h.toLowerCase()
+                .replace(' ','')
+                .replace('_','')
+                .replace('"','');
+    }
+
+    // 🔥 SUPER SAFE CSV PARSER (handles quotes + commas)
+    private static List<String> parseCSVLine(String line){
+
+        List<String> cols = new List<String>();
+        Boolean inQuotes = false;
+        String cur = '';
+
+        for(Integer i=0;i<line.length();i++){
+            String c = line.substring(i,i+1);
+
+            if(c == '"'){
+                inQuotes = !inQuotes;
+            }
+            else if(c == ',' && !inQuotes){
+                cols.add(cur.trim());
+                cur = '';
+            }
+            else{
+                cur += c;
             }
         }
 
-        // last field
-        currentRow.add(currentField);
-        rows.add(currentRow);
-
-        return rows;
+        cols.add(cur.trim());
+        return cols;
     }
 }
