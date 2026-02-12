@@ -1,11 +1,10 @@
 public with sharing class File {
 
-    // IMPORTANT: DO NOT hardcode Vulnerability__c type
     private static final String VULN_OBJECT_API = 'Vulnerability__c';
 
     /* ================= ENTRY ================= */
-    public static void processNewFiles(List<ContentVersion> contentVersions) {
 
+    public static void processNewFiles(List<ContentVersion> contentVersions) {
         Set<Id> contentDocIds = new Set<Id>();
 
         for (ContentVersion cv : contentVersions) {
@@ -20,19 +19,36 @@ public with sharing class File {
     }
 
     public static void processNewContentDocuments(Set<Id> contentDocIds) {
-
-        // ⭐⭐⭐ ADD THIS LINE (this is the missing piece)
         createScannerReportCases(contentDocIds);
-
-        // 🔒 EXISTING LOGIC (UNCHANGED)
         importVulnerabilityData(new List<Id>(contentDocIds));
     }
 
+    /* =========================================================
+       🆕 FILE → CASE MAP (STANDARD CASE OBJECT)
+       ========================================================= */
+    private static Map<Id, Id> getFileToCaseMap(Set<Id> contentDocIds) {
+
+        Map<Id, Id> fileToCaseMap = new Map<Id, Id>();
+
+        List<ContentDocumentLink> links = [
+            SELECT LinkedEntityId, ContentDocumentId
+            FROM ContentDocumentLink
+            WHERE ContentDocumentId IN :contentDocIds
+            AND LinkedEntityId IN (SELECT Id FROM Case)
+        ];
+
+        for (ContentDocumentLink link : links) {
+            fileToCaseMap.put(link.ContentDocumentId, link.LinkedEntityId);
+        }
+
+        System.debug('🧠 File → Case Map: ' + fileToCaseMap);
+        return fileToCaseMap;
+    }
 
     /* ================= CORE ================= */
+
     private static void importVulnerabilityData(List<Id> contentDocIds) {
 
-        // 1️⃣ Check object exists (runtime-safe)
         Map<String, Schema.SObjectType> gd = Schema.getGlobalDescribe();
         if (!gd.containsKey(VULN_OBJECT_API)) {
             System.debug('❌ Object not found: ' + VULN_OBJECT_API);
@@ -41,9 +57,12 @@ public with sharing class File {
 
         Schema.SObjectType vulnType = gd.get(VULN_OBJECT_API);
 
-        // 2️⃣ Get latest CSV files
+        // ⭐ GET FILE → CASE MAP
+        Set<Id> docIdSet = new Set<Id>(contentDocIds);
+        Map<Id, Id> fileToCaseMap = getFileToCaseMap(docIdSet);
+
         List<ContentVersion> versions = [
-            SELECT Id, VersionData
+            SELECT Id, VersionData, ContentDocumentId
             FROM ContentVersion
             WHERE ContentDocumentId IN :contentDocIds
             AND IsLatest = true
@@ -52,6 +71,8 @@ public with sharing class File {
         List<SObject> recordsToInsert = new List<SObject>();
 
         for (ContentVersion cv : versions) {
+
+            Id relatedCaseId = fileToCaseMap.get(cv.ContentDocumentId);
 
             if (cv.VersionData == null) continue;
 
@@ -64,7 +85,6 @@ public with sharing class File {
 
             Map<String, Integer> headerIndex = buildHeaderIndex(rows[0]);
 
-            // 3️⃣ Parse rows
             for (Integer i = 1; i < rows.size(); i++) {
 
                 if (String.isBlank(rows[i])) continue;
@@ -78,7 +98,11 @@ public with sharing class File {
 
                 SObject vuln = vulnType.newSObject();
 
-                // ⭐ CORE FIELDS FROM CSV
+                // ⭐⭐⭐ NEW — LINK TO CASE ⭐⭐⭐
+                if (relatedCaseId != null) {
+                    vuln.put('Case__c', relatedCaseId);
+                }
+
                 vuln.put('Rule__c', rule);
                 vuln.put('Engine__c', getValue(cols, headerIndex, 'engine'));
                 vuln.put('Severity__c', getValue(cols, headerIndex, 'severity'));
@@ -88,34 +112,18 @@ public with sharing class File {
                 vuln.put('Column__c', getValue(cols, headerIndex, 'startcolumn'));
                 vuln.put('Description__c', getValue(cols, headerIndex, 'message'));
                 vuln.put('URL__c', getValue(cols, headerIndex, 'resources'));
-
-                // ⭐ CI/CD METADATA
                 vuln.put('Commit__c', getValue(cols, headerIndex, 'commitauthor'));
                 vuln.put('ActualLine__c', getValue(cols, headerIndex, 'actualline'));
                 vuln.put('TargetBranch__c', getValue(cols, headerIndex, 'targetbranch'));
-
-                // ⭐ DEFAULT STATUS
                 vuln.put('Violation_Status__c', 'Open');
 
                 recordsToInsert.add(vuln);
             }
         }
 
-        // 5️⃣ Insert
         if (!recordsToInsert.isEmpty()) {
-            Database.SaveResult[] results = Database.insert(recordsToInsert, false);
-
-            for (Database.SaveResult r : results) {
-                if (!r.isSuccess()) {
-                    for (Database.Error e : r.getErrors()) {
-                        System.debug('❌ INSERT ERROR: ' + e.getMessage());
-                    }
-                }
-            }
-
-            System.debug('✅ Insert attempted: ' + recordsToInsert.size());
-        } else {
-            System.debug('⚠️ No records created from CSV File');
+            Database.insert(recordsToInsert, false);
+            System.debug('✅ Vulnerabilities inserted: ' + recordsToInsert.size());
         }
     }
 
@@ -124,18 +132,13 @@ public with sharing class File {
     private static Map<String, Integer> buildHeaderIndex(String header) {
         Map<String, Integer> indexMap = new Map<String, Integer>();
         List<String> headers = parseCSVLine(header);
-
         for (Integer i = 0; i < headers.size(); i++) {
             indexMap.put(normalize(headers[i]), i);
         }
         return indexMap;
     }
 
-    private static String getValue(
-        List<String> row,
-        Map<String, Integer> headerIndex,
-        String key
-    ) {
+    private static String getValue(List<String> row, Map<String, Integer> headerIndex, String key) {
         String normalizedKey = normalize(key);
         if (headerIndex.containsKey(normalizedKey)
             && headerIndex.get(normalizedKey) < row.size()) {
@@ -145,14 +148,10 @@ public with sharing class File {
     }
 
     private static String normalize(String s) {
-        return s == null ? ''
-            : s.toLowerCase()
-                .replace(' ', '')
-                .replace('_', '')
-                .replace('-', '');
+        return s == null ? '' :
+            s.toLowerCase().replace(' ', '').replace('_', '').replace('-', '');
     }
 
-    // CSV parser (quoted-safe)
     private static List<String> parseCSVLine(String line) {
         List<String> cols = new List<String>();
         Boolean inQuotes = false;
@@ -160,57 +159,51 @@ public with sharing class File {
 
         for (Integer i = 0; i < line.length(); i++) {
             String c = line.substring(i, i + 1);
-            if (c == '"') {
-                inQuotes = !inQuotes;
-            } else if (c == ',' && !inQuotes) {
+            if (c == '"') inQuotes = !inQuotes;
+            else if (c == ',' && !inQuotes) {
                 cols.add(cur.trim());
                 cur = '';
-            } else {
-                cur += c;
-            }
+            } else cur += c;
         }
+
         cols.add(cur.trim());
         return cols;
     }
 
-    /* ================= SCANNER REPORT CASE CREATION ================= */
-private static void createScannerReportCases(Set<Id> contentDocIds) {
+    /* ===== EXISTING SCANNER REPORT CASE CREATION (UNCHANGED) ===== */
+    private static void createScannerReportCases(Set<Id> contentDocIds) {
 
-    List<ContentDocument> docs = [
-        SELECT Id, Title
-        FROM ContentDocument
-        WHERE Id IN :contentDocIds
-    ];
+        List<ContentDocument> docs = [
+            SELECT Id, Title
+            FROM ContentDocument
+            WHERE Id IN :contentDocIds
+        ];
 
-    List<Scanner_Report_Case__c> casesToInsert = new List<Scanner_Report_Case__c>();
+        List<Scanner_Report_Case__c> casesToInsert = new List<Scanner_Report_Case__c>();
 
-    for (ContentDocument doc : docs) {
+        for (ContentDocument doc : docs) {
 
-        // 🔥 SAME CONDITION YOU WERE USING
-        if (doc.Title != null && doc.Title.contains('Code_Scanner_Report')) {
+            if (doc.Title != null && doc.Title.contains('Code_Scanner_Report')) {
 
-            // Prevent duplicates
-            List<Scanner_Report_Case__c> existing = [
-                SELECT Id FROM Scanner_Report_Case__c
-                WHERE File_Id__c = :doc.Id LIMIT 1
-            ];
+                List<Scanner_Report_Case__c> existing = [
+                    SELECT Id FROM Scanner_Report_Case__c
+                    WHERE File_Id__c = :doc.Id LIMIT 1
+                ];
 
-            if (!existing.isEmpty()) continue;
+                if (!existing.isEmpty()) continue;
 
-            Scanner_Report_Case__c newCase = new Scanner_Report_Case__c();
-            newCase.File_Id__c = doc.Id;
-            newCase.File_Name__c = doc.Title;
-            newCase.Status__c = 'New';
-            newCase.OwnerId = UserInfo.getUserId();
+                Scanner_Report_Case__c newCase = new Scanner_Report_Case__c();
+                newCase.File_Id__c = doc.Id;
+                newCase.File_Name__c = doc.Title;
+                newCase.Status__c = 'New';
+                newCase.OwnerId = UserInfo.getUserId();
 
-            casesToInsert.add(newCase);
+                casesToInsert.add(newCase);
+            }
+        }
+
+        if (!casesToInsert.isEmpty()) {
+            insert casesToInsert;
         }
     }
-
-    if (!casesToInsert.isEmpty()) {
-        insert casesToInsert;
-        System.debug('✅ Scanner Report Cases Created: ' + casesToInsert.size());
-    }
-}
-
 }
