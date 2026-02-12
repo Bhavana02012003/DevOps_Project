@@ -1,185 +1,176 @@
 public with sharing class CSVDataController {
 
-    /* ============================================================
-       RESPONSE WRAPPER
-    ============================================================ */
     public class CSVDataResponse {
-        @AuraEnabled public List<Map<String,String>> csvData = new List<Map<String,String>>();
+        @AuraEnabled public List<Map<String, String>> csvData = new List<Map<String, String>>();
         @AuraEnabled public Integer clsViolationCount = 0;
         @AuraEnabled public Integer lwcViolationCount = 0;
         @AuraEnabled public Integer auraViolationCount = 0;
         @AuraEnabled public Integer objectsViolationCount = 0;
     }
 
-    /* ============================================================
-       MAIN METHOD
-    ============================================================ */
-    @AuraEnabled(cacheable=true)
+    // IMPORTANT: Do NOT make this cacheable, because files get attached AFTER case creation
+    @AuraEnabled(cacheable=false)
     public static CSVDataResponse getCSVData(String caseId) {
 
         CSVDataResponse response = new CSVDataResponse();
 
+        if (String.isBlank(caseId)) {
+            return response;
+        }
+
         try {
-
-            System.debug('==== STEP 1: GET ALL FILES LINKED TO CASE ====');
-
+            // 1) Get ALL files linked to this Case
             List<ContentDocumentLink> links = [
                 SELECT ContentDocumentId
                 FROM ContentDocumentLink
                 WHERE LinkedEntityId = :caseId
             ];
 
-            if(links.isEmpty()){
+            if (links.isEmpty()) {
                 System.debug('❌ No files linked to this Case');
                 return response;
             }
 
             Set<Id> docIds = new Set<Id>();
-            for(ContentDocumentLink l : links){
-                docIds.add(l.ContentDocumentId);
+            for (ContentDocumentLink l : links) {
+                if (l.ContentDocumentId != null) docIds.add(l.ContentDocumentId);
             }
 
-            System.debug('Files found: ' + docIds.size());
+            if (docIds.isEmpty()) return response;
 
-            /* ====================================================
-               STEP 2 — GET LATEST VERSION OF EACH FILE
-            ==================================================== */
-
+            // 2) From those linked docs, pick the LATEST CSV ContentVersion
+            //    (This avoids picking an older header-only CSV)
             List<ContentVersion> versions = [
-                SELECT VersionData, Title, CreatedDate
+                SELECT Id, ContentDocumentId, Title, PathOnClient, FileExtension, CreatedDate, VersionData
                 FROM ContentVersion
                 WHERE ContentDocumentId IN :docIds
+                  AND IsLatest = true
+                  AND FileExtension = 'csv'
                 ORDER BY CreatedDate DESC
+                LIMIT 1
             ];
 
-            if(versions.isEmpty()){
-                System.debug('❌ No ContentVersions found');
+            if (versions.isEmpty()) {
+                System.debug('❌ No latest CSV found among linked files');
                 return response;
             }
 
-            /* ====================================================
-               STEP 3 — FIND THE SCANNER CSV FILE
-            ==================================================== */
+            ContentVersion fileVersion = versions[0];
 
-            ContentVersion scannerFile;
-
-            for(ContentVersion v : versions){
-                if(v.Title != null && v.Title.contains('Code_Scanner_Report')){
-                    scannerFile = v;
-                    break;
-                }
-            }
-
-            if(scannerFile == null){
-                System.debug('❌ Scanner CSV not found');
+            if (fileVersion.VersionData == null) {
+                System.debug('❌ CSV VersionData is null');
                 return response;
             }
 
-            System.debug('✅ CSV FOUND: ' + scannerFile.Title);
+            // 3) Convert Blob -> String
+            String csvContent = fileVersion.VersionData.toString();
+            csvContent = csvContent.replace('\r\n', '\n').replace('\r', '\n');
 
-            /* ====================================================
-               STEP 4 — CONVERT BLOB → STRING
-            ==================================================== */
+            // 4) Parse CSV using a safe parser that respects quotes/commas
+            List<List<String>> rows = parseCSV(csvContent);
 
-            String csvContent = scannerFile.VersionData.toString();
-            csvContent = csvContent.replace('\r\n','\n').replace('\r','\n');
-
-            List<String> lines = csvContent.split('\n');
-            System.debug('CSV Lines Count: ' + lines.size());
-
-            if(lines.size() <= 1){
-                System.debug('❌ CSV EMPTY');
+            if (rows == null || rows.size() <= 1) {
+                System.debug('⚠️ CSV has no data rows (only header or empty)');
                 return response;
             }
 
-            /* ====================================================
-               STEP 5 — READ HEADERS
-            ==================================================== */
-
-            List<String> headers = parseCSVLine(lines[0]);
-
-            for(Integer i=0;i<headers.size();i++){
-                headers[i] = normalize(headers[i]);
+            // 5) Headers (normalized)
+            List<String> headersRaw = rows[0];
+            List<String> headers = new List<String>();
+            for (String h : headersRaw) {
+                headers.add(normalizeHeader(h));
             }
 
-            System.debug('Headers: ' + headers);
+            // 6) Data rows
+            Integer rowCounter = 0;
+            for (Integer i = 1; i < rows.size(); i++) {
+                List<String> values = rows[i];
+                if (values == null || values.isEmpty()) continue;
 
-            /* ====================================================
-               STEP 6 — PARSE ROWS
-            ==================================================== */
+                // If row has fewer columns than header, skip
+                if (values.size() < headers.size()) continue;
 
-            for(Integer i=1;i<lines.size();i++){
+                Map<String, String> row = new Map<String, String>();
 
-                if(String.isBlank(lines[i])) continue;
+                // ✅ Add synthetic Id for lightning-datatable key-field="Id"
+                rowCounter++;
+                row.put('Id', String.valueOf(rowCounter));
 
-                List<String> values = parseCSVLine(lines[i]);
-
-                // allow extra columns safely
-                if(values.size() < headers.size()) continue;
-
-                Map<String,String> row = new Map<String,String>();
-
-                for(Integer j=0;j<headers.size();j++){
+                for (Integer j = 0; j < headers.size(); j++) {
                     row.put(headers[j], values[j]);
                 }
 
-                /* ===== COUNT BY FILE TYPE ===== */
-                if(row.containsKey('file')){
-                    String filePath = row.get('file').toLowerCase();
+                // Count violations by file path
+                String filePath = '';
+                if (row.containsKey('file') && row.get('file') != null) {
+                    filePath = row.get('file').toLowerCase();
+                }
 
-                    if(filePath.contains('classes')) response.clsViolationCount++;
-                    else if(filePath.contains('lwc')) response.lwcViolationCount++;
-                    else if(filePath.contains('aura')) response.auraViolationCount++;
-                    else if(filePath.contains('objects')) response.objectsViolationCount++;
+                if (!String.isBlank(filePath)) {
+                    // Works for both real paths and your temp_scanner_files names
+                    if (filePath.contains('classes')) response.clsViolationCount++;
+                    else if (filePath.contains('lwc')) response.lwcViolationCount++;
+                    else if (filePath.contains('aura')) response.auraViolationCount++;
+                    else if (filePath.contains('objects')) response.objectsViolationCount++;
                 }
 
                 response.csvData.add(row);
             }
 
-            System.debug('✅ TOTAL ROWS PARSED: ' + response.csvData.size());
+            System.debug('✅ Parsed rows: ' + response.csvData.size());
 
-        } catch(Exception e){
-            System.debug('❌ CSV ERROR: '+e.getMessage());
+        } catch (Exception e) {
+            System.debug('❌ CSV ERROR: ' + e.getMessage() + ' | ' + e.getStackTraceString());
         }
 
         return response;
     }
 
-    /* ============================================================
-       HELPER — NORMALIZE HEADER
-    ============================================================ */
-    private static String normalize(String h){
-        return h.toLowerCase()
-                .replace(' ','')
-                .replace('_','')
-                .replace('"','');
+    // Normalize headers to match your JS usage (item.file, etc.)
+    private static String normalizeHeader(String h) {
+        if (h == null) return '';
+        String x = h.toLowerCase();
+        x = x.replace('"', '').replace(' ', '').replace('_', '').replace('-', '');
+        return x;
     }
 
-    /* ============================================================
-       HELPER — SAFE CSV PARSER (handles quotes + commas)
-    ============================================================ */
-    private static List<String> parseCSVLine(String line){
+    // -------- CSV Parser (handles quotes, commas, escaped quotes, newlines in quotes) --------
+    private static List<List<String>> parseCSV(String input) {
+        List<List<String>> rows = new List<List<String>>();
+        if (String.isBlank(input)) return rows;
 
-        List<String> cols = new List<String>();
+        List<String> currentRow = new List<String>();
+        String currentField = '';
         Boolean inQuotes = false;
-        String cur = '';
 
-        for(Integer i=0;i<line.length();i++){
-            String c = line.substring(i,i+1);
+        for (Integer i = 0; i < input.length(); i++) {
+            String c = input.substring(i, i + 1);
 
-            if(c == '"'){
-                inQuotes = !inQuotes;
-            }
-            else if(c == ',' && !inQuotes){
-                cols.add(cur.trim());
-                cur = '';
-            }
-            else{
-                cur += c;
+            if (c == '"') {
+                // escaped quote inside quoted field: ""
+                if (inQuotes && i + 1 < input.length() && input.substring(i + 1, i + 2) == '"') {
+                    currentField += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                currentRow.add(currentField);
+                currentField = '';
+            } else if (c == '\n' && !inQuotes) {
+                currentRow.add(currentField);
+                rows.add(currentRow);
+                currentRow = new List<String>();
+                currentField = '';
+            } else {
+                currentField += c;
             }
         }
 
-        cols.add(cur.trim());
-        return cols;
+        // last field
+        currentRow.add(currentField);
+        rows.add(currentRow);
+
+        return rows;
     }
 }
