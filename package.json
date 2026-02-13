@@ -22,6 +22,7 @@
     "@actions/core": "latest",
     "@json2csv/node": "latest",
     "@lwc/eslint-plugin-lwc": "latest",
+    "@salesforce/eslint-plugin-lwc": "^3.0.0",
     "@prettier/plugin-xml": "latest",
     "@salesforce/eslint-config-lwc": "latest",
     "@salesforce/eslint-plugin-aura": "latest",
