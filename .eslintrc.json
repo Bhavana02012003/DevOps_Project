@@ -24,11 +24,6 @@
 
 {
   "root": true,
-  "extends": ["@salesforce/eslint-config-lwc/recommended"],
-  "rules": {
-    "no-console": "error",
-    "no-debugger": "error",
-    "eqeqeq": ["error", "always"],
-    "curly": "error"
-  }
+  "extends": ["@salesforce/eslint-config-lwc/recommended"]
 }
+

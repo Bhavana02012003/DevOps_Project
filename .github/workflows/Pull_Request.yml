@@ -427,14 +427,14 @@ jobs:
                 --output-file tmp.csv \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
             else
-              echo "🔎 Running ESLint (LWC rules) on $file"
+              echo "🔎 Running ESLint (LWC rules) on PROJECT (required for LWC)"
 
               sf code-analyzer run \
-                --workspace "$file" \
+                --workspace "." \
                 --engine eslint \
                 --eslintconfig .eslintrc.json \
                 --output-file tmp.csv \
-              || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
+              || echo "⚠️ ESLint analyzer failed (continuing)"
             fi
 
             if [[ -f tmp.csv ]]; then
