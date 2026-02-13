@@ -24,8 +24,9 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install ESLint and Compatible Dependencies
-        run: npm install eslint --save-dev --legacy-peer-deps
+      - name: Install Node Dependencies (LWC ESLint)
+        run: |
+          npm install --legacy-peer-deps
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -49,6 +50,13 @@ jobs:
       - name: Confirm Code Analyzer Installed
         run: sf plugins || true
 
+      - name: Verify ESLint + LWC rules
+        run: |
+          echo "ESLint version:"
+          npx eslint -v
+
+          echo "Running ESLint test scan on repo..."
+          npx eslint force-app/main/default/lwc || true
 
       - name: Get Commit Author
         id: commit-author
@@ -419,9 +427,12 @@ jobs:
                 --output-file tmp.csv \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
             else
+              echo "🔎 Running ESLint (LWC rules) on $file"
+
               sf code-analyzer run \
                 --workspace "$file" \
                 --engine eslint \
+                --eslintconfig .eslintrc.json \
                 --output-file tmp.csv \
               || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
             fi
