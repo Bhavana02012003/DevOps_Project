@@ -5,7 +5,10 @@ engines:
       visualforce: [".page", ".component"]
 
   eslint:
-    disable_engine: true
+    file_extensions:
+      javascript: [".js"]
+      html: [".html"]
+
   retire-js:
     disable_engine: true
   regex:
