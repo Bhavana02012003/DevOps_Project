@@ -369,9 +369,35 @@ jobs:
             done < actual_line_lookup.env
           fi
 
-          # Final header (NO NYA)
+          # Final header
           echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
 
+          ###############################################################
+          # 🆕 STEP 1 — RUN ESLINT ONCE FOR WHOLE PROJECT (NEW)
+          ###############################################################
+          echo "========================================="
+          echo "🔎 Running ESLint scan for whole repo"
+          echo "========================================="
+
+          rm -f eslint_full.csv
+
+          sf code-analyzer run \
+            --workspace "." \
+            --engine eslint \
+            --eslintconfig .eslintrc.json \
+            --output-file eslint_full.csv \
+          || echo "⚠️ ESLint analyzer failed (continuing)"
+
+          if [[ -f eslint_full.csv ]]; then
+            echo "✅ ESLint CSV generated"
+            head -n 20 eslint_full.csv
+          else
+            echo "⚠️ No ESLint results generated"
+          fi
+
+          ###############################################################
+          # 🔵 STEP 2 — YOUR EXISTING APEX DELTA SCAN (UNCHANGED)
+          ###############################################################
           if [[ ! -s files_to_scan.txt ]]; then
             echo "✅ Nothing to scan. Empty report created."
             exit 0
@@ -426,15 +452,11 @@ jobs:
                 --rule-selector ApexUnitTestClassShouldHaveAsserts \
                 --output-file tmp.csv \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
-            else
-              echo "🔎 Running ESLint (LWC rules) on PROJECT (required for LWC)"
 
-              sf code-analyzer run \
-                --workspace "." \
-                --engine eslint \
-                --eslintconfig .eslintrc.json \
-                --output-file tmp.csv \
-              || echo "⚠️ ESLint analyzer failed (continuing)"
+            else
+              # 🟢 IMPORTANT — Skip ESLint inside loop (already executed above)
+              echo "Skipping ESLint inside loop (already executed)"
+              continue
             fi
 
             if [[ -f tmp.csv ]]; then
@@ -445,7 +467,6 @@ jobs:
               tail -n +2 tmp.csv | while IFS= read -r row; do
                 [[ -z "$row" ]] && continue
 
-                # Extract startLine from PMD row (6th column)
                 startLine=$(echo "$row" | awk -F',' '{print $6}' | tr -d '"')
                 actualLine="$startLine"
 
@@ -455,16 +476,29 @@ jobs:
                   actualLine="$mapped"
                 fi
 
-                # Escape ONLY appended fields
                 safeAuthor=$(printf '%s\n' "$COMMIT_AUTHOR" | sed 's/"/""/g')
                 safeBranch=$(printf '%s\n' "$TARGET_BRANCH" | sed 's/"/""/g')
 
-                # 🔥 APPEND NEW COLUMNS CORRECTLY (DO NOT QUOTE WHOLE ROW)
                 echo "${row},\"${safeAuthor}\",\"${safeAuthor}\",\"${actualLine}\",\"${safeBranch}\"" >> scanner-report.csv
               done
-
             fi
           done < files_to_scan.txt
+
+          ###############################################################
+          # 🆕 STEP 3 — APPEND ESLINT RESULTS TO FINAL CSV (NEW)
+          ###############################################################
+          echo "========================================="
+          echo "📌 Appending ESLint results to report"
+          echo "========================================="
+
+          if [[ -f eslint_full.csv ]]; then
+            tail -n +2 eslint_full.csv | while IFS= read -r row; do
+              safeAuthor=$(printf '%s\n' "$COMMIT_AUTHOR" | sed 's/"/""/g')
+              safeBranch=$(printf '%s\n' "$TARGET_BRANCH" | sed 's/"/""/g')
+
+              echo "${row},\"${safeAuthor}\",\"${safeAuthor}\",\"N/A\",\"${safeBranch}\"" >> scanner-report.csv
+            done
+          fi
 
           echo "✅ Final Scanner Report (first 50 lines):"
           head -n 50 scanner-report.csv
