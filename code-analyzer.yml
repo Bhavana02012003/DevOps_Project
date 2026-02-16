@@ -1,13 +1,18 @@
 engines:
+
+  # 🔵 APEX ENGINE (unchanged)
   pmd:
     file_extensions:
       apex: [".cls", ".trigger"]
       visualforce: [".page", ".component"]
 
+  # 🟢 ESLINT ENGINE — THIS WAS MISSING
   eslint:
+    eslint_config_file: ".eslintrc.json"
     file_extensions:
       javascript: [".js"]
       html: [".html"]
+    auto_discover_eslint_config: false
 
   retire-js:
     disable_engine: true
@@ -20,10 +25,10 @@ engines:
   cpd:
     disable_engine: true
 
+
 rules:
   pmd:
 
-    # Security Rules
     ApexCRUDViolation:
       severity: 2
       tags: ["Security"]
@@ -34,13 +39,23 @@ rules:
 
     VfCsrf:
       severity: 2
-      tags: ["Security", "Visualforce"]
+      tags: ["Security","Visualforce"]
 
     VfUnescapeEl:
       severity: 2
-      tags: ["Security", "Visualforce"]
+      tags: ["Security","Visualforce"]
 
-    # Best Practice Rule
     AvoidDebugStatements:
       severity: 3
       tags: ["Best Practices"]
+
+  # 🟢 ADD ESLINT SEVERITY MAPPING (VERY IMPORTANT)
+  eslint:
+    no-console:
+      severity: 2
+    no-debugger:
+      severity: 2
+    no-unused-vars:
+      severity: 3
+    eqeqeq:
+      severity: 3
