@@ -383,8 +383,9 @@ jobs:
 
           sf code-analyzer run \
             --workspace "." \
-            --target "force-app/main/default/lwc" \
-            --output-file eslint_full.csv
+            --engine eslint \
+            --eslintconfig .eslintrc.json \
+            --output-file eslint_full.csv \
           || echo "⚠️ ESLint analyzer failed (continuing)"
 
           if [[ -f eslint_full.csv ]]; then
