@@ -33,10 +33,7 @@ public with sharing class ScannerReportHandler {
         Map<Id, Id> caseToFileMap = new Map<Id, Id>();
 
         for (ContentVersion cv : contentVersions) {
-
-            // ⭐⭐⭐ FIX ADDED HERE ⭐⭐⭐
-            String commitAuthor = '';   // <-- THIS WAS MISSING
-
+            String commitAuthor = ''; 
             if (cv.Title.contains('Code Scanner') || cv.Title.contains('Code Scanner Delta')) {
                 Case newCase = new Case();
                 newCase.File_Name__c = cv.Title;
