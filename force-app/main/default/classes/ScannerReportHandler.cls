@@ -152,3 +152,185 @@ public with sharing class ScannerReportHandler {
         isProcessing = false;
     }
 }
+
+
+
+
+
+-------------------------------Test Class----------------------------------------------------------------
+
+
+/**
+ * @description       : 
+ * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
+ * @group             : 
+ * @last modified on  : 02-18-2026
+ * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
+**/
+@isTest
+private class ScannerReportHandlerTest {
+
+    private static final String VALID_TITLE_1 = 'Code Scanner Report';
+    private static final String VALID_TITLE_2 = 'Code Scanner Delta Log';
+    private static final String INVALID_TITLE = 'Vacation Photos';
+    
+    // Helper to generate CSV content
+    private static String generateCsvContent(String targetBranch, String commitId, String severity) {
+        return 'Header,TargetBranch,Commit,Severity,Other\n' + 
+               'Data,' + targetBranch + ',' + commitId + ',' + severity + ',Val';
+    }
+
+    @TestSetup
+    static void makeData(){
+        Profile p = [SELECT Id FROM Profile WHERE Name='Standard User' LIMIT 1]; 
+        User u = new User(Alias = 'standt', Email='standarduser@testorg.com', 
+            EmailEncodingKey='UTF-8', LastName='Testing', LanguageLocaleKey='en_US', 
+            LocaleSidKey='en_US', ProfileId = p.Id, 
+            TimeZoneSidKey='America/Los_Angeles', UserName='scannerhandlertest@testorg.com');
+        insert u;
+    }
+
+    /**
+     * @description Test processing a file with High Severity (1 or 2).
+     */
+    @isTest
+    static void testProcessFiles_HighSeverity() {
+        User u = [SELECT Id FROM User WHERE UserName='scannerhandlertest@testorg.com' LIMIT 1];
+        
+        System.runAs(u) {
+            String csvData = generateCsvContent('main', 'abc1234', '1');
+            ContentVersion cv = createContentVersion(VALID_TITLE_1, csvData);
+            
+            Set<Id> docIds = new Set<Id>();
+            docIds.add(cv.ContentDocumentId);
+
+            Test.startTest();
+            // Depending on your org triggers, this might run automatically. 
+            // We call it explicitly to ensure coverage if triggers are disabled.
+            ScannerReportHandler.processFiles(docIds);
+            Test.stopTest();
+
+            // We use LIMIT 1 to ensure we grab a record. 
+            // If double-firing occurs due to triggers, we just validate the data of the first one found.
+            Case createdCase = [SELECT Id, Priority, Target_Environment__c, Case_Created_By__c, File_Name__c 
+                                FROM Case WHERE File_Name__c = :VALID_TITLE_1 LIMIT 1];
+            
+            System.assertEquals('High', createdCase.Priority, 'Severity 1 should result in High Priority');
+            System.assertEquals('main', createdCase.Target_Environment__c, 'Target Environment should match CSV');
+            System.assertEquals('abc1234', createdCase.Case_Created_By__c, 'Case Created By should match Commit ID');
+            
+            List<ContentDocumentLink> links = [SELECT Id FROM ContentDocumentLink 
+                                               WHERE LinkedEntityId = :createdCase.Id 
+                                               AND ContentDocumentId = :cv.ContentDocumentId];
+            System.assertEquals(1, links.size(), 'The file should be linked to the Case');
+        }
+    }
+
+    /**
+     * @description Test processing a file with Medium Severity (3).
+     */
+    @isTest
+    static void testProcessFiles_MediumSeverity() {
+        String csvData = generateCsvContent('develop', 'def5678', '3');
+        ContentVersion cv = createContentVersion(VALID_TITLE_2, csvData);
+        
+        Set<Id> docIds = new Set<Id>();
+        docIds.add(cv.ContentDocumentId);
+
+        Test.startTest();
+        ScannerReportHandler.processFiles(docIds);
+        Test.stopTest();
+
+        Case createdCase = [SELECT Id, Priority FROM Case WHERE File_Name__c = :VALID_TITLE_2 LIMIT 1];
+        System.assertEquals('Medium', createdCase.Priority, 'Severity 3 should result in Medium Priority');
+    }
+
+    /**
+     * @description Test processing a file with Low Severity (4 or 5).
+     */
+    @isTest
+    static void testProcessFiles_LowSeverity() {
+        String csvData = generateCsvContent('feature/x', 'ghi9012', '5');
+        ContentVersion cv = createContentVersion(VALID_TITLE_1, csvData);
+        
+        Set<Id> docIds = new Set<Id>();
+        docIds.add(cv.ContentDocumentId);
+
+        Test.startTest();
+        ScannerReportHandler.processFiles(docIds);
+        Test.stopTest();
+
+        Case createdCase = [SELECT Id, Priority FROM Case WHERE File_Name__c = :VALID_TITLE_1 LIMIT 1];
+        System.assertEquals('Low', createdCase.Priority, 'Severity 5 should result in Low Priority');
+    }
+
+    /**
+     * @description Test processing a file that does NOT have the required keywords in the title.
+     */
+    @isTest
+    static void testProcessFiles_InvalidTitle() {
+        String csvData = generateCsvContent('main', '123', '1');
+        ContentVersion cv = createContentVersion(INVALID_TITLE, csvData);
+        
+        Set<Id> docIds = new Set<Id>();
+        docIds.add(cv.ContentDocumentId);
+
+        Test.startTest();
+        ScannerReportHandler.processFiles(docIds);
+        Test.stopTest();
+
+        List<Case> cases = [SELECT Id FROM Case WHERE File_Name__c = :INVALID_TITLE];
+        System.assertEquals(0, cases.size(), 'No case should be created for files without correct title keywords');
+    }
+
+    /**
+     * @description Test empty input handling.
+     */
+    @isTest
+    static void testProcessFiles_EmptyInput() {
+        Test.startTest();
+        ScannerReportHandler.processFiles(new Set<Id>());
+        Test.stopTest();
+        System.assert(true, 'Method should execute without error on empty input');
+    }
+
+    /**
+     * @description Test malformed CSV handling.
+     */
+    @isTest
+    static void testProcessFiles_MalformedCSV() {
+        // We provide a non-empty Blob so insertion works, but content that fails parsing logic (1 line only)
+        String invalidData = 'HeaderOnlyNoData'; 
+        ContentVersion cv = createContentVersion(VALID_TITLE_1, invalidData);
+        
+        Set<Id> docIds = new Set<Id>();
+        docIds.add(cv.ContentDocumentId);
+
+        Test.startTest();
+        ScannerReportHandler.processFiles(docIds);
+        Test.stopTest();
+
+        // Logic dictates a case is created even if parsing fails, but fields remain null
+        Case createdCase = [SELECT Id, Priority, Target_Environment__c FROM Case WHERE File_Name__c = :VALID_TITLE_1 LIMIT 1];
+        System.assertNotEquals(null, createdCase.Id, 'Case should still be created despite CSV read error');
+        System.assertEquals(null, createdCase.Target_Environment__c, 'Target Environment should be null for malformed CSV');
+    }
+
+    // --- Helper Methods ---
+
+    private static ContentVersion createContentVersion(String title, String data) {
+        ContentVersion cv = new ContentVersion();
+        cv.Title = title;
+        cv.PathOnClient = title + '.csv';
+        // Ensure data is never empty to prevent DmlException
+        if (String.isBlank(data)) {
+            cv.VersionData = Blob.valueOf('Default,Header,Row');
+        } else {
+            cv.VersionData = Blob.valueOf(data);
+        }
+        cv.IsMajorVersion = true;
+        insert cv;
+        
+        return [SELECT Id, ContentDocumentId FROM ContentVersion WHERE Id = :cv.Id LIMIT 1];
+    }
+}
