@@ -1,112 +1,223 @@
+public with sharing class FileController {
+    
+    @AuraEnabled(cacheable=true)
+    public static List<ContentDocument> getAllFiles() {
+        return [SELECT Id, Title FROM ContentDocument ORDER BY Title ASC];
+    }
+
+    @AuraEnabled
+    public static String getFileContent(String fileId) {
+        try {
+            ContentVersion fileVersion = [
+                SELECT VersionData 
+                FROM ContentVersion 
+                WHERE ContentDocumentId = :fileId 
+                ORDER BY CreatedDate DESC 
+                LIMIT 1
+            ];
+
+            if(fileVersion.VersionData == null){
+                return 'NO_CONTENT';
+            }
+
+            return EncodingUtil.base64Encode(fileVersion.VersionData);
+
+        } catch (Exception e) {
+            System.debug('File not found: ' + e.getMessage());
+            return 'NO_CONTENT';
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Test Class
+
+
 @isTest
 private class FileControllerTest {
 
     private static Id testContentDocumentId;
 
+    // =====================================================
+    // TEST DATA SETUP
+    // =====================================================
     @testSetup
     static void setupTestData() {
         System.debug('🔹 Setting up test data...');
-        // Create a ContentVersion (this automatically creates a ContentDocument)
+
         ContentVersion ver = new ContentVersion(
             Title = 'Test File',
             PathOnClient = 'TestFile.csv',
-            VersionData = Blob.valueOf('Sample file content'), // Ensure valid VersionData
+            VersionData = Blob.valueOf('Sample file content'),
             FirstPublishLocationId = UserInfo.getUserId()
         );
         insert ver;
 
-        // Fetch ContentDocumentId
         testContentDocumentId = [
-            SELECT ContentDocumentId FROM ContentVersion WHERE Id = :ver.Id LIMIT 1
+            SELECT ContentDocumentId 
+            FROM ContentVersion 
+            WHERE Id = :ver.Id 
+            LIMIT 1
         ].ContentDocumentId;
 
-        System.debug(' Test ContentDocument ID: ' + testContentDocumentId);
+        System.debug('✅ Test ContentDocument ID: ' + testContentDocumentId);
     }
 
-    // Test getAllFiles() - Standard Scenario
+    // =====================================================
+    // TEST getAllFiles() - Standard Scenario
+    // =====================================================
     @isTest
     static void testGetAllFiles() {
-        System.debug('🔹 Running testGetAllFiles...');
-        
         Test.startTest();
         List<ContentDocument> files = FileController.getAllFiles();
         Test.stopTest();
 
-        System.debug('Files Retrieved: ' + files.size());
-
-        System.assertNotEquals(null, files, 'File list should not be null');
-        System.assert(files.size() > 0, 'At least one file should be returned');
+        System.assertNotEquals(null, files);
+        System.assert(files.size() > 0);
     }
 
-    // Test getFileContent() - Valid Case
+    // =====================================================
+    // TEST getAllFiles() - No Files Scenario
+    // =====================================================
+    @isTest
+    static void testGetAllFilesNoRecords() {
+        delete [SELECT Id FROM ContentDocument];
+
+        Test.startTest();
+        List<ContentDocument> files = FileController.getAllFiles();
+        Test.stopTest();
+
+        System.assertEquals(0, files.size());
+    }
+
+    // =====================================================
+    // TEST getFileContent() - Valid File
+    // =====================================================
     @isTest
     static void testGetFileContent() {
-        System.debug(' Running testGetFileContent...');
-        
         Test.startTest();
         String fileContent = FileController.getFileContent(testContentDocumentId);
         Test.stopTest();
 
-        System.debug(' File Content: ' + fileContent);
-
-        System.assertNotEquals(null, fileContent, 'File content should not be null');
-        System.assert(fileContent.length() > 0, 'File content should not be empty');
+        System.assertNotEquals(null, fileContent);
+        System.assert(fileContent.length() > 0);
     }
 
-    // Test getFileContent() - No File Available
+    // =====================================================
+    // TEST getFileContent() - Missing File (QueryException path)
+    // =====================================================
     @isTest
     static void testGetFileContentNoFile() {
-        System.debug('🔹 Running testGetFileContentNoFile...');
-        
         Test.startTest();
-        String fileContent = FileController.getFileContent('000000000000000'); // Non-existent ID
+        String fileContent = FileController.getFileContent('000000000000000');
         Test.stopTest();
 
-        System.debug(' File Content for missing file: ' + fileContent);
-
-        //  Fix: Expect "NO_CONTENT" instead of null
-        System.assertEquals('NO_CONTENT', fileContent, 'Should return NO_CONTENT for missing file');
+        System.assertEquals('NO_CONTENT', fileContent);
     }
 
-    // Test getAllFiles() - No Files Available Case
-    @isTest
-    static void testGetAllFilesNoRecords() {
-        System.debug('🔹 Running testGetAllFilesNoRecords...');
-        
-        Test.startTest();
-        delete [SELECT Id FROM ContentDocument];
-        List<ContentDocument> files = FileController.getAllFiles();
-        Test.stopTest();
-
-        System.debug(' Files Retrieved After Deletion: ' + files.size());
-        System.assertEquals(0, files.size(), 'File list should be empty when no files exist');
-    }
-
-    // Test getFileContent() - Edge Case: No Version Data
+    // =====================================================
+    // TEST getFileContent() - Empty Version Data
+    // =====================================================
     @isTest
     static void testGetFileContentNoVersionData() {
-        System.debug('🔹 Running testGetFileContentNoVersionData...');
-        
-        // Fix: Use `Blob.valueOf(' ')` instead of empty string
+
         ContentVersion emptyVer = new ContentVersion(
             Title = 'Empty File',
             PathOnClient = 'EmptyFile.csv',
-            VersionData = Blob.valueOf(' '), // Ensure non-empty VersionData
+            VersionData = Blob.valueOf(' '),
             FirstPublishLocationId = UserInfo.getUserId()
         );
         insert emptyVer;
 
         Id emptyDocId = [
-            SELECT ContentDocumentId FROM ContentVersion WHERE Id = :emptyVer.Id LIMIT 1
+            SELECT ContentDocumentId 
+            FROM ContentVersion 
+            WHERE Id = :emptyVer.Id 
+            LIMIT 1
         ].ContentDocumentId;
 
         Test.startTest();
         String fileContent = FileController.getFileContent(emptyDocId);
         Test.stopTest();
 
-        System.debug(' Empty File Content: ' + fileContent);
+        System.assertEquals('IA==', fileContent); // Base64 of space
+    }
 
-        // Fix: Expect Base64 encoding of empty space (`'IA=='` is Base64 of ' ' )
-        System.assertEquals('IA==', fileContent, 'File content should return Base64 encoded empty string');
+    // =====================================================
+    // ⭐ NEW TESTS FOR EXTRA COVERAGE
+    // =====================================================
+
+    // Test multiple versions → latest should be returned
+    @isTest
+    static void testGetFileContentMultipleVersions() {
+
+        ContentVersion ver1 = new ContentVersion(
+            Title = 'Multi File',
+            PathOnClient = 'Multi1.csv',
+            VersionData = Blob.valueOf('Version1'),
+            FirstPublishLocationId = UserInfo.getUserId()
+        );
+        insert ver1;
+
+        Id docId = [
+            SELECT ContentDocumentId 
+            FROM ContentVersion 
+            WHERE Id = :ver1.Id
+        ].ContentDocumentId;
+
+        // Insert latest version
+        ContentVersion ver2 = new ContentVersion(
+            Title = 'Multi File',
+            PathOnClient = 'Multi2.csv',
+            VersionData = Blob.valueOf('Version2'),
+            ContentDocumentId = docId
+        );
+        insert ver2;
+
+        Test.startTest();
+        String result = FileController.getFileContent(docId);
+        Test.stopTest();
+
+        System.assert(result.contains('VmVyc2lvbjI')); // Base64 of Version2
+    }
+
+    // Test null fileId → exception branch
+    @isTest
+    static void testGetFileContentNullId() {
+        Test.startTest();
+        String result = FileController.getFileContent(null);
+        Test.stopTest();
+
+        System.assertEquals('NO_CONTENT', result);
+    }
+
+    // Test invalid id → exception branch
+    @isTest
+    static void testGetFileContentExceptionPath() {
+        Test.startTest();
+        String result = FileController.getFileContent('INVALID_ID');
+        Test.stopTest();
+
+        System.assertEquals('NO_CONTENT', result);
     }
 }
