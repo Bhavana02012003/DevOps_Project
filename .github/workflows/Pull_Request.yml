@@ -451,6 +451,7 @@ jobs:
                 --rule-selector StdCyclomaticComplexity \
                 --rule-selector ApexUnitTestClassShouldHaveAsserts \
                 --output-file tmp.csv \
+                --config-file code-analyzer.yml \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
 
             else
