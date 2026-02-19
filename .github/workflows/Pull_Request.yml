@@ -448,7 +448,7 @@ jobs:
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
-          response=$(curl -X POST "https://test.salesforce.com/services/oauth2/token" \
+          response=$(curl -X POST "https://login.salesforce.com/services/oauth2/token" \
             -d "grant_type=password" \
             -d "client_id=${{ secrets.SF_CLIENT_ID }}" \
             -d "client_secret=${{ secrets.SF_CLIENT_SECRET }}" \
