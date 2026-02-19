@@ -56,7 +56,7 @@ public with sharing class AccountClass {
             insert acc;  // Insert the Account record
             return acc.Id;  // Return the ID of the new Account
         } catch (Exception ex) {
-            System.debug('Error boss bayya:: ' + ex.getMessage());
+            System.debug('Error boss bayya check once:: ' + ex.getMessage());
             throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
         }
     }
