@@ -473,7 +473,7 @@ jobs:
 
           echo "Uploading scanner report to Salesforce..."
 
-          response=$(curl -X POST "<Sandbox-URL>/services/data/v61.0/sobjects/ContentVersion" \
+          response=$(curl -X POST "${{ vars.SF_DOMAIN_URL }}/services/data/v61.0/sobjects/ContentVersion" \
             -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
             -H "Content-Type: multipart/form-data" \
             -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \

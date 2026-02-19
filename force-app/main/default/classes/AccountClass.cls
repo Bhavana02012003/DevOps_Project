@@ -1,3 +1,10 @@
+/**
+ * @description       : 
+ * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
+ * @group             : 
+ * @last modified on  : 02-19-2026
+ * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
+**/
 public with sharing class AccountClass {
     @AuraEnabled
     public static Id createAccount(
@@ -56,7 +63,7 @@ public with sharing class AccountClass {
             insert acc;  // Insert the Account record
             return acc.Id;  // Return the ID of the new Account
         } catch (Exception ex) {
-            System.debug('Error boss bayya:: ' + ex.getMessage());
+            System.debug('Error boss bayya check once bro:: bobby' + ex.getMessage());
             throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
         }
     }
