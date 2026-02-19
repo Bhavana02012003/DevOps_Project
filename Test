@@ -106,7 +106,7 @@ public with sharing class SEO_PullRequestCaseLinker {
 Test CLass:
 
 @IsTest
-public class SEO_PullRequestCaseLinkerTest {
+private class SEO_PullRequestCaseLinkerTest {
 
     // Helper constant to match source class
     private static final String PR_FILE_FIELD = 'Check1_Report_File__c';
