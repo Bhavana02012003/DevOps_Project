@@ -1,0 +1,2 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"UnusedLocalVariable","pmd",3,"BestPractices","temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",3,13,3,36,"Variable '__scanner_keepalive' defined but not used","https://docs.pmd-code.org/pmd-doc-7.13.0/pmd_rules_apex_bestpractices.html#unusedlocalvariable",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
