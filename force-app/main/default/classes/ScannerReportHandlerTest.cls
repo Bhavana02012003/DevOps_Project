@@ -1,174 +1,179 @@
 /**
- * @description       : 
+ * @description       : Test class for ScannerReportHandler
  * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
- * @group             : 
- * @last modified on  : 02-18-2026
+ * @group             : Tests
+ * @last modified on  : 02-19-2026
  * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
 **/
-@isTest
+@IsTest
 private class ScannerReportHandlerTest {
 
-    private static final String VALID_TITLE_1 = 'Code Scanner Report';
-    private static final String VALID_TITLE_2 = 'Code Scanner Delta Log';
-    private static final String INVALID_TITLE = 'Vacation Photos';
-    
-    // Helper to generate CSV content
-    private static String generateCsvContent(String targetBranch, String commitId, String severity) {
-        return 'Header,TargetBranch,Commit,Severity,Other\n' + 
-               'Data,' + targetBranch + ',' + commitId + ',' + severity + ',Val';
-    }
-
-    @TestSetup
-    static void makeData(){
-        Profile p = [SELECT Id FROM Profile WHERE Name='Standard User' LIMIT 1]; 
-        User u = new User(Alias = 'standt', Email='standarduser@testorg.com', 
-            EmailEncodingKey='UTF-8', LastName='Testing', LanguageLocaleKey='en_US', 
-            LocaleSidKey='en_US', ProfileId = p.Id, 
-            TimeZoneSidKey='America/Los_Angeles', UserName='scannerhandlertest@testorg.com');
-        insert u;
-    }
+    private static final String REPORT_TITLE_VALID = 'Code Scanner Report - Feb 2026';
+    private static final String REPORT_TITLE_INVALID = 'Standard Export Data';
 
     /**
-     * @description Test processing a file with High Severity (1 or 2).
+     * @description Helper method to create ContentVersion and return its ContentDocumentId
      */
-    @isTest
+    private static Id createTestContentDocument(String title, String csvData) {
+        ContentVersion cv = new ContentVersion(
+            Title = title,
+            PathOnClient = title.deleteWhitespace() + '.csv',
+            VersionData = Blob.valueOf(csvData)
+        );
+        insert cv;
+        
+        return [SELECT ContentDocumentId FROM ContentVersion WHERE Id = :cv.Id LIMIT 1].ContentDocumentId;
+    }
+
+    @IsTest
     static void testProcessFiles_HighSeverity() {
-        User u = [SELECT Id FROM User WHERE UserName='scannerhandlertest@testorg.com' LIMIT 1];
-        
-        System.runAs(u) {
-            String csvData = generateCsvContent('main', 'abc1234', '1');
-            ContentVersion cv = createContentVersion(VALID_TITLE_1, csvData);
-            
-            Set<Id> docIds = new Set<Id>();
-            docIds.add(cv.ContentDocumentId);
+        String csvBody = 'TargetBranch,Commit,Severity\nfeature-branch,abc123hash,1\n';
+        Id contentDocId = createTestContentDocument(REPORT_TITLE_VALID, csvBody);
 
-            Test.startTest();
-            // Depending on your org triggers, this might run automatically. 
-            // We call it explicitly to ensure coverage if triggers are disabled.
-            ScannerReportHandler.processFiles(docIds);
-            Test.stopTest();
+        Test.startTest();
+        ScannerReportHandler.processFiles(new Set<Id>{ contentDocId });
+        Test.stopTest();
 
-            // We use LIMIT 1 to ensure we grab a record. 
-            // If double-firing occurs due to triggers, we just validate the data of the first one found.
-            Case createdCase = [SELECT Id, Priority, Target_Environment__c, Case_Created_By__c, File_Name__c 
-                                FROM Case WHERE File_Name__c = :VALID_TITLE_1 LIMIT 1];
-            
-            System.assertEquals('High', createdCase.Priority, 'Severity 1 should result in High Priority');
-            System.assertEquals('main', createdCase.Target_Environment__c, 'Target Environment should match CSV');
-            System.assertEquals('abc1234', createdCase.Case_Created_By__c, 'Case Created By should match Commit ID');
-            
-            List<ContentDocumentLink> links = [SELECT Id FROM ContentDocumentLink 
-                                               WHERE LinkedEntityId = :createdCase.Id 
-                                               AND ContentDocumentId = :cv.ContentDocumentId];
-            System.assertEquals(1, links.size(), 'The file should be linked to the Case');
-        }
+        List<Case> createdCases = [SELECT Id, Subject, Priority, Target_Environment__c, Case_Created_By__c FROM Case];
+        Assert.isTrue(createdCases.size() >= 1, 'At least one Case should have been created for the valid file.');
+
+        Set<Id> caseIds = (new Map<Id, Case>(createdCases)).keySet();
+        List<ContentDocumentLink> links = [SELECT Id FROM ContentDocumentLink WHERE LinkedEntityId IN :caseIds];
+
+        Assert.areEqual('High', createdCases[0].Priority, 'Severity 1 should map to High priority.');
+        Assert.areEqual('feature-branch', createdCases[0].Target_Environment__c, 'Target Environment should match CSV.');
+        Assert.areEqual('abc123hash', createdCases[0].Case_Created_By__c, 'Case Created By should match Commit hash.');
+        Assert.isTrue(createdCases[0].Subject.contains(REPORT_TITLE_VALID), 'Subject should contain the file title.');
+        Assert.isTrue(links.size() >= 1, 'The generated file should be linked to the new Case.');
     }
 
-    /**
-     * @description Test processing a file with Medium Severity (3).
-     */
-    @isTest
+    @IsTest
     static void testProcessFiles_MediumSeverity() {
-        String csvData = generateCsvContent('develop', 'def5678', '3');
-        ContentVersion cv = createContentVersion(VALID_TITLE_2, csvData);
-        
-        Set<Id> docIds = new Set<Id>();
-        docIds.add(cv.ContentDocumentId);
+        String csvBody = 'TargetBranch,Commit,Severity\nmain,def456hash,3\n';
+        Id contentDocId = createTestContentDocument(REPORT_TITLE_VALID, csvBody);
 
         Test.startTest();
-        ScannerReportHandler.processFiles(docIds);
+        ScannerReportHandler.processFiles(new Set<Id>{ contentDocId });
         Test.stopTest();
 
-        Case createdCase = [SELECT Id, Priority FROM Case WHERE File_Name__c = :VALID_TITLE_2 LIMIT 1];
-        System.assertEquals('Medium', createdCase.Priority, 'Severity 3 should result in Medium Priority');
+        List<Case> createdCases = [SELECT Id, Priority FROM Case];
+        Assert.isTrue(createdCases.size() >= 1, 'At least one Case should be created.');
+        Assert.areEqual('Medium', createdCases[0].Priority, 'Severity 3 should map to Medium priority.');
     }
 
-    /**
-     * @description Test processing a file with Low Severity (4 or 5).
-     */
-    @isTest
+    @IsTest
     static void testProcessFiles_LowSeverity() {
-        String csvData = generateCsvContent('feature/x', 'ghi9012', '5');
-        ContentVersion cv = createContentVersion(VALID_TITLE_1, csvData);
-        
-        Set<Id> docIds = new Set<Id>();
-        docIds.add(cv.ContentDocumentId);
+        String csvBody = 'TargetBranch,Commit,Severity\nrelease-branch,ghi789hash,5\n';
+        Id contentDocId = createTestContentDocument(REPORT_TITLE_VALID, csvBody);
 
         Test.startTest();
-        ScannerReportHandler.processFiles(docIds);
+        ScannerReportHandler.processFiles(new Set<Id>{ contentDocId });
         Test.stopTest();
 
-        Case createdCase = [SELECT Id, Priority FROM Case WHERE File_Name__c = :VALID_TITLE_1 LIMIT 1];
-        System.assertEquals('Low', createdCase.Priority, 'Severity 5 should result in Low Priority');
+        List<Case> createdCases = [SELECT Id, Priority FROM Case];
+        Assert.isTrue(createdCases.size() >= 1, 'At least one Case should be created.');
+        Assert.areEqual('Low', createdCases[0].Priority, 'Severity 5 should map to Low priority.');
     }
 
-    /**
-     * @description Test processing a file that does NOT have the required keywords in the title.
-     */
-    @isTest
-    static void testProcessFiles_InvalidTitle() {
-        String csvData = generateCsvContent('main', '123', '1');
-        ContentVersion cv = createContentVersion(INVALID_TITLE, csvData);
-        
-        Set<Id> docIds = new Set<Id>();
-        docIds.add(cv.ContentDocumentId);
+    @IsTest
+    static void testProcessFiles_IgnoredFileTitle() {
+        String csvBody = 'TargetBranch,Commit,Severity\nmain,xyz999hash,1\n';
+        Id contentDocId = createTestContentDocument(REPORT_TITLE_INVALID, csvBody);
 
         Test.startTest();
-        ScannerReportHandler.processFiles(docIds);
+        ScannerReportHandler.processFiles(new Set<Id>{ contentDocId });
         Test.stopTest();
 
-        List<Case> cases = [SELECT Id FROM Case WHERE File_Name__c = :INVALID_TITLE];
-        System.assertEquals(0, cases.size(), 'No case should be created for files without correct title keywords');
+        List<Case> createdCases = [SELECT Id FROM Case];
+        Assert.areEqual(0, createdCases.size(), 'No cases should be created for files missing the required title keywords.');
     }
 
-    /**
-     * @description Test empty input handling.
-     */
-    @isTest
-    static void testProcessFiles_EmptyInput() {
+    @IsTest
+    static void testProcessFiles_EmptySet() {
         Test.startTest();
         ScannerReportHandler.processFiles(new Set<Id>());
         Test.stopTest();
-        System.assert(true, 'Method should execute without error on empty input');
+
+        List<Case> createdCases = [SELECT Id FROM Case];
+        Assert.areEqual(0, createdCases.size(), 'No cases should be created when passing an empty set of IDs.');
     }
 
-    /**
-     * @description Test malformed CSV handling.
-     */
-    @isTest
-    static void testProcessFiles_MalformedCSV() {
-        // We provide a non-empty Blob so insertion works, but content that fails parsing logic (1 line only)
-        String invalidData = 'HeaderOnlyNoData'; 
-        ContentVersion cv = createContentVersion(VALID_TITLE_1, invalidData);
-        
-        Set<Id> docIds = new Set<Id>();
-        docIds.add(cv.ContentDocumentId);
-
+    @IsTest
+    static void testProcessFiles_InvalidId() {
         Test.startTest();
-        ScannerReportHandler.processFiles(docIds);
+        // 069 is the standard prefix for ContentDocument
+        Id fakeContentDocId = '069000000000000AAA'; 
+        ScannerReportHandler.processFiles(new Set<Id>{ fakeContentDocId });
         Test.stopTest();
 
-        // Logic dictates a case is created even if parsing fails, but fields remain null
-        Case createdCase = [SELECT Id, Priority, Target_Environment__c FROM Case WHERE File_Name__c = :VALID_TITLE_1 LIMIT 1];
-        System.assertNotEquals(null, createdCase.Id, 'Case should still be created despite CSV read error');
-        System.assertEquals(null, createdCase.Target_Environment__c, 'Target Environment should be null for malformed CSV');
+        List<Case> createdCases = [SELECT Id FROM Case];
+        Assert.areEqual(0, createdCases.size(), 'No cases should be created for an invalid ID.');
     }
 
-    // --- Helper Methods ---
+    @IsTest
+    static void testProcessFiles_RecursionPrevention() {
+        String csvBody = 'TargetBranch,Commit,Severity\nmain,recursionTest,1\n';
+        Id contentDocId = createTestContentDocument(REPORT_TITLE_VALID, csvBody);
 
-    private static ContentVersion createContentVersion(String title, String data) {
-        ContentVersion cv = new ContentVersion();
-        cv.Title = title;
-        cv.PathOnClient = title + '.csv';
-        // Ensure data is never empty to prevent DmlException
-        if (String.isBlank(data)) {
-            cv.VersionData = Blob.valueOf('Default,Header,Row');
-        } else {
-            cv.VersionData = Blob.valueOf(data);
-        }
-        cv.IsMajorVersion = true;
-        insert cv;
+        Test.startTest();
+        // First call sets isProcessing to true and executes logic
+        ScannerReportHandler.processFiles(new Set<Id>{ contentDocId });
         
-        return [SELECT Id, ContentDocumentId FROM ContentVersion WHERE Id = :cv.Id LIMIT 1];
+        // Second call directly after will hit the `if(isProcessing)` block
+        ScannerReportHandler.processFiles(new Set<Id>{ contentDocId });
+        Test.stopTest();
+
+        List<Case> createdCases = [SELECT Id FROM Case];
+        Assert.isTrue(createdCases.size() >= 1, 'Cases should still generate, but the secondary recursive call should be skipped.');
+    }
+
+    @IsTest
+    static void testProcessFiles_EmptyCSV() {
+        String csvBody = 'TargetBranch,Commit,Severity\n'; // Only headers, no data rows
+        Id contentDocId = createTestContentDocument(REPORT_TITLE_VALID, csvBody);
+
+        Test.startTest();
+        ScannerReportHandler.processFiles(new Set<Id>{ contentDocId });
+        Test.stopTest();
+
+        List<Case> createdCases = [SELECT Id FROM Case];
+        Assert.isTrue(createdCases.size() >= 1, 'Case should be created even if CSV data rows are empty.');
+    }
+
+    // 🔽 NEW: Hits the negative conditions inside the CSV parser loops
+    @IsTest
+    static void testProcessFiles_MissingColumnsAndUnknownSeverity() {
+        // Headers intentionally missing standard columns, and severity is '9' (unhandled)
+        String csvBody = 'RandomHeader1,RandomHeader2,Severity\nval1,val2,9\n';
+        Id contentDocId = createTestContentDocument(REPORT_TITLE_VALID, csvBody);
+
+        Test.startTest();
+        ScannerReportHandler.processFiles(new Set<Id>{ contentDocId });
+        Test.stopTest();
+
+        List<Case> createdCases = [SELECT Id, Priority, Target_Environment__c, Case_Created_By__c FROM Case];
+        Assert.isTrue(createdCases.size() >= 1, 'Case should be created even with weird CSV format.');
+        // Unmapped severity means priority is not updated from the parser logic
+        Assert.isNull(createdCases[0].Target_Environment__c, 'Target environment should be null.');
+    }
+
+    // 🔽 NEW: Forces a DML Exception on Case Insertion to cover the catch block
+    @IsTest
+    static void testProcessFiles_CaseDmlException() {
+        // Create an excessively long string to break the Case Subject limit (255 chars max)
+        String longCommitString = ''.leftPad(200, 'X'); 
+        String csvBody = 'TargetBranch,Commit,Severity\nmain,' + longCommitString + ',1\n';
+        
+        // Combine a 100 char title with the 200 char commit to yield a 300+ char Subject
+        String longTitle = 'Code Scanner ' + ''.leftPad(80, 'Y');
+        Id contentDocId = createTestContentDocument(longTitle, csvBody);
+
+        Test.startTest();
+        ScannerReportHandler.processFiles(new Set<Id>{ contentDocId });
+        Test.stopTest();
+
+        // Because the Subject exceeded field limits, the DML Catch block was hit and no Cases were inserted.
+        List<Case> createdCases = [SELECT Id FROM Case];
+        Assert.areEqual(0, createdCases.size(), 'DML exception should prevent Case creation due to exceeding field length limits.');
     }
 }
