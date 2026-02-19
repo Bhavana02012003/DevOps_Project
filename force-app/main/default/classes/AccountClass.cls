@@ -55,6 +55,7 @@ public with sharing class AccountClass {
             System.debug('Testing');
             insert acc;  // Insert the Account record
             return acc.Id;  // Return the ID of the new Account
+            System.debug('Test');
         } catch (Exception ex) {
             System.debug('Error:: ' + ex.getMessage());
             throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
