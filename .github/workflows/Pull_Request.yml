@@ -186,8 +186,7 @@ jobs:
 
             sanitized="${file//\//_}"
 
-            case "$file" in
-              *.cls)
+            *.cls)
                 temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
 
                 echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" > "$temp_file"
@@ -199,24 +198,30 @@ jobs:
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                 ((temp_line++))
 
-                # 🔥 KEEPALIVE STATEMENT — prevents EmptyStatementBlock violation
-                echo "    Integer __scanner_keepalive = 0;" >> "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
+                real_lines=0
 
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
+                  trimmed="$(echo "$content" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
 
-                  if [[ -z "$(echo "$content" | tr -d '[:space:]')" ]]; then
+                  # Skip blank lines
+                  [[ -z "$trimmed" ]] && continue
+
+                  # Skip comment-only lines
+                  if [[ "$trimmed" == //* ]] || [[ "$trimmed" == '/*'* ]] || [[ "$trimmed" == '*'* ]]; then
                     continue
                   fi
+
+                  # REAL CODE FOUND
+                  real_lines=$((real_lines+1))
 
                   printf "    %s\n" "$content" >> "$temp_file"
                   echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                   ((temp_line++))
                 done < lines.tmp
 
+                # Close wrapper
                 echo "  }" >> "$temp_file"
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                 ((temp_line++))
@@ -224,9 +229,17 @@ jobs:
                 echo "}" >> "$temp_file"
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
 
+                # 🚀 KEY FIX — Skip scanning if only comments changed
+                if [[ "$real_lines" -eq 0 ]]; then
+                  echo "⚠️ Only comments changed in $file → skipping scan"
+                  rm -f "$temp_file"
+                  continue
+                fi
+
                 echo "$temp_file" >> changed_cls_lwc_files.txt
                 echo "Created temp file: $temp_file"
-                ;;
+              ;;
+
               *.js)
                 temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
                 echo "/* delta-only temp JS */" > "$temp_file"
@@ -442,7 +455,17 @@ jobs:
                   actualLine="$mapped"
                 fi
 
+                rule=$(echo "$row" | awk -F',' '{print $1}' | tr -d '"')
+
+                # 🚀 Ignore wrapper-only false positives
+                if [[ "$isTemp" -eq 1 ]]; then
+                  if [[ "$rule" == "UnusedLocalVariable" || "$rule" == "EmptyStatementBlock" ]]; then
+                    continue
+                  fi
+                fi
+
                 echo "${row},${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> scanner-report.csv
+
               done
             fi
           done < files_to_scan.txt
