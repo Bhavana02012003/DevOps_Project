@@ -58,6 +58,7 @@ public with sharing class AccountClass {
         } catch (Exception ex) {
             System.debug('Error:: ' + ex.getMessage());
             throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
+            System.debug('Testing');
         }
     }
 }
