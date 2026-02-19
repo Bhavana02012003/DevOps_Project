@@ -1,14 +1,17 @@
+#code-analyzer.yml
+
+# rules:
+#   AvoidDebugStatements:
+#     tags:
+#       - MyScan
+
 engines:
   pmd:
-    file_extensions:
+    file_extensions: 
       apex: [".cls", ".trigger"]
       visualforce: [".page", ".component"]
-
   eslint:
-    file_extensions:
-      javascript: [".js"]
-      html: [".html"]
-
+    disable_engine: true
   retire-js:
     disable_engine: true
   regex:
