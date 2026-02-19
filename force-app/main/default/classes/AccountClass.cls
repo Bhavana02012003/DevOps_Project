@@ -67,8 +67,6 @@ public with sharing class AccountClass {
             System.debug('Error Bro please check' + ex.getMessage());
             if(ex.getMessage().contains('DUPLICATE_VALUE')) {
                 throw new AuraHandledException('An account with this name already exists. Please choose a different name.');
-            } else {
-                throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
             }
         }
     }
