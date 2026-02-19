@@ -52,11 +52,13 @@ public with sharing class AccountClass {
         acc.SLAExpirationDate__c = SLAExpirationDate;
 
         try {
+            System.debug('Testing');
             insert acc;  // Insert the Account record
             return acc.Id;  // Return the ID of the new Account
         } catch (Exception ex) {
             System.debug('Error:: ' + ex.getMessage());
             throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
+            System.debug('Testing');
         }
     }
 }
