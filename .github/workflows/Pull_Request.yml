@@ -437,7 +437,7 @@ jobs:
                   actualLine="$mapped"
                 fi
 
-                echo "${row},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> scanner-report.csv
+                echo "${row},${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> scanner-report.csv
               done
             fi
           done < files_to_scan.txt
