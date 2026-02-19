@@ -3,7 +3,7 @@ name: Apex PMD Scan (PRs, CSV, fail-on-violation)
 on:
   pull_request:
     branches:
-      - "ESOINT3"
+      - '**'
 
 jobs:
   apex-pmd-scan-pull:
