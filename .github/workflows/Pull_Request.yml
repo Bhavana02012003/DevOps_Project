@@ -199,6 +199,11 @@ jobs:
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                 ((temp_line++))
 
+                # 🔥 KEEPALIVE STATEMENT — prevents EmptyStatementBlock violation
+                echo "    Integer __scanner_keepalive = 0;" >> "$temp_file"
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                ((temp_line++))
+
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
