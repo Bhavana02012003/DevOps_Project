@@ -3,12 +3,12 @@ name: Apex PMD Scan (PRs, CSV, fail-on-violation)
 on:
   pull_request:
     branches:
-      - "ESOINT3"
+      - '**'
 
 jobs:
   apex-pmd-scan-pull:
     name: apex-pmd-scan-pull
-    runs-on: 
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
