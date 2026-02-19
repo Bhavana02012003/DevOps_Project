@@ -1,0 +1,2 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"EmptyStatementBlock","pmd",4,"CodeStyles","temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",2,3,2,16,"Avoid empty block statements.","https://docs.pmd-code.org/pmd-doc-7.13.0/pmd_rules_apex_errorprone.html#emptystatementblock",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
