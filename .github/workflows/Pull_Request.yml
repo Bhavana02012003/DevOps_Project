@@ -139,19 +139,30 @@ jobs:
 
           if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.base_ref }}" ]]; then
             RANGE="origin/${{ github.base_ref }}...${{ github.sha }}"
+            echo "Using PR diff: $RANGE"
             git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
           else
             RANGE="HEAD~1..HEAD"
+            echo "Using fallback diff: $RANGE"
           fi
 
           changed_files=$(git diff --name-only "$RANGE" -- '*.cls' '*.js' '*.html' || true)
           echo "Detected changed files: ${changed_files:-<none>}"
 
+          if [[ -z "${changed_files}" ]]; then
+            echo "No .cls/.js/.html files detected."
+            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
+            exit 0
+          fi
+
           TAB=$(printf '\t')
 
           for file in $changed_files; do
-            [[ -f "$file" ]] || continue
+            [[ -f "$file" ]] || { echo "Skipping deleted file: $file"; continue; }
 
+            echo "Processing file: $file"
+
+            # ✅ mawk-safe extraction: actualLine<TAB>content
             git diff -U0 "$RANGE" -- "$file" | awk '
               /^@@/ {
                 line = $0
@@ -164,93 +175,93 @@ jobs:
               /^\+/ {
                 print newLine "\t" substr($0,2)
                 newLine++
+                next
               }
             ' > lines.tmp || true
 
-            [[ ! -s lines.tmp ]] && continue
+            if [[ ! -s lines.tmp ]]; then
+              echo "No added lines found for $file (possibly only deletions). Skipping..."
+              continue
+            fi
 
             sanitized="${file//\//_}"
 
-            # ⭐⭐⭐ MISSING CASE FIX ⭐⭐⭐
             case "$file" in
+              *.cls)
+                temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
 
-            # ============================================================
-            # APEX WRAPPER (FIXED)
-            # ============================================================
-            *.cls)
-              temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
-
-              echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" > "$temp_file"
-              temp_line=1
-              echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-              ((temp_line++))
-
-              echo "  public static void tempMethod() {" >> "$temp_file"
-              echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-              ((temp_line++))
-
-              real_lines=0
-
-              while IFS= read -r row; do
-                actual_line="${row%%$TAB*}"
-                content="${row#*"$TAB"}"
-                trimmed="$(echo "$content" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
-
-                [[ -z "$trimmed" ]] && continue
-
-                # skip comments
-                if [[ "$trimmed" == //* ]] || [[ "$trimmed" == '/*'* ]] || [[ "$trimmed" == '*'* ]]; then
-                  continue
-                fi
-
-                real_lines=$((real_lines+1))
-
-                printf "    %s\n" "$content" >> "$temp_file"
-                echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
+                echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" > "$temp_file"
+                temp_line=1
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                 ((temp_line++))
-              done < lines.tmp
 
-              echo "  }" >> "$temp_file"
-              echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-              ((temp_line++))
+                echo "  public static void tempMethod() {" >> "$temp_file"
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                ((temp_line++))
 
-              echo "}" >> "$temp_file"
-              echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                while IFS= read -r row; do
+                  actual_line="${row%%$TAB*}"
+                  content="${row#*"$TAB"}"
 
-              # 🚀 Skip scanning if only comments changed
-              if [[ "$real_lines" -eq 0 ]]; then
-                echo "Only comments changed → skipping scan"
-                rm -f "$temp_file"
+                  if [[ -z "$(echo "$content" | tr -d '[:space:]')" ]]; then
+                    continue
+                  fi
+
+                  printf "    %s\n" "$content" >> "$temp_file"
+                  echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
+                  ((temp_line++))
+                done < lines.tmp
+
+                echo "  }" >> "$temp_file"
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                ((temp_line++))
+
+                echo "}" >> "$temp_file"
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+
+                echo "$temp_file" >> changed_cls_lwc_files.txt
+                echo "Created temp file: $temp_file"
+                ;;
+              *.js)
+                temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
+                echo "/* delta-only temp JS */" > "$temp_file"
+                while IFS= read -r row; do
+                  content="${row#*"$TAB"}"
+                  if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
+                    printf "%s\n" "$content" >> "$temp_file"
+                  fi
+                done < lines.tmp
+                echo "$temp_file" >> changed_cls_lwc_files.txt
+                ;;
+              *.html)
+                temp_file="temp_scanner_files/temp_${sanitized%.html}.html"
+                echo "<template>" > "$temp_file"
+                while IFS= read -r row; do
+                  content="${row#*"$TAB"}"
+                  if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
+                    printf "%s\n" "$content" >> "$temp_file"
+                  fi
+                done < lines.tmp
+                echo "</template>" >> "$temp_file"
+                echo "$temp_file" >> changed_cls_lwc_files.txt
+                ;;
+              *)
+                echo "Unhandled type for $file; skipping."
                 continue
-              fi
-
-              echo "$temp_file" >> changed_cls_lwc_files.txt
-              ;;
-
-            # ============================================================
-            # JS
-            # ============================================================
-            *.js)
-              temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
-              echo "/* delta-only temp JS */" > "$temp_file"
-              awk -F'\t' '{print $2}' lines.tmp >> "$temp_file"
-              echo "$temp_file" >> changed_cls_lwc_files.txt
-              ;;
-
-            # ============================================================
-            # HTML
-            # ============================================================
-            *.html)
-              temp_file="temp_scanner_files/temp_${sanitized%.html}.html"
-              echo "<template>" > "$temp_file"
-              awk -F'\t' '{print $2}' lines.tmp >> "$temp_file"
-              echo "</template>" >> "$temp_file"
-              echo "$temp_file" >> changed_cls_lwc_files.txt
-              ;;
-
+                ;;
             esac
           done
 
+          echo "====== Generated files list ======"
+          if [[ -s changed_cls_lwc_files.txt ]]; then
+            cat changed_cls_lwc_files.txt
+          else
+            echo "No temp files created. Exiting."
+            exit 0
+          fi
+
+          echo "====== line_number_mapping.txt (first 50) ======"
+          head -n 50 line_number_mapping.txt || true
 
       # ✅ NEW: Print temp wrapper class (content) so you can confirm what got scanned
       - name: DEBUG – Print temp wrapper classes
@@ -426,17 +437,7 @@ jobs:
                   actualLine="$mapped"
                 fi
 
-                rule=$(echo "$row" | awk -F',' '{print $1}' | tr -d '"')
-
-                # 🚀 Ignore wrapper-only false positives
-                if [[ "$isTemp" -eq 1 ]]; then
-                  if [[ "$rule" == "UnusedLocalVariable" || "$rule" == "EmptyStatementBlock" ]]; then
-                    continue
-                  fi
-                fi
-
                 echo "${row},${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> scanner-report.csv
-
               done
             fi
           done < files_to_scan.txt
