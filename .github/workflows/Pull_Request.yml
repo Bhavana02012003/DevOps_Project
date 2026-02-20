@@ -142,7 +142,7 @@ jobs:
 
           TAB=$(printf '\t')
 
-          while read -r status file; do
+          while IFS=$'\t' read -r status file; do
 
             [[ -f "$file" ]] || { echo "Skipping deleted file: $file"; continue; }
 
