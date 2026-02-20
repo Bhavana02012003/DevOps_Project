@@ -317,18 +317,17 @@ jobs:
             echo "No files to scan."
           fi
 
+            # ------------------------------------------------------------
+      # 5) Run PMD (Code Analyzer v5) on temp Apex wrappers
+      #    + Run ESLint (npx) on changed JS/HTML
+      #    + Build ONE scanner-report.csv
       # ------------------------------------------------------------
-      # 5) Run Code Analyzer v5 on delta temp files and build CSV
-      #    ✅ CommitAuthor = col12
-      #    ✅ ActualLine  = col13
-      #    ✅ TargetBranch= col14
-      # ------------------------------------------------------------
-      - name: Run SFDX Scanner (Code Analyzer v5) + add ActualLine
+      - name: Run PMD (Code Analyzer v5) + ESLint (npx) and build CSV
         shell: bash
         run: |
           set -euo pipefail
 
-          # Load lookup into memory
+          # Load lookup into memory (tempLine -> actualLine for temp wrappers)
           declare -A ACTUAL_LINE_MAP
           if [[ -s actual_line_lookup.env ]]; then
             while IFS='=' read -r key value; do
@@ -336,7 +335,7 @@ jobs:
             done < actual_line_lookup.env
           fi
 
-          # Final header (NO NYA)
+          # Final header
           echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
 
           if [[ ! -s files_to_scan.txt ]]; then
@@ -344,90 +343,149 @@ jobs:
             exit 0
           fi
 
-          while read -r file; do
-            [[ -z "$file" ]] && continue
-            echo "🔍 Scanning $file"
-            rm -f tmp.csv
+          # -----------------------------
+          # Split files
+          # -----------------------------
+          : > pmd_targets.txt
+          : > eslint_targets.txt
 
-            if [[ "$file" == *.cls ]]; then
-              sf code-analyzer run \
-                --workspace "$file" \
-                --rule-selector ApexCRUDViolation \
-                --rule-selector ApexBadCrypto \
-                --rule-selector ApexDangerousMethods \
-                --rule-selector ApexInsecureEndpoint \
-                --rule-selector ApexOpenRedirect \
-                --rule-selector ApexSharingViolations \
-                --rule-selector ApexSOQLInjection \
-                --rule-selector ApexSuggestUsingNamedCred \
-                --rule-selector ApexXSSFromEscapeFalse \
-                --rule-selector ApexXSSFromURLParam \
-                --rule-selector AvoidDebugStatements \
-                --rule-selector AvoidNonRestrictiveQueries \
-                --rule-selector EagerlyLoadedDescribeSObjectResult \
-                --rule-selector OperationWithHighCostInLoop \
-                --rule-selector OperationWithLimitsInLoop \
-                --rule-selector ApexCSRF \
-                --rule-selector AvoidDirectAccessTriggerMap \
-                --rule-selector AvoidHardcodingId \
-                --rule-selector EmptyCatchBlock \
-                --rule-selector UnusedLocalVariable \
-                --rule-selector QueueableWithoutFinalizer \
-                --rule-selector IfElseStmtsMustUseBraces \
-                --rule-selector ForLoopsMustUseBraces \
-                --rule-selector AvoidDeeplyNestedIfStmts \
-                --rule-selector DebugsShouldUseLoggingLevel \
-                --rule-selector ApexUnitTestShouldNotUseSeeAllDataTrue \
-                --rule-selector EmptyStatementBlock \
-                --rule-selector EmptyTryOrFinallyBlock \
-                --rule-selector CognitiveComplexity \
-                --rule-selector TooManyFields \
-                --rule-selector ExcessiveParameterList \
-                --rule-selector ExcessiveClassLength \
-                --rule-selector NcssConstructorCount \
-                --rule-selector NcssMethodCount \
-                --rule-selector NcssTypeCount \
-                --rule-selector ExcessivePublicCount \
-                --rule-selector CyclomaticComplexity \
-                --rule-selector StdCyclomaticComplexity \
-                --rule-selector ApexUnitTestClassShouldHaveAsserts \
-                --output-file tmp.csv \
-                --config-file code-analyzer.yml \
-              || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
-            else
-              sf code-analyzer run \
-                --workspace "$file" \
-                --engine eslint \
-                --output-file tmp.csv \
-                --config-file code-analyzer.yml \
-              || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
+          while read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ ! -f "$f" ]] && continue
+
+            if [[ "$f" == temp_scanner_files/*.cls ]]; then
+              echo "$f" >> pmd_targets.txt
+            elif [[ "$f" == *.js || "$f" == *.html ]]; then
+              echo "$f" >> eslint_targets.txt
             fi
+          done < files_to_scan.txt
 
-            if [[ -f tmp.csv ]]; then
-              isTemp=0
-              [[ "$file" == temp_scanner_files/* ]] && isTemp=1
-              tempBase="$(basename "$file")"
+          echo "==== PMD targets ===="
+          cat pmd_targets.txt || true
+          echo "==== ESLint targets ===="
+          cat eslint_targets.txt || true
 
-              tail -n +2 tmp.csv | while IFS= read -r row; do
+          # -----------------------------
+          # 1) PMD Scan (Code Analyzer v5)
+          # -----------------------------
+          rm -f pmd.csv
+          if [[ -s pmd_targets.txt ]]; then
+            echo "🔍 Running PMD via Code Analyzer v5 on temp_scanner_files/ ..."
+            # Run once on the folder that contains ONLY delta wrappers
+            sf code-analyzer run \
+              --workspace "temp_scanner_files" \
+              --rule-selector ApexCRUDViolation \
+              --rule-selector ApexBadCrypto \
+              --rule-selector ApexDangerousMethods \
+              --rule-selector ApexInsecureEndpoint \
+              --rule-selector ApexOpenRedirect \
+              --rule-selector ApexSharingViolations \
+              --rule-selector ApexSOQLInjection \
+              --rule-selector ApexSuggestUsingNamedCred \
+              --rule-selector ApexXSSFromEscapeFalse \
+              --rule-selector ApexXSSFromURLParam \
+              --rule-selector AvoidDebugStatements \
+              --rule-selector AvoidNonRestrictiveQueries \
+              --rule-selector EagerlyLoadedDescribeSObjectResult \
+              --rule-selector OperationWithHighCostInLoop \
+              --rule-selector OperationWithLimitsInLoop \
+              --rule-selector ApexCSRF \
+              --rule-selector AvoidDirectAccessTriggerMap \
+              --rule-selector AvoidHardcodingId \
+              --rule-selector EmptyCatchBlock \
+              --rule-selector UnusedLocalVariable \
+              --rule-selector QueueableWithoutFinalizer \
+              --rule-selector IfElseStmtsMustUseBraces \
+              --rule-selector ForLoopsMustUseBraces \
+              --rule-selector AvoidDeeplyNestedIfStmts \
+              --rule-selector DebugsShouldUseLoggingLevel \
+              --rule-selector ApexUnitTestShouldNotUseSeeAllDataTrue \
+              --rule-selector EmptyStatementBlock \
+              --rule-selector EmptyTryOrFinallyBlock \
+              --rule-selector CognitiveComplexity \
+              --rule-selector TooManyFields \
+              --rule-selector ExcessiveParameterList \
+              --rule-selector ExcessiveClassLength \
+              --rule-selector NcssConstructorCount \
+              --rule-selector NcssMethodCount \
+              --rule-selector NcssTypeCount \
+              --rule-selector ExcessivePublicCount \
+              --rule-selector CyclomaticComplexity \
+              --confirm \
+              --output-file pmd.csv \
+              --config-file code-analyzer.yml \
+            || echo "⚠️ PMD analyzer failed (continuing to build report)"
+
+            if [[ -f pmd.csv ]]; then
+              tail -n +2 pmd.csv | while IFS= read -r row; do
                 [[ -z "$row" ]] && continue
 
+                # code-analyzer v5 csv columns:
+                # rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources
                 startLine=$(echo "$row" | awk -F',' '{print $6}' | tr -d '"')
-                actualLine="$startLine"
+                filePath=$(echo "$row" | awk -F',' '{print $5}' | tr -d '"')
+                baseFile="$(basename "$filePath")"
 
-                if [[ "$isTemp" -eq 1 ]]; then
-                  key="${tempBase}|${startLine}"
-                  mapped="${ACTUAL_LINE_MAP[$key]}"
-                  [[ -z "$mapped" || "$mapped" == "0" ]] && mapped="N/A"
+                actualLine="$startLine"
+                key="${baseFile}|${startLine}"
+                mapped="${ACTUAL_LINE_MAP[$key]:-}"
+                if [[ -n "$mapped" && "$mapped" != "0" ]]; then
                   actualLine="$mapped"
+                else
+                  actualLine="N/A"
                 fi
 
                 echo "${row},${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> scanner-report.csv
               done
             fi
-          done < files_to_scan.txt
+          else
+            echo "✅ No Apex temp wrappers to scan."
+          fi
 
-          echo "✅ Final Scanner Report (first 50 lines):"
-          head -n 50 scanner-report.csv
+          # -----------------------------
+          # 2) ESLint Scan (npx) - REAL LWC rules from your .eslintrc.json
+          # -----------------------------
+          rm -f eslint.json
+          if [[ -s eslint_targets.txt ]]; then
+            echo "🔍 Running ESLint on changed JS/HTML ..."
+
+            # ESLint exits non-zero when errors exist -> we must NOT stop the workflow here
+            # We'll parse results and gate later.
+            npx eslint -f json --no-error-on-unmatched-pattern $(cat eslint_targets.txt) > eslint.json || true
+
+            if [[ -s eslint.json ]]; then
+              # Convert eslint json -> csv rows appended to scanner-report.csv
+              # Map eslint severity: 2(error)->2, 1(warn)->4 (so your hard gate can work)
+              jq -r '
+                .[] as $f
+                | ($f.messages // [])
+                | .[]
+                | [
+                    (.ruleId // "eslint"),
+                    "eslint",
+                    (if (.severity // 1) == 2 then 2 else 4 end),
+                    "",
+                    ($f.filePath | sub("^" + (env.GITHUB_WORKSPACE // "") + "/"; "")),
+                    (.line // 0),
+                    (.column // 0),
+                    (.endLine // (.line // 0)),
+                    (.endColumn // (.column // 0)),
+                    ((.message // "") | gsub("\n"; " ") | gsub("\r"; " ")),
+                    "",
+                    env.COMMIT_AUTHOR,
+                    env.COMMIT_AUTHOR,
+                    (if (.line // 0) == 0 then "N/A" else (.line|tostring) end),
+                    env.TARGET_BRANCH
+                  ]
+                  | @csv
+              ' eslint.json >> scanner-report.csv || true
+            fi
+          else
+            echo "✅ No JS/HTML files to scan with ESLint."
+          fi
+
+          echo "✅ Final Scanner Report (first 80 lines):"
+          head -n 80 scanner-report.csv
 
       - name: Authenticate with Salesforce
         id: sf-auth
