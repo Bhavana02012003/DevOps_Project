@@ -24,7 +24,6 @@ jobs:
       - name: Install Node dependencies (uses package.json)
         run: npm install --legacy-peer-deps
 
-      # ✅ NEW (stronger): force-install ESLint + LWC plugin and verify so "plugin:@lwc/lwc/recommended" works
       - name: Ensure ESLint + LWC ESLint plugin exist (hard verify)
         shell: bash
         run: |
@@ -32,19 +31,21 @@ jobs:
           echo "Node: $(node -v)"
           echo "NPM : $(npm -v)"
 
-          # Ensure core eslint exists (sometimes nested deps can be missing)
-          npm ls eslint >/dev/null 2>&1 || npm i -D eslint@^8.57.0
+          # Always use legacy-peer-deps for any additional installs in CI
+          npm config set legacy-peer-deps true
 
-          # Ensure LWC plugin exists for plugin:@lwc/lwc/*
-          npm ls @lwc/eslint-plugin-lwc >/dev/null 2>&1 || npm i -D @lwc/eslint-plugin-lwc@^1.8.0
+          # Ensure eslint exists
+          npm ls eslint >/dev/null 2>&1 || npm i -D eslint@^8.57.0 --legacy-peer-deps
 
-          # OPTIONAL fallback: if any config still references @salesforce/eslint-config-lwc
-          npm ls @salesforce/eslint-config-lwc >/dev/null 2>&1 || npm i -D @salesforce/eslint-config-lwc@^3.0.0
+          # Ensure LWC plugin exists (this is what provides plugin:@lwc/lwc/recommended)
+          npm ls @lwc/eslint-plugin-lwc >/dev/null 2>&1 || npm i -D @lwc/eslint-plugin-lwc@^1.9.0 --legacy-peer-deps
 
-          echo "✅ Installed:"
+          # ✅ IMPORTANT: DO NOT install @salesforce/eslint-config-lwc
+          # It forces @lwc/eslint-plugin-lwc@^2.0.0 and causes ERESOLVE in your repo.
+
+          echo "✅ Installed (top level):"
           npm ls eslint --depth=0 || true
           npm ls @lwc/eslint-plugin-lwc --depth=0 || true
-          npm ls @salesforce/eslint-config-lwc --depth=0 || true
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
