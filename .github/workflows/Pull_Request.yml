@@ -203,7 +203,31 @@ jobs:
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
 
-                  if [[ -z "$(echo "$content" | tr -d '[:space:]')" ]]; then
+                  # Trim leading spaces
+                  trimmed="$(echo "$content" | sed 's/^[[:space:]]*//')"
+
+                  # Skip blank lines
+                  if [[ -z "$(echo "$trimmed" | tr -d '[:space:]')" ]]; then
+                    continue
+                  fi
+
+                  # ❌ Skip single-line comments
+                  if [[ "$trimmed" =~ ^// ]]; then
+                    continue
+                  fi
+
+                  # ❌ Skip block comment start
+                  if [[ "$trimmed" =~ ^/\* ]]; then
+                    continue
+                  fi
+
+                  # ❌ Skip block comment lines
+                  if [[ "$trimmed" =~ ^\* ]]; then
+                    continue
+                  fi
+
+                  # ❌ Skip block comment end
+                  if [[ "$trimmed" =~ ^\*/ ]]; then
                     continue
                   fi
 
