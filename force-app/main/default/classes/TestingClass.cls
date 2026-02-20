@@ -1,5 +1,5 @@
 public with sharing class TestingClass {
     public TestingClass() {
-        System.debug('TestingClass constructor');
+        System.debug('Testing constructor');
     }
 }
