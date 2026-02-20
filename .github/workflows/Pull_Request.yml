@@ -599,17 +599,30 @@ jobs:
 
 
       # ✅ Existing gate remains (uses scanner-report.csv)
+      # ✅ UPDATED GATE (uses BOTH scanner-report.csv + lwc-scanner-report.csv)
       - name: HARD FAIL Block PR on Violations + Severity buckets
         shell: bash
         run: |
           set -euo pipefail
+
+          # --------------------------------------------------
+          # 1️⃣ Ensure both reports exist
+          # --------------------------------------------------
           if [[ ! -f scanner-report.csv ]]; then
             echo "❌ scanner-report.csv not found"
             exit 1
           fi
 
-          echo "🔍 Evaluating scanner-report.csv"
+          if [[ ! -f lwc-scanner-report.csv ]]; then
+            echo "❌ lwc-scanner-report.csv not found"
+            exit 1
+          fi
 
+          echo "🔍 Evaluating scanner-report.csv and lwc-scanner-report.csv"
+
+          # --------------------------------------------------
+          # 2️⃣ Severity Counts (APEX REPORT)
+          # --------------------------------------------------
           sev_1_2=$(awk -F',' '
             NR>1 {
               sev=$3
@@ -634,46 +647,92 @@ jobs:
             END { print c+0 }
           ' scanner-report.csv)
 
-          apex_ge_3=$(awk -F',' '
+          # --------------------------------------------------
+          # 3️⃣ Apex Violations (.cls only)
+          # --------------------------------------------------
+          apex_total=$(awk -F',' '
             NR>1 {
-              sev=$3; file=$5
-              gsub(/"/,"",sev); gsub(/"/,"",file)
-              if (sev ~ /^[0-9]+$/) {
-                s = sev + 0
-                if (s >= 3 && file ~ /\.cls$/) c++
-              }
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.cls$/) c++
             }
             END { print c+0 }
           ' scanner-report.csv)
 
-          lwc_ge_2=$(awk -F',' '
+          # --------------------------------------------------
+          # 4️⃣ JS & HTML From scanner-report.csv
+          # --------------------------------------------------
+          js_main=$(awk -F',' '
             NR>1 {
-              sev=$3; file=$5
-              gsub(/"/,"",sev); gsub(/"/,"",file)
-              if (sev ~ /^[0-9]+$/) {
-                s = sev + 0
-                if (s >= 2 && file ~ /\.(js|html)$/) c++
-              }
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.js$/) c++
             }
             END { print c+0 }
           ' scanner-report.csv)
 
+          html_main=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.html$/) c++
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          # --------------------------------------------------
+          # 5️⃣ JS & HTML From lwc-scanner-report.csv
+          # --------------------------------------------------
+          js_lwc=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.js$/) c++
+            }
+            END { print c+0 }
+          ' lwc-scanner-report.csv)
+
+          html_lwc=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.html$/) c++
+            }
+            END { print c+0 }
+          ' lwc-scanner-report.csv)
+
+          # --------------------------------------------------
+          # 6️⃣ Combine LWC totals
+          # --------------------------------------------------
+          js_total=$((js_main + js_lwc))
+          html_total=$((html_main + html_lwc))
+          lwc_total=$((js_total + html_total))
+
+          # --------------------------------------------------
+          # 7️⃣ PRINT SUMMARY
+          # --------------------------------------------------
           echo "================ SUMMARY ================"
-          echo "Severity 1-2 violations : $sev_1_2"
-          echo "Severity 3-5 violations : $sev_3_5"
-          echo "Apex  (severity >=3)    : $apex_ge_3"
-          echo "JS/HTML (severity >=2)  : $lwc_ge_2"
+          echo "Apex Violations (.cls)         : $apex_total"
+          echo "JS Violations (.js)            : $js_total"
+          echo "HTML Violations (.html)        : $html_total"
+          echo "Total LWC Violations           : $lwc_total"
+          echo "-----------------------------------------"
+          echo "Severity 1-2 Violations        : $sev_1_2"
+          echo "Severity 3-5 Violations        : $sev_3_5"
           echo "========================================="
 
+          # --------------------------------------------------
+          # 8️⃣ HARD BLOCK CONDITION
+          # --------------------------------------------------
           if [[ "$sev_1_2" -gt 0 ]]; then
             echo "🚫 HARD GATE FAILED – Found severity 1-2 violations"
-            echo "---- Violations (first 200 lines) ----"
+            echo "---- Top Violations (first 200 lines) ----"
             sed -n '1,200p' scanner-report.csv || true
             exit 1
           fi
 
           echo "✅ HARD GATE PASSED – PR CAN MERGE"
-          
+
 
       - name: Commit and Push Scanner Reports to `Scanner_Reports` Branch
         if: always()
