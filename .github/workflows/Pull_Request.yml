@@ -454,7 +454,7 @@ jobs:
             echo "🔍 Running ESLint on changed JS/HTML ..."
 
             ESLINT_EXIT=0
-            npx eslint -f json --no-error-on-unmatched-pattern $(cat eslint_targets.txt) > eslint.json || ESLINT_EXIT=$?
+            npx eslint -f json --no-error-on-unmatched-pattern --resolve-plugins-relative-to . $(cat eslint_targets.txt) > eslint.json || ESLINT_EXIT=$?
 
             # ✅ If eslint couldn't execute (plugin/config error) => fail hard
             if [[ "$ESLINT_EXIT" -ne 0 && ! -s eslint.json ]]; then

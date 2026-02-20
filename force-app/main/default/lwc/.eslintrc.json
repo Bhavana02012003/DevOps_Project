@@ -1,14 +1,14 @@
 {
-  "extends": ["@salesforce/eslint-config-lwc/recommended"],
-  "overrides": [
-    {
-      "files": ["*.test.js"],
-      "rules": {
-        "@lwc/lwc/no-unexpected-wire-adapter-usages": "off"
-      },
-      "env": {
-        "node": true
-      }
-    }
-  ]
+  "root": true,
+  "plugins": ["@lwc/lwc"],
+  "extends": ["plugin:@lwc/lwc/recommended"],
+  "rules": {
+    "no-console": ["error", { "allow": ["warn", "error"] }],
+    "no-debugger": "error",
+    "no-unused-vars": "warn",
+    "no-undef": "error",
+    "eqeqeq": ["error", "always"],
+    "curly": "error",
+    "semi": ["error", "always"]
+  }
 }
