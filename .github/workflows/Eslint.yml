@@ -12,8 +12,7 @@ concurrency:
 jobs:
   eslint:
     name: Run ESLint on changed files (push)
-    runs-on: 
-      group: cvs-linux-self-hosted
+    runs-on: ubuntu-latest
 
     permissions:
       contents: read
