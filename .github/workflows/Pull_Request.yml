@@ -203,11 +203,13 @@ jobs:
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
+                  trimmed="$(echo "$content" | sed 's/^[[:space:]]*//')"
+
                   # ------------------------------
-                  # ADVANCED DELTA SAFETY FILTER
+                  # SAFE DELTA FILTER (BASH SAFE)
                   # ------------------------------
 
-                  # Skip empty lines
+                  # Skip empty
                   if [[ -z "$(echo "$trimmed" | tr -d '[:space:]')" ]]; then continue; fi
 
                   # Skip comments
@@ -217,21 +219,23 @@ jobs:
                   if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
 
                   # Skip standalone braces
-                  if [[ "$trimmed" =~ ^\{$ ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^\}$ ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^\};$ ]]; then continue; fi
+                  if [[ "$trimmed" == "{" ]]; then continue; fi
+                  if [[ "$trimmed" == "}" ]]; then continue; fi
+                  if [[ "$trimmed" == "};" ]]; then continue; fi
 
-                  # Skip orphan else / catch / finally
-                  if [[ "$trimmed" =~ ^else[[:space:]]*$ ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^else[[:space:]]*\{ ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^catch[[:space:]]*\( ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^finally[[:space:]]*\{ ]]; then continue; fi
+                  # Skip orphan else / catch / finally (SAFE string match, not regex)
+                  if [[ "$trimmed" == "else" ]]; then continue; fi
+                  if [[ "$trimmed" == "else {" ]]; then continue; fi
+                  if [[ "$trimmed" == "finally {" ]]; then continue; fi
 
-                  # Skip orphan do without while
-                  if [[ "$trimmed" =~ ^do[[:space:]]*\{ ]]; then continue; fi
+                  # Skip lines starting with catch(
+                  if [[ "$trimmed" == catch* ]]; then continue; fi
 
-                  # Skip orphan while closing from do-while
-                  if [[ "$trimmed" =~ ^\}[[:space:]]*while ]]; then continue; fi
+                  # Skip orphan do {
+                  if [[ "$trimmed" == "do {" ]]; then continue; fi
+
+                  # Skip "} while(..."
+                  if [[ "$trimmed" == "} while"* ]]; then continue; fi
 
                   has_real_code=true
 
