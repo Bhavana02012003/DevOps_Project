@@ -1,0 +1,261 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"AvoidDebugStatements","pmd",2,"Performance","temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",3,17,3,80,"Avoid debug statements since they impact on performance","https://docs.pmd-code.org/pmd-doc-7.13.0/pmd_rules_apex_performance.html#avoiddebugstatements",Bhavana02012003,Bhavana02012003,62,Backup_Cloned_Branch
+"DebugsShouldUseLoggingLevel","pmd",4,"Security","temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",3,17,3,80,"Calls to System.debug should specify a logging level.","https://docs.pmd-code.org/pmd-doc-7.13.0/pmd_rules_apex_bestpractices.html#debugsshoulduselogginglevel",Bhavana02012003,Bhavana02012003,62,Backup_Cloned_Branch
+"UninstantiableEngineError","eslint",1,,,,,,,"The engine with name 'eslint' could not be instantiated. Error: The eslint engine encountered an unexpected error thrown from 'ESLint': Failed to load config ""plugin:@lwc/lwc/recommended"" to extend from.,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+Referenced from: /home/runner/work/DevOps_Project/DevOps_Project/.eslintrc.json,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+ESLint options used: {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+  ""cwd"": ""/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-eslint8-engine/dist"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+  ""errorOnUnmatchedPattern"": false,,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+  ""reportUnusedDisableDirectives"": ""off"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+  ""baseConfig"": {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    ""globals"": {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+      ""$A"": ""readonly"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+      ""$Browser"": ""readonly"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+      ""$ContentAsset"": ""readonly"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+      ""$Label"": ""readonly"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+      ""$Locale"": ""readonly"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+      ""$Resource"": ""readonly"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    },,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    ""overrides"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+      {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""plugins"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""import"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""jest"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@salesforce/eslint-plugin-lightning"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc-platform"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""extends"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-eslint8-engine/node_modules/@salesforce/eslint-config-lwc/base.js"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""eslint:recommended"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""plugin:import/errors"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""plugin:jest/recommended"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""plugin:@lwc/lwc-platform/recommended"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""env"": {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""jest"": true,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        },,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""globals"": {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""global"": true,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        },,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""rules"": {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-await-in-loop"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""array-callback-return"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""consistent-return"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""default-case"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""dot-notation"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+              ""allowKeywords"": true,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""eqeqeq"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""smart"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""guard-for-in"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-alert"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-caller"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-else-return"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-empty-function"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+              ""allow"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+                ""arrowFunctions"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+                ""functions"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+                ""methods"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+              ],Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-eval"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-extend-native"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-extra-bind"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-floating-decimal"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-implied-eval"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-iterator"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-labels"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-loop-func"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-multi-str"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-new"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-new-func"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-new-object"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-new-wrappers"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-octal-escape"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-proto"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-return-assign"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-return-await"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-script-url"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-self-compare"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-sequences"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-throw-literal"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-useless-concat"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-useless-escape"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-useless-return"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-unused-expressions"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-void"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-with"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""radix"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""vars-on-top"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""wrap-iife"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""any"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-label-var"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-restricted-globals"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""addEventListener"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""blur"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""close"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""closed"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""confirm"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""defaultStatus"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""event"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""external"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""defaultstatus"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""find"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""focus"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""frameElement"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""frames"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""history"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""innerHeight"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""innerWidth"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""length"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""location"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""locationbar"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""menubar"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""moveBy"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""moveTo"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""name"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""onblur"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""onerror"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""onfocus"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""onload"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""onresize"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""onunload"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""open"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""opener"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""opera"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""outerHeight"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""outerWidth"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""pageXOffset"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""pageYOffset"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""parent"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""print"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""removeEventListener"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""resizeBy"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""resizeTo"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""screen"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""screenLeft"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""screenTop"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""screenX"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""screenY"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""scroll"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""scrollbars"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""scrollBy"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""scrollTo"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""scrollX"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""scrollY"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""self"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""status"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""statusbar"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""stop"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""toolbar"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""top"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-shadow"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-shadow-restricted-names"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-undef-init"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-unused-vars"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+              ""vars"": ""all"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+              ""args"": ""after-used"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-use-before-define"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+              ""functions"": false,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""handle-callback-err"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-confusing-arrow"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-useless-computed-key"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-useless-constructor"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""no-useless-rename"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/no-api-reassignments"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/no-async-operation"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/no-attributes-during-construction"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/no-document-query"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/no-inner-html"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/no-leading-uppercase-api-name"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/no-template-children"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/prefer-custom-event"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/valid-api"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+              ""disallowUnderscoreUppercaseMix"": true,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/valid-graphql-wire-adapter-callback-parameters"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@salesforce/lightning/valid-apex-method-invocation"": ""error"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""import/no-unresolved"": ""off"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc/no-dupe-class-members"": ""off"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@lwc/lwc-platform/valid-offline-wire"": ""off"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        },,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""files"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""*.js"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""*.cjs"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""*.mjs"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""parser"": ""@babel/eslint-parser"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""parserOptions"": {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""requireConfigFile"": false,,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""babelOptions"": {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""babelrc"": false,,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""configFile"": false,,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            ""parserOpts"": {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+              ""plugins"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+                ""classProperties"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+                [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+                  ""decorators"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+                  {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+                    ""decoratorsBeforeExport"": false,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+                  },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+                ],Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+              ],Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+            },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+      },,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+      {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""files"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""*.ts"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""extends"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""eslint:recommended"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""plugin:@typescript-eslint/recommended"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""plugins"": [,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""@typescript-eslint"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ],,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""parser"": ""@typescript-eslint/parser"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        ""parserOptions"": {,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+          ""project"": true,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+        },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+      },Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    ],Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+  },,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+  ""useEslintrc"": true,,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+  ""overrideConfigFile"": ""/home/runner/work/DevOps_Project/DevOps_Project/.eslintrc.json"",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+  ""ignorePath"": ""/home/runner/work/DevOps_Project/DevOps_Project/.eslintignore"",Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+},Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    at wrapESLintError (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-eslint8-engine/dist/strategy.js:277:12),Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    at new LegacyESLintWrapper (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-eslint8-engine/dist/strategy.js:250:19),Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    at LegacyESLintStrategy.calculateRuleStatuses (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-eslint8-engine/dist/strategy.js:58:24),Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    at ESLint8Engine.describeRules (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-eslint8-engine/dist/engine.js:68:51),Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    at ESLintEngine.describeRules (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-eslint-engine/dist/engine.js:70:42),Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    at CodeAnalyzer.getAllRulesFor (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-core/dist/code-analyzer.js:276:65),Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    at /home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-core/dist/code-analyzer.js:267:79,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    at Array.map (<anonymous>),Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    at CodeAnalyzer.getAllRules (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-core/dist/code-analyzer.js:267:56),Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
+    at CodeAnalyzer.selectRules (/home/runner/.local/share/sf/node_modules/@salesforce/plugin-code-analyzer/node_modules/@salesforce/code-analyzer-core/dist/code-analyzer.js:216:37)",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
