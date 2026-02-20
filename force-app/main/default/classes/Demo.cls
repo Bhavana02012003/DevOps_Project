@@ -5,7 +5,6 @@ global class Demo {  // Violates AvoidGlobalModifier
        String[] params = new String[] {param1, param2, param3, param4, param5};
        for (String param : params) {
            System.debug('Parameter: ' + param);
-           System.debug('Excessive Parameters Testing!!');
        }
     }
 
@@ -23,12 +22,6 @@ global class Demo {  // Violates AvoidGlobalModifier
                 if (value > 20) {
                     if (value > 30) {
                         System.debug('Too much nesting Testing!!');
-                        if(value>40){
-                            System.debug('Nesting is too much Testing!!');
-                        }
-                        else {
-                            System.debug('Else Statement');
-                        }
                     }
                     else{
                         System.debug('Else Statement');

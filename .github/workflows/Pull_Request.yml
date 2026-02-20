@@ -185,12 +185,13 @@ jobs:
             fi
 
             case "$file" in
-              *.cls)
+            *.cls)
 
                 temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
 
                 echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" > "$temp_file"
                 temp_line=1
+                brace_balance=0
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                 ((temp_line++))
 
@@ -203,43 +204,45 @@ jobs:
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
-                # ------------------------------
-                # ADVANCED DELTA SAFETY FILTER
-                # ------------------------------
 
-                trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                  # ------------------------------
+                  # SAFE MINIMAL FILTER
+                  # ------------------------------
 
-                # Skip empty lines
-                if [[ -z "$trimmed" ]]; then continue; fi
+                  trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
-                # Skip comments
-                if [[ "$trimmed" =~ ^// ]]; then continue; fi
-                if [[ "$trimmed" =~ ^/\* ]]; then continue; fi
-                if [[ "$trimmed" =~ ^\* ]]; then continue; fi
-                if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
+                  # Skip empty lines
+                  if [[ -z "$trimmed" ]]; then continue; fi
 
-                # Skip standalone braces
-                if [[ "$trimmed" =~ ^\{$ ]]; then continue; fi
-                if [[ "$trimmed" =~ ^\}$ ]]; then continue; fi
-                if [[ "$trimmed" =~ ^\}\;$ ]]; then continue; fi
+                  # Skip comment-only lines
+                  if [[ "$trimmed" =~ ^// ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^/\* ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^\* ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
 
-                # Skip orphan else / catch / finally
-                if [[ "$trimmed" =~ ^else[[:space:]]*$ ]]; then continue; fi
-                if [[ "$trimmed" =~ ^else[[:space:]]*\{ ]]; then continue; fi
-                if [[ "$trimmed" =~ ^catch[[:space:]]*\( ]]; then continue; fi
-                if [[ "$trimmed" =~ ^finally[[:space:]]*\{ ]]; then continue; fi
+                  # ------------------------------
+                  # BRACE TRACKING LOGIC
+                  # ------------------------------
 
-                # Skip orphan do without while
-                if [[ "$trimmed" =~ ^do[[:space:]]*\{ ]]; then continue; fi
+                  open_count=$(echo "$content" | grep -o '{' | wc -l || true)
+                  close_count=$(echo "$content" | grep -o '}' | wc -l || true)
 
-                # Skip orphan while closing from do-while
-                if [[ "$trimmed" =~ ^\}[[:space:]]*while ]]; then continue; fi
+                  delta=$((open_count - close_count))
+
+                  # Prevent negative brace balance (orphan closing brace)
+                  if (( brace_balance + delta < 0 )); then
+                    continue
+                  fi
+
+                  brace_balance=$((brace_balance + delta))
 
                   has_real_code=true
 
+                  # Write to temp file
                   printf "    %s\n" "$content" >> "$temp_file"
                   echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                   ((temp_line++))
+
                 done < lines.tmp
 
                 if [[ "$has_real_code" == false ]]; then
@@ -248,17 +251,29 @@ jobs:
                   continue
                 fi
 
+                # ------------------------------
+                # AUTO-CLOSE UNBALANCED BRACES
+                # ------------------------------
+
+                while (( brace_balance > 0 )); do
+                  echo "    }" >> "$temp_file"
+                  echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                  ((temp_line++))
+                  brace_balance=$((brace_balance - 1))
+                done
+
+                # Close tempMethod
                 echo "  }" >> "$temp_file"
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                 ((temp_line++))
 
+                # Close class
                 echo "}" >> "$temp_file"
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
 
                 echo "$temp_file" >> changed_cls_lwc_files.txt
                 echo "Created temp file: $temp_file"
                 ;;
-
               *.js)
 
                 temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
