@@ -22,7 +22,7 @@ jobs:
           node-version: "20"
 
       - name: Install Node dependencies (uses package.json)
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
