@@ -11,7 +11,9 @@ engines:
       apex: [".cls", ".trigger"]
       visualforce: [".page", ".component"]
   eslint:
-    disable_engine: true
+    disable_engine: false
+    auto_discover_eslint_config: true
+    eslint_config_file: .eslintrc.json
   retire-js:
     disable_engine: true
   regex:

@@ -21,8 +21,8 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install ESLint and Compatible Dependencies
-        run: npm install eslint --save-dev --legacy-peer-deps
+      - name: Install Node dependencies (uses package.json)
+        run: npm ci --legacy-peer-deps
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -222,29 +222,12 @@ jobs:
                 echo "$temp_file" >> changed_cls_lwc_files.txt
                 echo "Created temp file: $temp_file"
                 ;;
-              *.js)
-                temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
-                echo "/* delta-only temp JS */" > "$temp_file"
-                while IFS= read -r row; do
-                  content="${row#*"$TAB"}"
-                  if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
-                    printf "%s\n" "$content" >> "$temp_file"
-                  fi
-                done < lines.tmp
-                echo "$temp_file" >> changed_cls_lwc_files.txt
+
+              *.js|*.html)
+                # ✅ IMPORTANT: scan ORIGINAL JS/HTML file so LWC ESLint rules apply
+                echo "$file" >> changed_cls_lwc_files.txt
                 ;;
-              *.html)
-                temp_file="temp_scanner_files/temp_${sanitized%.html}.html"
-                echo "<template>" > "$temp_file"
-                while IFS= read -r row; do
-                  content="${row#*"$TAB"}"
-                  if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
-                    printf "%s\n" "$content" >> "$temp_file"
-                  fi
-                done < lines.tmp
-                echo "</template>" >> "$temp_file"
-                echo "$temp_file" >> changed_cls_lwc_files.txt
-                ;;
+
               *)
                 echo "Unhandled type for $file; skipping."
                 continue
@@ -416,6 +399,7 @@ jobs:
                 --workspace "$file" \
                 --engine eslint \
                 --output-file tmp.csv \
+                --config-file code-analyzer.yml \
               || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
             fi
 
