@@ -3,7 +3,7 @@ name: Apex PMD Scan (PRs, CSV, fail-on-violation)
 on:
   pull_request:
     branches:
-      - "**"
+      - '**'
 
 jobs:
   apex-pmd-scan-pull:
@@ -24,19 +24,62 @@ jobs:
       - name: Install Node dependencies (uses package.json)
         run: npm install --legacy-peer-deps
 
-      # ✅ IMPORTANT: only verify (do NOT install random @salesforce lint packages)
-      - name: Ensure ESLint + LWC ESLint plugin exist (hard verify)
+      # ✅ FIX #1: Install the correct LWC ESLint plugin package (scoped)
+      #           AND create a CI-only ESLint config (so we ignore broken repo configs)
+      - name: Ensure ESLint + LWC ESLint plugin exist (hard verify) + create CI ESLint config
         shell: bash
         run: |
           set -euo pipefail
           echo "Node: $(node -v)"
           echo "NPM : $(npm -v)"
 
-          # verify eslint
-          npm ls eslint --depth=0
+          # Always use legacy-peer-deps for any additional installs in CI
+          npm config set legacy-peer-deps true
 
-          # verify LWC plugin (must exist because your lwc/.eslintrc.json extends plugin:lwc/recommended)
-          npm ls @lwc/eslint-plugin-lwc --depth=0
+          # Ensure eslint exists
+          npm ls eslint >/dev/null 2>&1 || npm i -D eslint@^8.57.0 --legacy-peer-deps
+
+          # Ensure LWC plugin exists (this provides plugin:@lwc/lwc/recommended)
+          npm ls @lwc/eslint-plugin-lwc >/dev/null 2>&1 || npm i -D @lwc/eslint-plugin-lwc@^1.9.0 --legacy-peer-deps
+
+          echo "✅ Installed (top level):"
+          npm ls eslint --depth=0 || true
+          npm ls @lwc/eslint-plugin-lwc --depth=0 || true
+
+          # ✅ Create a CI-only ESLint config to avoid repo config conflicts:
+          # - plugin id: "@lwc/lwc"
+          # - rules prefix: "@lwc/lwc/..."
+          cat > .eslintrc.ci.json <<'JSON'
+          {
+            "root": true,
+            "ignorePatterns": [
+              "**/node_modules/**",
+              "**/.sfdx/**",
+              "**/.sf/**",
+              "**/temp_scanner_files/**",
+              "**/temp_scanner_files/**",
+              "**/Artifact/**"
+            ],
+            "env": {
+              "browser": true,
+              "es2022": true
+            },
+            "parserOptions": {
+              "ecmaVersion": 2022,
+              "sourceType": "module"
+            },
+            "overrides": [
+              {
+                "files": ["**/lwc/**/*.js", "**/lwc/**/*.html"],
+                "plugins": ["@lwc/lwc"],
+                "extends": ["plugin:@lwc/lwc/recommended"]
+              }
+            ]
+          }
+          JSON
+
+          echo "✅ .eslintrc.ci.json created:"
+          cat .eslintrc.ci.json
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -257,6 +300,13 @@ jobs:
           echo "====== line_number_mapping.txt (first 50) ======"
           head -n 50 line_number_mapping.txt || true
 
+      - name: DEBUG – Print temp wrapper classes
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "==== temp_scanner_files listing ===="
+          ls -lah temp_scanner_files || true
+
       - name: Build Actual Line Lookup
         shell: bash
         run: |
@@ -335,9 +385,6 @@ jobs:
           echo "==== ESLint targets ===="
           cat eslint_targets.txt || true
 
-          # -----------------------------
-          # 1) PMD Scan (Code Analyzer v5)
-          # -----------------------------
           rm -f pmd.csv
           if [[ -s pmd_targets.txt ]]; then
             echo "🔍 Running PMD via Code Analyzer v5 on temp_scanner_files/ ..."
@@ -407,17 +454,23 @@ jobs:
             echo "✅ No Apex temp wrappers to scan."
           fi
 
-          # -----------------------------
-          # 2) ESLint Scan (npx) for LWC JS/HTML
-          # -----------------------------
           rm -f eslint.json
           if [[ -s eslint_targets.txt ]]; then
-            echo "🔍 Running ESLint on changed JS/HTML (LWC) ..."
+            echo "🔍 Running ESLint on changed JS/HTML (LWC) using CI config ..."
 
             ESLINT_EXIT=0
-            npx eslint -f json --no-error-on-unmatched-pattern --resolve-plugins-relative-to . $(cat eslint_targets.txt) > eslint.json || ESLINT_EXIT=$?
 
-            # If eslint couldn't produce json at all => config/setup error
+            # ✅ FIX #2: Ignore repo .eslintrc files that are causing plugin/rule errors
+            #           Use CI config only
+            npx eslint \
+              -f json \
+              --no-error-on-unmatched-pattern \
+              --resolve-plugins-relative-to . \
+              --no-eslintrc \
+              --config .eslintrc.ci.json \
+              $(cat eslint_targets.txt) > eslint.json || ESLINT_EXIT=$?
+
+            # ✅ If eslint couldn't execute (config/plugin failure), fail hard
             if [[ "$ESLINT_EXIT" -ne 0 && ! -s eslint.json ]]; then
               echo "❌ ESLint failed to run. Setup/config error."
               exit 1
@@ -455,8 +508,6 @@ jobs:
           echo "✅ Final Scanner Report (first 80 lines):"
           head -n 80 scanner-report.csv
 
-      # ---- your remaining Salesforce auth + upload + Scanner_Reports branch + hard gate ----
-      # (unchanged below)
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
@@ -623,7 +674,7 @@ jobs:
           echo "Severity 3-5 violations : $sev_3_5"
           echo "Apex  (severity >=3)    : $apex_ge_3"
           echo "JS/HTML (severity >=2)  : $lwc_ge_2"
-          echo "========================================="
+          echo "========================================"
 
           if [[ "$sev_1_2" -gt 0 ]]; then
             echo "🚫 HARD GATE FAILED – Found severity 1-2 violations"
