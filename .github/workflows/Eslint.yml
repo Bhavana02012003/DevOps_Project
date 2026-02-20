@@ -1,0 +1,96 @@
+name: ESLint (Delta on Push)
+
+on:
+  pull_request:
+    branches:
+      - '**'
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  eslint:
+    name: Run ESLint on changed files (push)
+    runs-on: 
+      group: cvs-linux-self-hosted
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history helps in edge cases (force-push, rebase), but HEAD~1 comparison is used below
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '>=20.9.0'
+
+      - name: Determine changed JS/TS files (last commit vs previous)
+        id: diff
+        shell: bash
+        run: |
+          # Handle initial commits where HEAD~1 may not exist
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            RANGE="HEAD~1 HEAD"
+          else
+            # First commit on the branch: compare against the empty tree
+            EMPTY_TREE=$(git hash-object -t tree /dev/null)
+            RANGE="$EMPTY_TREE HEAD"
+          fi
+
+          # Collect added/modified/copied/renamed files
+          CHANGED=$(git diff --name-only --diff-filter=ACMR $RANGE \
+            | grep -E '\.(js|jsx|ts|tsx)$' \
+            | grep -Ev '(^|/)(dist|build|coverage|node_modules)/' \
+            | grep -Ev '\.min\.js$' || true)
+
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # Export space-separated list for later step
+          echo "files=$(echo "$CHANGED" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if no JS/TS changes
+        id: maybe_skip
+        run: |
+          if [ -z "${{ steps.diff.outputs.files }}" ]; then
+            echo "No JS/TS changes detected. Skipping ESLint."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Optional: add ESLint problem matcher to improve log annotations
+      - name: Add ESLint problem matcher
+        if: ${{ steps.maybe_skip.outputs.skip != 'true' }}
+        run: |
+          echo '{
+            "problemMatcher": [
+              {
+                "owner": "eslint",
+                "pattern": [
+                  {
+                    "regexp": "^([^:]+):(\\d+):(\\d+):\\s+(error|warning)\\s+(.*)\\s+\\(([^)]+)\\)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5,
+                    "code": 6
+                  }
+                ]
+              }
+            ]
+          }' > .github_eslint_matcher.json
+          echo "::add-matcher::.github_eslint_matcher.json"
+
+      - name: Run ESLint on changed files
+        if: ${{ steps.maybe_skip.outputs.skip != 'true' }}
+        run: |
+          FILES="${{ steps.diff.outputs.files }}"
+          echo "Linting files: $FILES"
+          # Fail on warnings as well; adjust to your policy
+          npx eslint $FILES --max-warnings=0
