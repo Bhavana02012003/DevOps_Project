@@ -24,6 +24,11 @@ jobs:
       - name: Install Node dependencies (uses package.json)
         run: npm install --legacy-peer-deps
 
+      - name: Ensure ESLint LWC plugins exist
+        run: |
+          npm ls @salesforce/eslint-plugin-lwc || npm i -D @salesforce/eslint-plugin-lwc@^3.0.0
+          npm ls @lwc/eslint-plugin-lwc || npm i -D @lwc/eslint-plugin-lwc@^1.8.0
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -445,17 +450,20 @@ jobs:
           # -----------------------------
           # 2) ESLint Scan (npx) - REAL LWC rules from your .eslintrc.json
           # -----------------------------
-          rm -f eslint.json
+                    rm -f eslint.json
           if [[ -s eslint_targets.txt ]]; then
             echo "🔍 Running ESLint on changed JS/HTML ..."
 
-            # ESLint exits non-zero when errors exist -> we must NOT stop the workflow here
-            # We'll parse results and gate later.
-            npx eslint -f json --no-error-on-unmatched-pattern $(cat eslint_targets.txt) > eslint.json || true
+            ESLINT_EXIT=0
+            npx eslint -f json --no-error-on-unmatched-pattern $(cat eslint_targets.txt) > eslint.json || ESLINT_EXIT=$?
+
+            # ✅ If eslint couldn't execute (plugin/config error) => fail hard
+            if [[ "$ESLINT_EXIT" -ne 0 && ! -s eslint.json ]]; then
+              echo "❌ ESLint failed to run. This is a setup/config error (plugin missing, config invalid, etc)."
+              exit 1
+            fi
 
             if [[ -s eslint.json ]]; then
-              # Convert eslint json -> csv rows appended to scanner-report.csv
-              # Map eslint severity: 2(error)->2, 1(warn)->4 (so your hard gate can work)
               jq -r '
                 .[] as $f
                 | ($f.messages // [])
@@ -478,7 +486,7 @@ jobs:
                     env.TARGET_BRANCH
                   ]
                   | @csv
-              ' eslint.json >> scanner-report.csv || true
+              ' eslint.json >> scanner-report.csv
             fi
           else
             echo "✅ No JS/HTML files to scan with ESLint."
