@@ -21,9 +21,9 @@
   "devDependencies": {
     "@actions/core": "latest",
     "@json2csv/node": "latest",
-    "@lwc/eslint-plugin-lwc": "^1.9.0",
+    "@lwc/eslint-plugin-lwc": "^2.0.0",
     "@prettier/plugin-xml": "latest",
-    "@salesforce/eslint-config-lwc": "^3.6.0",
+    "@salesforce/eslint-config-lwc": "3.7.2",
     "@salesforce/eslint-plugin-aura": "^2.0.0",
     "@salesforce/eslint-plugin-lightning": "^1.0.0",
     "@salesforce/sfdx-lwc-jest": "latest",
