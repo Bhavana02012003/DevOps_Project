@@ -24,26 +24,30 @@ jobs:
       - name: Install Node dependencies (uses package.json)
         run: npm install --legacy-peer-deps
 
-      # ✅ FIX 1: hard verify + install ONLY lwc plugin (no @salesforce/eslint-config-lwc)
-      - name: Ensure ESLint + LWC ESLint plugin exist (hard verify)
+      # ✅ FIX: Install the correct ESLint stack for LWC
+      - name: Ensure ESLint + LWC ESLint plugins exist (hard verify)
         shell: bash
         run: |
           set -euo pipefail
           echo "Node: $(node -v)"
           echo "NPM : $(npm -v)"
 
-          # Always use legacy-peer-deps for CI installs
+          # Always use legacy-peer-deps in CI
           npm config set legacy-peer-deps true
 
-          # Ensure eslint exists
-          npm ls eslint >/dev/null 2>&1 || npm i -D eslint@^8.57.0 --legacy-peer-deps
+          # Ensure eslint is available
+          npm ls eslint >/dev/null 2>&1 || npm i -D eslint@8.57.1 --legacy-peer-deps
 
-          # Ensure LWC plugin exists (provides plugin:@lwc/lwc/recommended)
-          npm ls @lwc/eslint-plugin-lwc >/dev/null 2>&1 || npm i -D @lwc/eslint-plugin-lwc@^1.9.0 --legacy-peer-deps
+          # ✅ Required for: plugin:@lwc/lwc/recommended + @lwc/... rules
+          npm ls @lwc/eslint-plugin-lwc >/dev/null 2>&1 || npm i -D @lwc/eslint-plugin-lwc@^2.0.0 --legacy-peer-deps
 
-          echo "✅ Installed (top level):"
+          # ✅ Required for: @salesforce/lwc/... rules in your config
+          npm ls @salesforce/eslint-plugin-lwc >/dev/null 2>&1 || npm i -D @salesforce/eslint-plugin-lwc --legacy-peer-deps
+
+          echo "✅ Installed versions (top-level):"
           npm ls eslint --depth=0 || true
           npm ls @lwc/eslint-plugin-lwc --depth=0 || true
+          npm ls @salesforce/eslint-plugin-lwc --depth=0 || true
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -103,13 +107,14 @@ jobs:
           echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "$GITHUB_ENV"
           echo "SOURCE_BRANCH=${SOURCE_BRANCH}" >> "$GITHUB_ENV"
           echo "COMMIT_LABEL=${COMMIT_LABEL}" >> "$GITHUB_ENV"
+
           FILE_TITLE="Code Scanner Report_${REPO_NAME}_${TARGET_BRANCH}_${COMMIT_LABEL}"
           echo "Target Branch = ${TARGET_BRANCH}"
           echo "Source Branch = ${SOURCE_BRANCH}"
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
 
       # ------------------------------------------------------------
-      # 1) Resolve the diff range and collect changed files by type
+      # 1) Resolve diff range & collect changed files
       # ------------------------------------------------------------
       - name: Resolve diff range & collect changed files
         id: collect-delta-files
@@ -142,8 +147,7 @@ jobs:
           fi
 
       # ------------------------------------------------------------
-      # 2) Get delta added lines & create temp files (Apex wrappers)
-      #    ✅ WITH mapping: line_number_mapping.txt (tempLine -> actualLine)
+      # 2) Get delta added lines & create temp files (Apex wrappers) + keep real JS/HTML
       # ------------------------------------------------------------
       - name: Get changed lines and create temporary files (delta, with Apex wrapper; WITH mapping)
         shell: bash
@@ -243,6 +247,7 @@ jobs:
                 ;;
 
               *.js|*.html)
+                # Scan ORIGINAL JS/HTML file (so LWC ESLint rules apply)
                 echo "$file" >> changed_cls_lwc_files.txt
                 ;;
 
@@ -272,7 +277,7 @@ jobs:
           ls -lah temp_scanner_files || true
 
       # ------------------------------------------------------------
-      # 3) Build lookup map (basename|tempLine=actualLine)
+      # 3) Build Actual Line Lookup
       # ------------------------------------------------------------
       - name: Build Actual Line Lookup
         shell: bash
@@ -314,18 +319,8 @@ jobs:
           echo "====== files_to_scan.txt ======"
           cat files_to_scan.txt || true
 
-      - name: DEBUG – Show ESLint configs
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "=== Root ESLint config (if exists) ==="
-          ls -lah .eslintrc* package.json || true
-          echo "=== LWC folder ESLint config (if exists) ==="
-          cat force-app/main/default/lwc/.eslintrc.json 2>/dev/null || echo "No force-app/main/default/lwc/.eslintrc.json"
-
       # ------------------------------------------------------------
-      # 5) Run PMD (Code Analyzer v5) + ESLint and build CSV
+      # 5) Run PMD (Code Analyzer v5) + ESLint (npx) and build CSV
       # ------------------------------------------------------------
       - name: Run PMD (Code Analyzer v5) + ESLint (npx) and build CSV
         shell: bash
@@ -367,11 +362,11 @@ jobs:
 
           # -----------------------------
           # 1) PMD Scan (Code Analyzer v5)
-          # ✅ FIX 2: remove invalid flag --confirm
           # -----------------------------
           rm -f pmd.csv
           if [[ -s pmd_targets.txt ]]; then
             echo "🔍 Running PMD via Code Analyzer v5 on temp_scanner_files/ ..."
+
             sf code-analyzer run \
               --workspace "temp_scanner_files" \
               --rule-selector ApexCRUDViolation \
@@ -439,70 +434,52 @@ jobs:
           fi
 
           # -----------------------------
-          # 2) ESLint Scan (LWC) ✅ FIX 3
-          # Run ESLint FROM LWC folder so plugin:@lwc/lwc/recommended resolves
+          # 2) ESLint Scan (npx) for LWC JS/HTML
           # -----------------------------
           rm -f eslint.json
           if [[ -s eslint_targets.txt ]]; then
             echo "🔍 Running ESLint on changed JS/HTML (LWC) ..."
 
-            # Keep only LWC paths (your error comes from LWC config path)
-            : > eslint_lwc_targets.txt
-            while read -r f; do
-              [[ -z "$f" ]] && continue
-              if [[ "$f" == force-app/main/default/lwc/* ]]; then
-                echo "$f" >> eslint_lwc_targets.txt
-              fi
-            done < eslint_targets.txt
+            ESLINT_EXIT=0
 
-            if [[ ! -s eslint_lwc_targets.txt ]]; then
-              echo "✅ No LWC JS/HTML files detected under force-app/main/default/lwc/"
-            else
-              # Create RELATIVE paths to run from lwc folder
-              : > eslint_lwc_targets_rel.txt
-              while read -r f; do
-                rel="${f#force-app/main/default/lwc/}"
-                echo "$rel" >> eslint_lwc_targets_rel.txt
-              done < eslint_lwc_targets.txt
+            # ✅ Explicit LWC config (prevents "couldn't find config" + ensures correct rules)
+            npx eslint \
+              -f json \
+              --no-error-on-unmatched-pattern \
+              --resolve-plugins-relative-to . \
+              --config force-app/main/default/lwc/.eslintrc.json \
+              $(cat eslint_targets.txt) > eslint.json || ESLINT_EXIT=$?
 
-              ESLINT_EXIT=0
-              pushd force-app/main/default/lwc >/dev/null
+            # If eslint couldn't execute (plugin/config error) => fail hard
+            if [[ "$ESLINT_EXIT" -ne 0 && ! -s eslint.json ]]; then
+              echo "❌ ESLint failed to run. Setup/config error."
+              exit 1
+            fi
 
-              npx eslint -f json --no-error-on-unmatched-pattern $(cat "$GITHUB_WORKSPACE/eslint_lwc_targets_rel.txt") \
-                > "$GITHUB_WORKSPACE/eslint.json" || ESLINT_EXIT=$?
-
-              popd >/dev/null
-
-              if [[ "$ESLINT_EXIT" -ne 0 && ! -s eslint.json ]]; then
-                echo "❌ ESLint failed to run. Setup/config error."
-                exit 1
-              fi
-
-              if [[ -s eslint.json ]]; then
-                jq -r '
-                  .[] as $f
-                  | ($f.messages // [])
-                  | .[]
-                  | [
-                      (.ruleId // "eslint"),
-                      "eslint",
-                      (if (.severity // 1) == 2 then 2 else 4 end),
-                      "",
-                      ("force-app/main/default/lwc/" + ($f.filePath | gsub("^\\./"; ""))),
-                      (.line // 0),
-                      (.column // 0),
-                      (.endLine // (.line // 0)),
-                      (.endColumn // (.column // 0)),
-                      ((.message // "") | gsub("\n"; " ") | gsub("\r"; " ")),
-                      "",
-                      env.COMMIT_AUTHOR,
-                      env.COMMIT_AUTHOR,
-                      (if (.line // 0) == 0 then "N/A" else (.line|tostring) end),
-                      env.TARGET_BRANCH
-                    ]
-                    | @csv
-                ' eslint.json >> scanner-report.csv
-              fi
+            if [[ -s eslint.json ]]; then
+              jq -r '
+                .[] as $f
+                | ($f.messages // [])
+                | .[]
+                | [
+                    (.ruleId // "eslint"),
+                    "eslint",
+                    (if (.severity // 1) == 2 then 2 else 4 end),
+                    "",
+                    ($f.filePath | sub("^" + (env.GITHUB_WORKSPACE // "") + "/"; "")),
+                    (.line // 0),
+                    (.column // 0),
+                    (.endLine // (.line // 0)),
+                    (.endColumn // (.column // 0)),
+                    ((.message // "") | gsub("\n"; " ") | gsub("\r"; " ")),
+                    "",
+                    env.COMMIT_AUTHOR,
+                    env.COMMIT_AUTHOR,
+                    (if (.line // 0) == 0 then "N/A" else (.line|tostring) end),
+                    env.TARGET_BRANCH
+                  ]
+                  | @csv
+              ' eslint.json >> scanner-report.csv
             fi
           else
             echo "✅ No JS/HTML files to scan with ESLint."
