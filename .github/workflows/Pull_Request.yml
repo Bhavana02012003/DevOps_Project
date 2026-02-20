@@ -203,9 +203,11 @@ jobs:
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
-                  trimmed="$(echo "$content" | sed 's/^[[:space:]]*//')"
+                  # ------------------------------
+                  # ADVANCED DELTA SAFETY FILTER
+                  # ------------------------------
 
-                  # Skip empty
+                  # Skip empty lines
                   if [[ -z "$(echo "$trimmed" | tr -d '[:space:]')" ]]; then continue; fi
 
                   # Skip comments
@@ -214,10 +216,22 @@ jobs:
                   if [[ "$trimmed" =~ ^\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
 
-                  # 🚨 Skip orphan standalone braces
+                  # Skip standalone braces
                   if [[ "$trimmed" =~ ^\{$ ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\}$ ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\};$ ]]; then continue; fi
+
+                  # Skip orphan else / catch / finally
+                  if [[ "$trimmed" =~ ^else[[:space:]]*$ ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^else[[:space:]]*\{ ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^catch[[:space:]]*\( ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^finally[[:space:]]*\{ ]]; then continue; fi
+
+                  # Skip orphan do without while
+                  if [[ "$trimmed" =~ ^do[[:space:]]*\{ ]]; then continue; fi
+
+                  # Skip orphan while closing from do-while
+                  if [[ "$trimmed" =~ ^\}[[:space:]]*while ]]; then continue; fi
 
                   has_real_code=true
 
@@ -231,6 +245,20 @@ jobs:
                   rm -f "$temp_file"
                   continue
                 fi
+
+                # ----------------------------------
+                # AUTO BALANCE BRACES (CRITICAL)
+                # ----------------------------------
+
+                open_count=$(grep -o '{' "$temp_file" | wc -l || true)
+                close_count=$(grep -o '}' "$temp_file" | wc -l || true)
+
+                while [[ "$open_count" -gt "$close_count" ]]; do
+                  echo "    }" >> "$temp_file"
+                  echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                  ((temp_line++))
+                  ((close_count++))
+                done
 
                 echo "  }" >> "$temp_file"
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
