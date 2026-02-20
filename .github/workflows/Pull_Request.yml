@@ -37,12 +37,10 @@ jobs:
         run: |
           mkdir -p ~/.sf
           echo '{"plugins":{"autoInstall":false}}' > ~/.sf/sf-config.json
-
       - name: Install Code Analyzer Plugin v5
         run: |
           sf plugins uninstall @salesforce/plugin-code-analyzer || true
           sf plugins install @salesforce/plugin-code-analyzer@5.1.0
-
       - name: Confirm Only v5 Plugin
         run: sf plugins | grep code-analyzer
 
@@ -53,21 +51,16 @@ jobs:
           AUTHOR_EMAIL=$(git log -1 --pretty=format:'%ae')
           COMMITTER_NAME=$(git log -1 --pretty=format:'%cn')
           COMMITTER_EMAIL=$(git log -1 --pretty=format:'%ce')
-
           echo "Author: $AUTHOR_NAME <$AUTHOR_EMAIL>"
           echo "Committer: $COMMITTER_NAME <$COMMITTER_EMAIL>"
-
           echo "commit-author=$AUTHOR_NAME" >> $GITHUB_OUTPUT
           echo "GITHUB_USERNAME=$AUTHOR_NAME" >> $GITHUB_ENV
           echo "COMMIT_AUTHOR=$AUTHOR_NAME" >> $GITHUB_ENV
-
       - name: Get Repository and Branch Info
         shell: bash
         run: |
           set -euo pipefail
-
           REPO_NAME="$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)"
-
           # ✅ Target branch for PRs (base branch)
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             TARGET_BRANCH="${GITHUB_BASE_REF}"
@@ -76,9 +69,7 @@ jobs:
             TARGET_BRANCH="${GITHUB_REF#refs/heads/}"
             SOURCE_BRANCH="${TARGET_BRANCH}"
           fi
-
           COMMIT_LABEL="$(git log -1 --pretty=format:'%s')"
-
           echo "REPO_NAME=${REPO_NAME}" >> "$GITHUB_ENV"
           echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "$GITHUB_ENV"
           echo "SOURCE_BRANCH=${SOURCE_BRANCH}" >> "$GITHUB_ENV"
@@ -87,7 +78,6 @@ jobs:
           echo "Target Branch = ${TARGET_BRANCH}"
           echo "Source Branch = ${SOURCE_BRANCH}"
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
-
       # ------------------------------------------------------------
       # 1) Resolve the diff range and collect changed files by type
       # ------------------------------------------------------------
@@ -96,10 +86,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           echo "Resolving diff range..."
           git fetch --no-tags --prune --depth=50 origin +refs/heads/*:refs/remotes/origin/*
-
           if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.base_ref }}" ]]; then
             RANGE="origin/${{ github.base_ref }}...${{ github.sha }}"
             echo "Using PR diff range: $RANGE"
@@ -108,9 +96,7 @@ jobs:
             echo "Using fallback diff range: $RANGE"
           fi
           echo "RANGE=$RANGE" >> "$GITHUB_OUTPUT"
-
           changed_files=$(git diff --name-only $RANGE -- '*.cls' '*.js' '*.html' || true)
-
           if [[ -z "$changed_files" ]]; then
             echo "⚠️ No changes detected for .cls/.js/.html."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
@@ -120,7 +106,6 @@ jobs:
             cat changed_files.txt
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
-
       # ------------------------------------------------------------
       # 2) Get delta added lines & create temp files
       #    ✅ WITH mapping: line_number_mapping.txt (tempLine -> actualLine)
@@ -130,13 +115,10 @@ jobs:
         id: get-changes
         run: |
           set -euo pipefail
-
           mkdir -p temp_scanner_files
           : > changed_cls_lwc_files.txt
           : > line_number_mapping.txt
-
           echo "Checking for changed .cls, .js, .html files..."
-
           if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.base_ref }}" ]]; then
             RANGE="origin/${{ github.base_ref }}...${{ github.sha }}"
             echo "Using PR diff: $RANGE"
@@ -145,23 +127,17 @@ jobs:
             RANGE="HEAD~1..HEAD"
             echo "Using fallback diff: $RANGE"
           fi
-
           changed_files=$(git diff --name-only "$RANGE" -- '*.cls' '*.js' '*.html' || true)
           echo "Detected changed files: ${changed_files:-<none>}"
-
           if [[ -z "${changed_files}" ]]; then
             echo "No .cls/.js/.html files detected."
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
             exit 0
           fi
-
           TAB=$(printf '\t')
-
           for file in $changed_files; do
             [[ -f "$file" ]] || { echo "Skipping deleted file: $file"; continue; }
-
             echo "Processing file: $file"
-
             # ✅ mawk-safe extraction: actualLine<TAB>content
             git diff -U0 "$RANGE" -- "$file" | awk '
               /^@@/ {
@@ -178,83 +154,64 @@ jobs:
                 next
               }
             ' > lines.tmp || true
-
             if [[ ! -s lines.tmp ]]; then
               echo "No added lines found for $file (possibly only deletions). Skipping..."
               continue
             fi
-
             sanitized="${file//\//_}"
-
             case "$file" in
               *.cls)
               temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
-
               echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" > "$temp_file"
               temp_line=1
               echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
               ((temp_line++))
-
               echo "  public static void tempMethod() {" >> "$temp_file"
               echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
               ((temp_line++))
-
               # 🔥 IMPORTANT: Track if real code exists
               has_real_code=false
-
               while IFS= read -r row; do
                 actual_line="${row%%$TAB*}"
                 content="${row#*"$TAB"}"
-
                 trimmed="$(echo "$content" | sed 's/^[[:space:]]*//')"
-
                 # Skip blank lines
                 if [[ -z "$(echo "$trimmed" | tr -d '[:space:]')" ]]; then
                   continue
                 fi
-
                 # Skip single-line comments
                 if [[ "$trimmed" =~ ^// ]]; then
                   continue
                 fi
-
                 # Skip block comment start
                 if [[ "$trimmed" =~ ^/\* ]]; then
                   continue
                 fi
-
                 # Skip block comment middle
                 if [[ "$trimmed" =~ ^\* ]]; then
                   continue
                 fi
-
                 # Skip block comment end
                 if [[ "$trimmed" =~ ^\*/ ]]; then
                   continue
                 fi
-
                 # ✅ If we reach here, it's REAL executable code
                 has_real_code=true
-
                 printf "    %s\n" "$content" >> "$temp_file"
                 echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                 ((temp_line++))
               done < lines.tmp
-
               # 🔥 If no executable code found → delete wrapper & skip
               if [[ "$has_real_code" == false ]]; then
                 echo "⚠️ Only comments detected in $file. Skipping wrapper generation."
                 rm -f "$temp_file"
                 continue
               fi
-
               echo "  }" >> "$temp_file"
               echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
               ((temp_line++))
-
               echo "}" >> "$temp_file"
               echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-
               echo "$temp_file" >> changed_cls_lwc_files.txt
               echo "Created temp file: $temp_file"
               ;;
@@ -287,7 +244,6 @@ jobs:
                 ;;
             esac
           done
-
           echo "====== Generated files list ======"
           if [[ -s changed_cls_lwc_files.txt ]]; then
             cat changed_cls_lwc_files.txt
@@ -295,19 +251,15 @@ jobs:
             echo "No temp files created. Exiting."
             exit 0
           fi
-
           echo "====== line_number_mapping.txt (first 50) ======"
           head -n 50 line_number_mapping.txt || true
-
       # ✅ NEW: Print temp wrapper class (content) so you can confirm what got scanned
       - name: DEBUG – Print temp wrapper classes
         shell: bash
         run: |
           set -euo pipefail
-
           echo "==== temp_scanner_files listing ===="
           ls -lah temp_scanner_files || true
-
           echo "==== Print all temp .cls wrappers (with line numbers) ===="
           shopt -s nullglob
           for f in temp_scanner_files/*.cls; do
@@ -317,11 +269,9 @@ jobs:
             echo "--------------------------------------------------"
             nl -ba "$f" | sed -n '1,220p'
           done
-
           echo ""
           echo "==== Grep for System.debug in temp wrappers ===="
           grep -RIn --line-number "System\.debug" temp_scanner_files || echo "❌ No System.debug found in temp wrappers"
-
       # ------------------------------------------------------------
       # 3) Build lookup map (basename|tempLine=actualLine)
       # ------------------------------------------------------------
@@ -330,7 +280,6 @@ jobs:
         run: |
           set -euo pipefail
           : > actual_line_lookup.env
-
           if [[ -s line_number_mapping.txt ]]; then
             awk -F',' '
               {
@@ -343,10 +292,8 @@ jobs:
               }
             ' line_number_mapping.txt > actual_line_lookup.env
           fi
-
           echo "=== ACTUAL LINE LOOKUP (first 50) ==="
           head -n 50 actual_line_lookup.env || true
-
       # ------------------------------------------------------------
       # 4) Build files_to_scan.txt
       # ------------------------------------------------------------
@@ -354,22 +301,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           : > files_to_scan.txt
-
           if [[ -f changed_cls_lwc_files.txt && -s changed_cls_lwc_files.txt ]]; then
             while read -r f; do
               [[ -n "$f" && -f "$f" ]] && echo "$f"
             done < changed_cls_lwc_files.txt > files_to_scan.txt
           fi
-
           echo "====== files_to_scan.txt ======"
           if [[ -s files_to_scan.txt ]]; then
             cat files_to_scan.txt
           else
             echo "No files to scan."
           fi
-
       # ------------------------------------------------------------
       # 5) Run Code Analyzer v5 on delta temp files and build CSV
       #    ✅ CommitAuthor = col12
@@ -380,7 +323,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           # Load lookup into memory
           declare -A ACTUAL_LINE_MAP
           if [[ -s actual_line_lookup.env ]]; then
@@ -388,20 +330,16 @@ jobs:
               ACTUAL_LINE_MAP["$key"]="$value"
             done < actual_line_lookup.env
           fi
-
           # Final header (NO NYA)
           echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
-
           if [[ ! -s files_to_scan.txt ]]; then
             echo "✅ Nothing to scan. Empty report created."
             exit 0
           fi
-
           while read -r file; do
             [[ -z "$file" ]] && continue
             echo "🔍 Scanning $file"
             rm -f tmp.csv
-
             if [[ "$file" == *.cls ]]; then
               sf code-analyzer run \
                 --workspace "$file" \
@@ -454,33 +392,26 @@ jobs:
                 --output-file tmp.csv \
               || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
             fi
-
             if [[ -f tmp.csv ]]; then
               isTemp=0
               [[ "$file" == temp_scanner_files/* ]] && isTemp=1
               tempBase="$(basename "$file")"
-
               tail -n +2 tmp.csv | while IFS= read -r row; do
                 [[ -z "$row" ]] && continue
-
                 startLine=$(echo "$row" | awk -F',' '{print $6}' | tr -d '"')
                 actualLine="$startLine"
-
                 if [[ "$isTemp" -eq 1 ]]; then
                   key="${tempBase}|${startLine}"
                   mapped="${ACTUAL_LINE_MAP[$key]}"
                   [[ -z "$mapped" || "$mapped" == "0" ]] && mapped="N/A"
                   actualLine="$mapped"
                 fi
-
                 echo "${row},${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> scanner-report.csv
               done
             fi
           done < files_to_scan.txt
-
           echo "✅ Final Scanner Report (first 50 lines):"
           head -n 50 scanner-report.csv
-
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
@@ -497,7 +428,6 @@ jobs:
           fi
           echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> $GITHUB_ENV
           echo "Successfully authenticated with Salesforce."
-
       - name: Upload Scanner Report to Salesforce
         if: success()
         run: |
@@ -506,26 +436,20 @@ jobs:
             echo "No violations found. Skipping Salesforce upload."
             exit 0
           fi
-
           echo "Uploading scanner report to Salesforce..."
-
           response=$(curl -X POST "${{ vars.SF_DOMAIN_URL }}/services/data/v61.0/sobjects/ContentVersion" \
             -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
             -H "Content-Type: multipart/form-data" \
             -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
             -F "VersionData=@scanner-report.csv;type=text/csv")
-
           echo "Salesforce API Response: $response"
           contentVersionId=$(echo "$response" | jq -r 'if type=="array" then .[0].id else .id end' 2>/dev/null || echo "null")
-
           if [[ "$contentVersionId" == "null" || -z "$contentVersionId" ]]; then
             echo "Error: Failed to extract ContentVersion ID from response."
             echo "Full API Response: $response"
             exit 1
           fi
-
           echo "Successfully uploaded scanner report to Salesforce."
-
       - name: Ensure Scanner Report Exists
         if: always()
         run: |
@@ -533,32 +457,25 @@ jobs:
             echo "No scanner report generated, creating a dummy report."
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
           fi
-
       - name: Debug - List Files Before Upload
         if: always()
         run: |
           echo "Listing files before uploading scanner report:"
           ls -lah
-
       - name: Commit and Push Scanner Report to `Scanner_Reports` Branch
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-
           if [[ ! -s scanner-report.csv ]]; then
             echo "scanner-report.csv missing or empty. Creating placeholder."
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
           fi
-
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
           BRANCH_NAME="Scanner_Reports"
           echo "✅ Target Branch: $BRANCH_NAME"
-
           git stash push --include-untracked -m "stash scanner report" || true
-
           if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
             echo "✅ Remote branch $BRANCH_NAME exists."
             git fetch origin "$BRANCH_NAME":"$BRANCH_NAME"
@@ -568,14 +485,11 @@ jobs:
             git checkout -b "$BRANCH_NAME"
             git push --set-upstream origin "$BRANCH_NAME"
           fi
-
           git pull origin "$BRANCH_NAME" --rebase || true
           git stash pop || true
-
           mkdir -p Artifact
           OUTFILE="Artifact/${{ env.FILE_TITLE }}"
           cp scanner-report.csv "$OUTFILE"
-
           git add "$OUTFILE"
           git commit -m "Add scanner report (PR #${{ github.event.pull_request.number }}, run ${{ github.run_id }})" || echo "No changes to commit"
           git push origin "$BRANCH_NAME"
@@ -587,14 +501,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           if [[ ! -f scanner-report.csv ]]; then
             echo "❌ scanner-report.csv not found"
             exit 1
           fi
-
           echo "🔍 Evaluating scanner-report.csv"
-
           # Count all violations by severity buckets (across all files)
           sev_1_2=$(awk -F',' '
             NR>1 {
@@ -607,7 +518,6 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
-
           sev_3_5=$(awk -F',' '
             NR>1 {
               sev=$3
@@ -619,7 +529,6 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
-
           # Keep your Apex vs JS/HTML breakdown too
           apex_ge_3=$(awk -F',' '
             NR>1 {
@@ -632,7 +541,6 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
-
           lwc_ge_2=$(awk -F',' '
             NR>1 {
               sev=$3; file=$5
@@ -644,14 +552,12 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
-
           echo "================ SUMMARY ================"
           echo "Severity 1-2 violations : $sev_1_2"
           echo "Severity 3-5 violations : $sev_3_5"
           echo "Apex  (severity >=3)    : $apex_ge_3"
           echo "JS/HTML (severity >=2)  : $lwc_ge_2"
           echo "========================================="
-
           # ✅ Block policy:
           # Fail if ANY severity 1-2 exists (most severe in Code Analyzer)
           if [[ "$sev_1_2" -gt 0 ]]; then
@@ -660,12 +566,10 @@ jobs:
             sed -n '1,200p' scanner-report.csv || true
             exit 1
           fi
-
           # If you also want to block on Apex>=3 or JS/HTML>=2, uncomment:
           # if [[ "$apex_ge_3" -gt 0 || "$lwc_ge_2" -gt 0 ]]; then
           #   echo "🚫 HARD GATE FAILED – BLOCKING PR"
           #   sed -n '1,200p' scanner-report.csv || true
           #   exit 1
           # fi
-
           echo "✅ HARD GATE PASSED – PR CAN MERGE"
