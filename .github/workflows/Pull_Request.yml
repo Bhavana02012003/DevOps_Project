@@ -431,6 +431,79 @@ jobs:
           done < files_to_scan.txt
           echo "✅ Final Scanner Report (first 50 lines):"
           head -n 50 scanner-report.csv
+
+ # ------------------------------------------------------------
+      # ✅ 6) NEW: Build separate LWC-only report using ESLint v10
+      # ------------------------------------------------------------
+      - name: Generate LWC-only ESLint v10 report (lwc-scanner-report.csv)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Load lookup into memory (for temp js/html -> actual line mapping)
+          declare -A ACTUAL_LINE_MAP
+          if [[ -s actual_line_lookup.env ]]; then
+            while IFS='=' read -r key value; do
+              ACTUAL_LINE_MAP["$key"]="$value"
+            done < actual_line_lookup.env
+          fi
+
+          echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
+
+          if [[ ! -s files_to_scan.txt ]]; then
+            echo "✅ Nothing to scan for LWC. Empty lwc report created."
+            exit 0
+          fi
+
+          while read -r file; do
+            [[ -z "$file" ]] && continue
+
+            # Only js/html (your LWC delta temp files)
+            if [[ "$file" != *.js && "$file" != *.html ]]; then
+              continue
+            fi
+
+            echo "🟦 ESLint v10 scanning (LWC report): $file"
+            rm -f eslint-output.json
+
+            # ESLint v10 reads eslint.config.js from repo root automatically
+            npx eslint "$file" -f json -o eslint-output.json || true
+
+            if [[ ! -s eslint-output.json ]]; then
+              continue
+            fi
+
+            isTemp=0
+            [[ "$file" == temp_scanner_files/* ]] && isTemp=1
+            tempBase="$(basename "$file")"
+
+            # eslint-output.json is array of file results
+            jq -c '.[]' eslint-output.json | while read -r entry; do
+              filePath=$(echo "$entry" | jq -r '.filePath // ""')
+              jq -c '.messages[]?' <<< "$entry" | while read -r msg; do
+                rule=$(echo "$msg" | jq -r '.ruleId // "UnknownRule"')
+                sev=$(echo "$msg" | jq -r '.severity // 0')
+                line=$(echo "$msg" | jq -r '.line // 0')
+                message=$(echo "$msg" | jq -r '.message // ""' | sed 's/"/""/g')
+
+                actualLine="$line"
+                if [[ "$isTemp" -eq 1 ]]; then
+                  key="${tempBase}|${line}"
+                  mapped="${ACTUAL_LINE_MAP[$key]}"
+                  [[ -z "$mapped" || "$mapped" == "0" ]] && mapped="N/A"
+                  actualLine="$mapped"
+                fi
+
+                # keep same CSV shape as your main report
+                echo "\"$rule\",eslint,$sev,,\"$file\",$line,0,$line,0,\"$message\",,${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> lwc-scanner-report.csv
+              done
+            done
+
+          done < files_to_scan.txt
+
+          echo "✅ LWC-only report (first 50 lines):"
+          head -n 50 lwc-scanner-report.csv
+
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
@@ -469,32 +542,70 @@ jobs:
             exit 1
           fi
           echo "Successfully uploaded scanner report to Salesforce."
-      - name: Ensure Scanner Report Exists
+      # ✅ NEW upload for LWC report
+      - name: Upload LWC Scanner Report to Salesforce
+        if: success()
+        run: |
+          if [[ ! -f lwc-scanner-report.csv ]]; then
+            echo "lwc-scanner-report.csv not found, skipping."
+            exit 0
+          fi
+
+          violation_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
+          if [ "$violation_count" -eq 0 ]; then
+            echo "No LWC violations found. Skipping Salesforce upload."
+            exit 0
+          fi
+
+          echo "Uploading LWC scanner report to Salesforce..."
+          curl -X POST "${{ vars.SF_DOMAIN_URL }}/services/data/v61.0/sobjects/ContentVersion" \
+            -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+            -H "Content-Type: multipart/form-data" \
+            -F "entity_content={\"Title\": \"LWC_${{ env.FILE_TITLE }}\", \"PathOnClient\": \"lwc-scanner-report.csv\"};type=application/json" \
+            -F "VersionData=@lwc-scanner-report.csv;type=text/csv"
+
+      - name: Ensure Scanner Reports Exist
         if: always()
         run: |
           if [ ! -s scanner-report.csv ]; then
             echo "No scanner report generated, creating a dummy report."
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
           fi
+          if [ ! -s lwc-scanner-report.csv ]; then
+            echo "No LWC scanner report generated, creating a dummy report."
+            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
+          fi
+
       - name: Debug - List Files Before Upload
         if: always()
         run: |
           echo "Listing files before uploading scanner report:"
           ls -lah
-      - name: Commit and Push Scanner Report to `Scanner_Reports` Branch
+
+      - name: Commit and Push Scanner Reports to `Scanner_Reports` Branch
         if: always()
         shell: bash
         run: |
           set -euo pipefail
+
           if [[ ! -s scanner-report.csv ]]; then
             echo "scanner-report.csv missing or empty. Creating placeholder."
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
           fi
+
+          if [[ ! -s lwc-scanner-report.csv ]]; then
+            echo "lwc-scanner-report.csv missing or empty. Creating placeholder."
+            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
+          fi
+
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
           BRANCH_NAME="Scanner_Reports"
           echo "✅ Target Branch: $BRANCH_NAME"
-          git stash push --include-untracked -m "stash scanner report" || true
+
+          git stash push --include-untracked -m "stash scanner reports" || true
+
           if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
             echo "✅ Remote branch $BRANCH_NAME exists."
             git fetch origin "$BRANCH_NAME":"$BRANCH_NAME"
@@ -504,18 +615,25 @@ jobs:
             git checkout -b "$BRANCH_NAME"
             git push --set-upstream origin "$BRANCH_NAME"
           fi
+
           git pull origin "$BRANCH_NAME" --rebase || true
           git stash pop || true
+
           mkdir -p Artifact
-          OUTFILE="Artifact/${{ env.FILE_TITLE }}"
-          cp scanner-report.csv "$OUTFILE"
-          git add "$OUTFILE"
-          git commit -m "Add scanner report (PR #${{ github.event.pull_request.number }}, run ${{ github.run_id }})" || echo "No changes to commit"
+
+          OUT_APEX="Artifact/${{ env.FILE_TITLE }}"
+          OUT_LWC="Artifact/LWC_${{ env.FILE_TITLE }}"
+
+          cp scanner-report.csv "$OUT_APEX"
+          cp lwc-scanner-report.csv "$OUT_LWC"
+
+          git add "$OUT_APEX" "$OUT_LWC"
+          git commit -m "Add scanner reports (PR #${{ github.event.pull_request.number }}, run ${{ github.run_id }})" || echo "No changes to commit"
           git push origin "$BRANCH_NAME"
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
 
-      # ✅ UPDATED: Blocking step with Severity buckets (1-2 vs 3-5) and printed summary
+      # ✅ Existing gate remains (uses scanner-report.csv)
       - name: HARD FAIL Block PR on Violations + Severity buckets
         shell: bash
         run: |
@@ -524,8 +642,9 @@ jobs:
             echo "❌ scanner-report.csv not found"
             exit 1
           fi
+
           echo "🔍 Evaluating scanner-report.csv"
-          # Count all violations by severity buckets (across all files)
+
           sev_1_2=$(awk -F',' '
             NR>1 {
               sev=$3
@@ -537,6 +656,7 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
+
           sev_3_5=$(awk -F',' '
             NR>1 {
               sev=$3
@@ -548,7 +668,7 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
-          # Keep your Apex vs JS/HTML breakdown too
+
           apex_ge_3=$(awk -F',' '
             NR>1 {
               sev=$3; file=$5
@@ -560,6 +680,7 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
+
           lwc_ge_2=$(awk -F',' '
             NR>1 {
               sev=$3; file=$5
@@ -571,24 +692,19 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
+
           echo "================ SUMMARY ================"
           echo "Severity 1-2 violations : $sev_1_2"
           echo "Severity 3-5 violations : $sev_3_5"
           echo "Apex  (severity >=3)    : $apex_ge_3"
           echo "JS/HTML (severity >=2)  : $lwc_ge_2"
           echo "========================================="
-          # ✅ Block policy:
-          # Fail if ANY severity 1-2 exists (most severe in Code Analyzer)
+
           if [[ "$sev_1_2" -gt 0 ]]; then
             echo "🚫 HARD GATE FAILED – Found severity 1-2 violations"
             echo "---- Violations (first 200 lines) ----"
             sed -n '1,200p' scanner-report.csv || true
             exit 1
           fi
-          # If you also want to block on Apex>=3 or JS/HTML>=2, uncomment:
-          # if [[ "$apex_ge_3" -gt 0 || "$lwc_ge_2" -gt 0 ]]; then
-          #   echo "🚫 HARD GATE FAILED – BLOCKING PR"
-          #   sed -n '1,200p' scanner-report.csv || true
-          #   exit 1
-          # fi
+
           echo "✅ HARD GATE PASSED – PR CAN MERGE"
