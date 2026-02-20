@@ -185,12 +185,13 @@ jobs:
             fi
 
             case "$file" in
-              *.cls)
+            *.cls)
 
                 temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
 
                 echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" > "$temp_file"
                 temp_line=1
+                brace_balance=0
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                 ((temp_line++))
 
@@ -203,19 +204,45 @@ jobs:
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
-                  trimmed="$(echo "$content" | sed 's/^[[:space:]]*//')"
 
-                  if [[ -z "$(echo "$trimmed" | tr -d '[:space:]')" ]]; then continue; fi
+                  # ------------------------------
+                  # SAFE MINIMAL FILTER
+                  # ------------------------------
+
+                  trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+                  # Skip empty lines
+                  if [[ -z "$trimmed" ]]; then continue; fi
+
+                  # Skip comment-only lines
                   if [[ "$trimmed" =~ ^// ]]; then continue; fi
                   if [[ "$trimmed" =~ ^/\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
 
+                  # ------------------------------
+                  # BRACE TRACKING LOGIC
+                  # ------------------------------
+
+                  open_count=$(echo "$content" | grep -o '{' | wc -l || true)
+                  close_count=$(echo "$content" | grep -o '}' | wc -l || true)
+
+                  delta=$((open_count - close_count))
+
+                  # Prevent negative brace balance (orphan closing brace)
+                  if (( brace_balance + delta < 0 )); then
+                    continue
+                  fi
+
+                  brace_balance=$((brace_balance + delta))
+
                   has_real_code=true
 
+                  # Write to temp file
                   printf "    %s\n" "$content" >> "$temp_file"
                   echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                   ((temp_line++))
+
                 done < lines.tmp
 
                 if [[ "$has_real_code" == false ]]; then
@@ -224,39 +251,74 @@ jobs:
                   continue
                 fi
 
+                # ------------------------------
+                # AUTO-CLOSE UNBALANCED BRACES
+                # ------------------------------
+
+                while (( brace_balance > 0 )); do
+                  echo "    }" >> "$temp_file"
+                  echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                  ((temp_line++))
+                  brace_balance=$((brace_balance - 1))
+                done
+
+                # Close tempMethod
                 echo "  }" >> "$temp_file"
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                 ((temp_line++))
 
+                # Close class
                 echo "}" >> "$temp_file"
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
 
                 echo "$temp_file" >> changed_cls_lwc_files.txt
                 echo "Created temp file: $temp_file"
                 ;;
-
               *.js)
+
                 temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
+
+                temp_line=1
                 echo "/* delta-only temp JS */" > "$temp_file"
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                ((temp_line++))
+
                 while IFS= read -r row; do
+                  actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
+
                   if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
                     printf "%s\n" "$content" >> "$temp_file"
+                    echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
+                    ((temp_line++))
                   fi
                 done < lines.tmp
+
                 echo "$temp_file" >> changed_cls_lwc_files.txt
                 ;;
-
               *.html)
+
                 temp_file="temp_scanner_files/temp_${sanitized%.html}.html"
+
+                temp_line=1
                 echo "<template>" > "$temp_file"
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                ((temp_line++))
+
                 while IFS= read -r row; do
+                  actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
+
                   if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
                     printf "%s\n" "$content" >> "$temp_file"
+                    echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
+                    ((temp_line++))
                   fi
                 done < lines.tmp
+
                 echo "</template>" >> "$temp_file"
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+
                 echo "$temp_file" >> changed_cls_lwc_files.txt
                 ;;
 
@@ -599,81 +661,167 @@ jobs:
 
 
       # ✅ Existing gate remains (uses scanner-report.csv)
+      # ✅ FINAL FIXED GATE (correct file + severity counting)
       - name: HARD FAIL Block PR on Violations + Severity buckets
         shell: bash
         run: |
           set -euo pipefail
+
           if [[ ! -f scanner-report.csv ]]; then
             echo "❌ scanner-report.csv not found"
             exit 1
           fi
 
-          echo "🔍 Evaluating scanner-report.csv"
+          if [[ ! -f lwc-scanner-report.csv ]]; then
+            echo "❌ lwc-scanner-report.csv not found"
+            exit 1
+          fi
 
-          sev_1_2=$(awk -F',' '
+          echo "🔍 Evaluating scanner-report.csv and lwc-scanner-report.csv"
+
+          # --------------------------------------------------
+          # 1️⃣ Severity 1-2 (BLOCKING) – FIXED LOGIC
+          # --------------------------------------------------
+          sev_1_2_apex=$(awk -F',' '
             NR>1 {
               sev=$3
               gsub(/"/,"",sev)
               if (sev ~ /^[0-9]+$/) {
                 s = sev + 0
-                if (s == 1 || s == 2) c++
+                if (s==1 || s==2) c++
               }
             }
             END { print c+0 }
           ' scanner-report.csv)
 
-          sev_3_5=$(awk -F',' '
+          sev_1_2_lwc=$(awk -F',' '
             NR>1 {
               sev=$3
               gsub(/"/,"",sev)
               if (sev ~ /^[0-9]+$/) {
                 s = sev + 0
-                if (s >= 3 && s <= 5) c++
+                if (s==1 || s==2) c++
               }
             }
             END { print c+0 }
-          ' scanner-report.csv)
+          ' lwc-scanner-report.csv)
 
-          apex_ge_3=$(awk -F',' '
+          sev_1_2_total=$((sev_1_2_apex + sev_1_2_lwc))
+
+          # --------------------------------------------------
+          # 2️⃣ Severity 3-5
+          # --------------------------------------------------
+          sev_3_5_apex=$(awk -F',' '
             NR>1 {
-              sev=$3; file=$5
-              gsub(/"/,"",sev); gsub(/"/,"",file)
+              sev=$3
+              gsub(/"/,"",sev)
               if (sev ~ /^[0-9]+$/) {
                 s = sev + 0
-                if (s >= 3 && file ~ /\.cls$/) c++
+                if (s>=3 && s<=5) c++
               }
             }
             END { print c+0 }
           ' scanner-report.csv)
 
-          lwc_ge_2=$(awk -F',' '
+          sev_3_5_lwc=$(awk -F',' '
             NR>1 {
-              sev=$3; file=$5
-              gsub(/"/,"",sev); gsub(/"/,"",file)
+              sev=$3
+              gsub(/"/,"",sev)
               if (sev ~ /^[0-9]+$/) {
                 s = sev + 0
-                if (s >= 2 && file ~ /\.(js|html)$/) c++
+                if (s>=3 && s<=5) c++
               }
+            }
+            END { print c+0 }
+          ' lwc-scanner-report.csv)
+
+          sev_3_5_total=$((sev_3_5_apex + sev_3_5_lwc))
+
+          # --------------------------------------------------
+          # 3️⃣ Apex Count (.cls)
+          # --------------------------------------------------
+          apex_total=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.cls$/) c++
             }
             END { print c+0 }
           ' scanner-report.csv)
 
+          # --------------------------------------------------
+          # 4️⃣ JS / HTML Count (both reports)
+          # --------------------------------------------------
+          js_main=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.js$/) c++
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          js_lwc=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.js$/) c++
+            }
+            END { print c+0 }
+          ' lwc-scanner-report.csv)
+
+          html_main=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.html$/) c++
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          html_lwc=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.html$/) c++
+            }
+            END { print c+0 }
+          ' lwc-scanner-report.csv)
+
+          js_total=$((js_main + js_lwc))
+          html_total=$((html_main + html_lwc))
+          lwc_total=$((js_total + html_total))
+
+          # --------------------------------------------------
+          # 5️⃣ SUMMARY
+          # --------------------------------------------------
           echo "================ SUMMARY ================"
-          echo "Severity 1-2 violations : $sev_1_2"
-          echo "Severity 3-5 violations : $sev_3_5"
-          echo "Apex  (severity >=3)    : $apex_ge_3"
-          echo "JS/HTML (severity >=2)  : $lwc_ge_2"
+          echo "Apex Violations (.cls)         : $apex_total"
+          echo "JS Violations (.js)            : $js_total"
+          echo "HTML Violations (.html)        : $html_total"
+          echo "Total LWC Violations           : $lwc_total"
+          echo "-----------------------------------------"
+          echo "Severity 1-2 Violations        : $sev_1_2_total"
+          echo "Severity 3-5 Violations        : $sev_3_5_total"
           echo "========================================="
 
-          if [[ "$sev_1_2" -gt 0 ]]; then
+          # --------------------------------------------------
+          # 6️⃣ HARD BLOCK
+          # --------------------------------------------------
+          if [[ "$sev_1_2_total" -gt 0 ]]; then
+            echo ""
             echo "🚫 HARD GATE FAILED – Found severity 1-2 violations"
-            echo "---- Violations (first 200 lines) ----"
+            echo ""
+            echo "------ Apex Violations ------"
             sed -n '1,200p' scanner-report.csv || true
+            echo ""
+            echo "------ LWC Violations ------"
+            sed -n '1,200p' lwc-scanner-report.csv || true
             exit 1
           fi
 
           echo "✅ HARD GATE PASSED – PR CAN MERGE"
-          
+
 
       - name: Commit and Push Scanner Reports to `Scanner_Reports` Branch
         if: always()
