@@ -26,7 +26,6 @@ jobs:
 
       - name: Ensure ESLint LWC plugins exist
         run: |
-          npm ls @salesforce/eslint-plugin-lwc || npm i -D @salesforce/eslint-plugin-lwc@^3.0.0
           npm ls @lwc/eslint-plugin-lwc || npm i -D @lwc/eslint-plugin-lwc@^1.8.0
 
       - name: Set up Java 17

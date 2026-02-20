@@ -1,6 +1,6 @@
 {
-    "extends": ["eslint:recommended", "plugin:@salesforce/lwc/recommended"],
-    "plugins": ["@salesforce/lwc"],
+    "plugins": ["@lwc/lwc"],
+    "extends": ["plugin:@lwc/lwc/recommended"],
     "rules": {
       "no-console": ["error", { "allow": ["warn", "error"] }],
       "no-debugger": "error",

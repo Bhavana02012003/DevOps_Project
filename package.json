@@ -23,8 +23,6 @@
     "@json2csv/node": "latest",
     "@lwc/eslint-plugin-lwc": "^1.8.0",
     "@prettier/plugin-xml": "latest",
-    "@salesforce/eslint-plugin-lwc": "^3.0.0",
-    "@salesforce/eslint-config-lwc": "^3.0.0",
     "@salesforce/eslint-plugin-aura": "latest",
     "@salesforce/eslint-plugin-lightning": "latest",
     "@salesforce/sfdx-lwc-jest": "latest",
