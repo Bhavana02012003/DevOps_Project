@@ -421,7 +421,12 @@ jobs:
                 actualLine="$startLine"
                 if [[ "$isTemp" -eq 1 ]]; then
                   key="${tempBase}|${startLine}"
-                  mapped="${ACTUAL_LINE_MAP[$key]}"
+                  if [[ -n "${ACTUAL_LINE_MAP[$key]+x}" ]]; then
+                    mapped="${ACTUAL_LINE_MAP[$key]}"
+                  else
+                    mapped="N/A"
+                  fi
+
                   [[ -z "$mapped" || "$mapped" == "0" ]] && mapped="N/A"
                   actualLine="$mapped"
                 fi
@@ -463,6 +468,11 @@ jobs:
               continue
             fi
 
+            # 🚫 Skip eslint config file
+            if [[ "$file" == *eslint.config.js ]]; then
+              continue
+            fi
+
             echo "🟦 ESLint v10 scanning (LWC report): $file"
             rm -f eslint-output.json
 
@@ -489,7 +499,12 @@ jobs:
                 actualLine="$line"
                 if [[ "$isTemp" -eq 1 ]]; then
                   key="${tempBase}|${line}"
-                  mapped="${ACTUAL_LINE_MAP[$key]}"
+                  if [[ -n "${ACTUAL_LINE_MAP[$key]+x}" ]]; then
+                    mapped="${ACTUAL_LINE_MAP[$key]}"
+                  else
+                    mapped="N/A"
+                  fi
+
                   [[ -z "$mapped" || "$mapped" == "0" ]] && mapped="N/A"
                   actualLine="$mapped"
                 fi
