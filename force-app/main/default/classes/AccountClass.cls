@@ -62,8 +62,9 @@ public with sharing class AccountClass {
             //System.debug('Attempting to insert Account:: ' + acc);
             insert acc;  // Insert the Account record
             return acc.Id;  // Return the ID of the new Account
+            System.debug('Account created successfully with ID: ' + acc.Id);
         } catch (Exception ex) {
-            System.debug('Error Bro please check' + ex.getMessage());
+            //System.debug('Error Bro please check' + ex.getMessage());
             throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
             if(ex.getMessage().contains('DUPLICATE_VALUE')) {
                 throw new AuraHandledException('An account with this name already exists. Please choose a different name.');
