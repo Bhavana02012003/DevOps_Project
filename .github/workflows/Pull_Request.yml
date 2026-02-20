@@ -203,12 +203,14 @@ jobs:
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
-                  # ------------------------------
+                # ------------------------------
                 # ADVANCED DELTA SAFETY FILTER
                 # ------------------------------
 
+                trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
                 # Skip empty lines
-                if [[ -z "$(echo "$trimmed" | tr -d '[:space:]')" ]]; then continue; fi
+                if [[ -z "$trimmed" ]]; then continue; fi
 
                 # Skip comments
                 if [[ "$trimmed" =~ ^// ]]; then continue; fi
@@ -219,7 +221,7 @@ jobs:
                 # Skip standalone braces
                 if [[ "$trimmed" =~ ^\{$ ]]; then continue; fi
                 if [[ "$trimmed" =~ ^\}$ ]]; then continue; fi
-                if [[ "$trimmed" =~ ^\};$ ]]; then continue; fi
+                if [[ "$trimmed" =~ ^\}\;$ ]]; then continue; fi
 
                 # Skip orphan else / catch / finally
                 if [[ "$trimmed" =~ ^else[[:space:]]*$ ]]; then continue; fi
