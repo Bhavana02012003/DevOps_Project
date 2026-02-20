@@ -59,17 +59,12 @@ public with sharing class AccountClass {
         acc.SLAExpirationDate__c = SLAExpirationDate;
 
         try {
-            //System.debug('Attempting to insert Account:: ' + acc);
+            System.debug('Attempting to insert Account:: ' + acc);
             insert acc;  // Insert the Account record
             return acc.Id;  // Return the ID of the new Account
         } catch (Exception ex) {
             System.debug('Error Bro please check' + ex.getMessage());
             throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
-            if(ex.getMessage().contains('DUPLICATE_VALUE')) {
-                throw new AuraHandledException('An account with this name already exists. Please choose a different name.');
-            } else{
-                throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
-            }
         }
     }
 }
