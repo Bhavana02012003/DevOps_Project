@@ -24,8 +24,7 @@ jobs:
       - name: Install Node dependencies (uses package.json)
         run: npm install --legacy-peer-deps
 
-      # ✅ FIX #1: Install the correct LWC ESLint plugin package (scoped)
-      #           AND create a CI-only ESLint config (so we ignore broken repo configs)
+      # ✅ FIXED: Hard install ESLint + LWC plugin + create CI config (does not touch your repo files permanently)
       - name: Ensure ESLint + LWC ESLint plugin exist (hard verify) + create CI ESLint config
         shell: bash
         run: |
@@ -33,22 +32,17 @@ jobs:
           echo "Node: $(node -v)"
           echo "NPM : $(npm -v)"
 
-          # Always use legacy-peer-deps for any additional installs in CI
+          # Always use legacy-peer-deps in CI
           npm config set legacy-peer-deps true
 
-          # Ensure eslint exists
-          npm ls eslint >/dev/null 2>&1 || npm i -D eslint@^8.57.0 --legacy-peer-deps
+          # ✅ Hard install exact versions (stable)
+          npm i -D eslint@8.57.1 @lwc/eslint-plugin-lwc@1.9.0 --legacy-peer-deps
 
-          # Ensure LWC plugin exists (this provides plugin:@lwc/lwc/recommended)
-          npm ls @lwc/eslint-plugin-lwc >/dev/null 2>&1 || npm i -D @lwc/eslint-plugin-lwc@^1.9.0 --legacy-peer-deps
+          echo "✅ Verify installed packages:"
+          node -p "require.resolve('eslint/package.json')"
+          node -p "require.resolve('@lwc/eslint-plugin-lwc/package.json')"
 
-          echo "✅ Installed (top level):"
-          npm ls eslint --depth=0 || true
-          npm ls @lwc/eslint-plugin-lwc --depth=0 || true
-
-          # ✅ Create a CI-only ESLint config to avoid repo config conflicts:
-          # - plugin id: "@lwc/lwc"
-          # - rules prefix: "@lwc/lwc/..."
+          # ✅ CI-only config so we don't depend on force-app configs
           cat > .eslintrc.ci.json <<'JSON'
           {
             "root": true,
@@ -56,7 +50,6 @@ jobs:
               "**/node_modules/**",
               "**/.sfdx/**",
               "**/.sf/**",
-              "**/temp_scanner_files/**",
               "**/temp_scanner_files/**",
               "**/Artifact/**"
             ],
@@ -80,6 +73,15 @@ jobs:
 
           echo "✅ .eslintrc.ci.json created:"
           cat .eslintrc.ci.json
+
+      - name: DEBUG – Confirm LWC ESLint plugin resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PWD=$(pwd)"
+          echo "Workspace=$GITHUB_WORKSPACE"
+          node -p "require.resolve('@lwc/eslint-plugin-lwc/package.json')"
+          npx eslint -v
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -385,9 +387,14 @@ jobs:
           echo "==== ESLint targets ===="
           cat eslint_targets.txt || true
 
+          # -----------------------------
+          # 1) PMD Scan (Code Analyzer v5)
+          # -----------------------------
           rm -f pmd.csv
           if [[ -s pmd_targets.txt ]]; then
             echo "🔍 Running PMD via Code Analyzer v5 on temp_scanner_files/ ..."
+
+            # ✅ IMPORTANT: removed --confirm (it is NOT valid in code-analyzer v5)
             sf code-analyzer run \
               --workspace "temp_scanner_files" \
               --rule-selector ApexCRUDViolation \
@@ -454,23 +461,24 @@ jobs:
             echo "✅ No Apex temp wrappers to scan."
           fi
 
+          # -----------------------------
+          # 2) ESLint Scan (npx) (LWC JS/HTML) - forced CI config
+          # -----------------------------
           rm -f eslint.json
           if [[ -s eslint_targets.txt ]]; then
             echo "🔍 Running ESLint on changed JS/HTML (LWC) using CI config ..."
 
             ESLINT_EXIT=0
+            ESLINT_CONFIG_PATH="$GITHUB_WORKSPACE/.eslintrc.ci.json"
 
-            # ✅ FIX #2: Ignore repo .eslintrc files that are causing plugin/rule errors
-            #           Use CI config only
             npx eslint \
               -f json \
               --no-error-on-unmatched-pattern \
-              --resolve-plugins-relative-to . \
+              --resolve-plugins-relative-to "$GITHUB_WORKSPACE" \
               --no-eslintrc \
-              --config .eslintrc.ci.json \
+              -c "$ESLINT_CONFIG_PATH" \
               $(cat eslint_targets.txt) > eslint.json || ESLINT_EXIT=$?
 
-            # ✅ If eslint couldn't execute (config/plugin failure), fail hard
             if [[ "$ESLINT_EXIT" -ne 0 && ! -s eslint.json ]]; then
               echo "❌ ESLint failed to run. Setup/config error."
               exit 1
@@ -674,7 +682,7 @@ jobs:
           echo "Severity 3-5 violations : $sev_3_5"
           echo "Apex  (severity >=3)    : $apex_ge_3"
           echo "JS/HTML (severity >=2)  : $lwc_ge_2"
-          echo "========================================"
+          echo "========================================="
 
           if [[ "$sev_1_2" -gt 0 ]]; then
             echo "🚫 HARD GATE FAILED – Found severity 1-2 violations"
