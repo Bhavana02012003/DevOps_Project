@@ -205,11 +205,19 @@ jobs:
                   content="${row#*"$TAB"}"
                   trimmed="$(echo "$content" | sed 's/^[[:space:]]*//')"
 
+                  # Skip empty
                   if [[ -z "$(echo "$trimmed" | tr -d '[:space:]')" ]]; then continue; fi
+
+                  # Skip comments
                   if [[ "$trimmed" =~ ^// ]]; then continue; fi
                   if [[ "$trimmed" =~ ^/\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
+
+                  # 🚨 Skip orphan standalone braces
+                  if [[ "$trimmed" =~ ^\{$ ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^\}$ ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^\};$ ]]; then continue; fi
 
                   has_real_code=true
 
