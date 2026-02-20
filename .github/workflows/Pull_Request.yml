@@ -24,9 +24,27 @@ jobs:
       - name: Install Node dependencies (uses package.json)
         run: npm install --legacy-peer-deps
 
-      - name: Ensure ESLint LWC plugins exist
+      # ✅ NEW (stronger): force-install ESLint + LWC plugin and verify so "plugin:@lwc/lwc/recommended" works
+      - name: Ensure ESLint + LWC ESLint plugin exist (hard verify)
+        shell: bash
         run: |
-          npm ls @lwc/eslint-plugin-lwc || npm i -D @lwc/eslint-plugin-lwc@^1.8.0
+          set -euo pipefail
+          echo "Node: $(node -v)"
+          echo "NPM : $(npm -v)"
+
+          # Ensure core eslint exists (sometimes nested deps can be missing)
+          npm ls eslint >/dev/null 2>&1 || npm i -D eslint@^8.57.0
+
+          # Ensure LWC plugin exists for plugin:@lwc/lwc/*
+          npm ls @lwc/eslint-plugin-lwc >/dev/null 2>&1 || npm i -D @lwc/eslint-plugin-lwc@^1.8.0
+
+          # OPTIONAL fallback: if any config still references @salesforce/eslint-config-lwc
+          npm ls @salesforce/eslint-config-lwc >/dev/null 2>&1 || npm i -D @salesforce/eslint-config-lwc@^3.0.0
+
+          echo "✅ Installed:"
+          npm ls eslint --depth=0 || true
+          npm ls @lwc/eslint-plugin-lwc --depth=0 || true
+          npm ls @salesforce/eslint-config-lwc --depth=0 || true
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -72,7 +90,6 @@ jobs:
 
           REPO_NAME="$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)"
 
-          # ✅ Target branch for PRs (base branch)
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             TARGET_BRANCH="${GITHUB_BASE_REF}"
             SOURCE_BRANCH="${GITHUB_HEAD_REF}"
@@ -166,7 +183,6 @@ jobs:
 
             echo "Processing file: $file"
 
-            # ✅ mawk-safe extraction: actualLine<TAB>content
             git diff -U0 "$RANGE" -- "$file" | awk '
               /^@@/ {
                 line = $0
@@ -228,7 +244,6 @@ jobs:
                 ;;
 
               *.js|*.html)
-                # ✅ IMPORTANT: scan ORIGINAL JS/HTML file so LWC ESLint rules apply
                 echo "$file" >> changed_cls_lwc_files.txt
                 ;;
 
@@ -250,32 +265,13 @@ jobs:
           echo "====== line_number_mapping.txt (first 50) ======"
           head -n 50 line_number_mapping.txt || true
 
-      # ✅ NEW: Print temp wrapper class (content) so you can confirm what got scanned
       - name: DEBUG – Print temp wrapper classes
         shell: bash
         run: |
           set -euo pipefail
-
           echo "==== temp_scanner_files listing ===="
           ls -lah temp_scanner_files || true
 
-          echo "==== Print all temp .cls wrappers (with line numbers) ===="
-          shopt -s nullglob
-          for f in temp_scanner_files/*.cls; do
-            echo ""
-            echo "--------------------------------------------------"
-            echo "TEMP WRAPPER: $f"
-            echo "--------------------------------------------------"
-            nl -ba "$f" | sed -n '1,220p'
-          done
-
-          echo ""
-          echo "==== Grep for System.debug in temp wrappers ===="
-          grep -RIn --line-number "System\.debug" temp_scanner_files || echo "❌ No System.debug found in temp wrappers"
-
-      # ------------------------------------------------------------
-      # 3) Build lookup map (basename|tempLine=actualLine)
-      # ------------------------------------------------------------
       - name: Build Actual Line Lookup
         shell: bash
         run: |
@@ -298,14 +294,10 @@ jobs:
           echo "=== ACTUAL LINE LOOKUP (first 50) ==="
           head -n 50 actual_line_lookup.env || true
 
-      # ------------------------------------------------------------
-      # 4) Build files_to_scan.txt
-      # ------------------------------------------------------------
       - name: Build files_to_scan.txt from temp files
         shell: bash
         run: |
           set -euo pipefail
-
           : > files_to_scan.txt
 
           if [[ -f changed_cls_lwc_files.txt && -s changed_cls_lwc_files.txt ]]; then
@@ -315,23 +307,27 @@ jobs:
           fi
 
           echo "====== files_to_scan.txt ======"
-          if [[ -s files_to_scan.txt ]]; then
-            cat files_to_scan.txt
-          else
-            echo "No files to scan."
-          fi
+          cat files_to_scan.txt || true
 
-            # ------------------------------------------------------------
-      # 5) Run PMD (Code Analyzer v5) on temp Apex wrappers
-      #    + Run ESLint (npx) on changed JS/HTML
-      #    + Build ONE scanner-report.csv
+      # ✅ NEW DEBUG: show LWC eslint config if it exists (does not change logic)
+      - name: DEBUG – Show ESLint configs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Root ESLint config (if exists) ==="
+          ls -lah .eslintrc* package.json || true
+          echo "=== LWC folder ESLint config (if exists) ==="
+          cat force-app/main/default/lwc/.eslintrc.json 2>/dev/null || echo "No force-app/main/default/lwc/.eslintrc.json"
+
+      # ------------------------------------------------------------
+      # 5) Run PMD (Code Analyzer v5) + ESLint (npx) and build CSV
       # ------------------------------------------------------------
       - name: Run PMD (Code Analyzer v5) + ESLint (npx) and build CSV
         shell: bash
         run: |
           set -euo pipefail
 
-          # Load lookup into memory (tempLine -> actualLine for temp wrappers)
           declare -A ACTUAL_LINE_MAP
           if [[ -s actual_line_lookup.env ]]; then
             while IFS='=' read -r key value; do
@@ -339,7 +335,6 @@ jobs:
             done < actual_line_lookup.env
           fi
 
-          # Final header
           echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
 
           if [[ ! -s files_to_scan.txt ]]; then
@@ -347,9 +342,6 @@ jobs:
             exit 0
           fi
 
-          # -----------------------------
-          # Split files
-          # -----------------------------
           : > pmd_targets.txt
           : > eslint_targets.txt
 
@@ -369,13 +361,9 @@ jobs:
           echo "==== ESLint targets ===="
           cat eslint_targets.txt || true
 
-          # -----------------------------
-          # 1) PMD Scan (Code Analyzer v5)
-          # -----------------------------
           rm -f pmd.csv
           if [[ -s pmd_targets.txt ]]; then
             echo "🔍 Running PMD via Code Analyzer v5 on temp_scanner_files/ ..."
-            # Run once on the folder that contains ONLY delta wrappers
             sf code-analyzer run \
               --workspace "temp_scanner_files" \
               --rule-selector ApexCRUDViolation \
@@ -424,13 +412,10 @@ jobs:
               tail -n +2 pmd.csv | while IFS= read -r row; do
                 [[ -z "$row" ]] && continue
 
-                # code-analyzer v5 csv columns:
-                # rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources
                 startLine=$(echo "$row" | awk -F',' '{print $6}' | tr -d '"')
                 filePath=$(echo "$row" | awk -F',' '{print $5}' | tr -d '"')
                 baseFile="$(basename "$filePath")"
 
-                actualLine="$startLine"
                 key="${baseFile}|${startLine}"
                 mapped="${ACTUAL_LINE_MAP[$key]:-}"
                 if [[ -n "$mapped" && "$mapped" != "0" ]]; then
@@ -446,19 +431,17 @@ jobs:
             echo "✅ No Apex temp wrappers to scan."
           fi
 
-          # -----------------------------
-          # 2) ESLint Scan (npx) - REAL LWC rules from your .eslintrc.json
-          # -----------------------------
-                    rm -f eslint.json
+          rm -f eslint.json
           if [[ -s eslint_targets.txt ]]; then
             echo "🔍 Running ESLint on changed JS/HTML ..."
 
             ESLINT_EXIT=0
+
+            # ✅ critical: run from repo root; resolve plugins from repo root
             npx eslint -f json --no-error-on-unmatched-pattern --resolve-plugins-relative-to . $(cat eslint_targets.txt) > eslint.json || ESLINT_EXIT=$?
 
-            # ✅ If eslint couldn't execute (plugin/config error) => fail hard
             if [[ "$ESLINT_EXIT" -ne 0 && ! -s eslint.json ]]; then
-              echo "❌ ESLint failed to run. This is a setup/config error (plugin missing, config invalid, etc)."
+              echo "❌ ESLint failed to run. Setup/config error."
               exit 1
             fi
 
@@ -595,7 +578,6 @@ jobs:
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
 
-      # ✅ UPDATED: Blocking step with Severity buckets (1-2 vs 3-5) and printed summary
       - name: HARD FAIL Block PR on Violations + Severity buckets
         shell: bash
         run: |
@@ -608,7 +590,6 @@ jobs:
 
           echo "🔍 Evaluating scanner-report.csv"
 
-          # Count all violations by severity buckets (across all files)
           sev_1_2=$(awk -F',' '
             NR>1 {
               sev=$3
@@ -633,7 +614,6 @@ jobs:
             END { print c+0 }
           ' scanner-report.csv)
 
-          # Keep your Apex vs JS/HTML breakdown too
           apex_ge_3=$(awk -F',' '
             NR>1 {
               sev=$3; file=$5
@@ -665,20 +645,11 @@ jobs:
           echo "JS/HTML (severity >=2)  : $lwc_ge_2"
           echo "========================================="
 
-          # ✅ Block policy:
-          # Fail if ANY severity 1-2 exists (most severe in Code Analyzer)
           if [[ "$sev_1_2" -gt 0 ]]; then
             echo "🚫 HARD GATE FAILED – Found severity 1-2 violations"
             echo "---- Violations (first 200 lines) ----"
             sed -n '1,200p' scanner-report.csv || true
             exit 1
           fi
-
-          # If you also want to block on Apex>=3 or JS/HTML>=2, uncomment:
-          # if [[ "$apex_ge_3" -gt 0 || "$lwc_ge_2" -gt 0 ]]; then
-          #   echo "🚫 HARD GATE FAILED – BLOCKING PR"
-          #   sed -n '1,200p' scanner-report.csv || true
-          #   exit 1
-          # fi
 
           echo "✅ HARD GATE PASSED – PR CAN MERGE"

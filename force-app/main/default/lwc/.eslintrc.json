@@ -1,14 +1,5 @@
 {
   "root": true,
   "plugins": ["@lwc/lwc"],
-  "extends": ["plugin:@lwc/lwc/recommended"],
-  "rules": {
-    "no-console": ["error", { "allow": ["warn", "error"] }],
-    "no-debugger": "error",
-    "no-unused-vars": "warn",
-    "no-undef": "error",
-    "eqeqeq": ["error", "always"],
-    "curly": "error",
-    "semi": ["error", "always"]
-  }
+  "extends": ["plugin:@lwc/lwc/recommended"]
 }
