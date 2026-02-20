@@ -1,95 +1,98 @@
-name: ESLint (Delta on Push)
+name: ESLint (Delta on PR)
 
 on:
   pull_request:
     branches:
-      - '**'
+      - "**"
 
 concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}-${{ github.run_id }}
+  group: ${{ github.ref }}-${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
   eslint:
-    name: Run ESLint on changed files (push)
+    name: Run ESLint on changed LWC files
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
+      security-events: write  # needed for upload-sarif
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # Full history helps in edge cases (force-push, rebase), but HEAD~1 comparison is used below
           fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '>=20.9.0'
+          node-version: 20
+          cache: npm
 
-      - name: Determine changed JS/TS files (last commit vs previous)
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine changed LWC JS/HTML/CSS files (PR base vs head)
         id: diff
         shell: bash
         run: |
-          # Handle initial commits where HEAD~1 may not exist
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            RANGE="HEAD~1 HEAD"
-          else
-            # First commit on the branch: compare against the empty tree
-            EMPTY_TREE=$(git hash-object -t tree /dev/null)
-            RANGE="$EMPTY_TREE HEAD"
-          fi
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
 
-          # Collect added/modified/copied/renamed files
-          CHANGED=$(git diff --name-only --diff-filter=ACMR $RANGE \
-            | grep -E '\.(js|jsx|ts|tsx)$' \
-            | grep -Ev '(^|/)(dist|build|coverage|node_modules)/' \
-            | grep -Ev '\.min\.js$' || true)
+          echo "Base SHA: $BASE_SHA"
+          echo "Head SHA: $HEAD_SHA"
+
+          # Only lint LWC-related files (JS/TS/HTML/CSS) in force-app
+          CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
+            | grep -E '^force-app/.*/lwc/.+\.(js|ts|jsx|tsx|html|css)$' \
+            || true)
 
           echo "Changed files:"
           echo "$CHANGED"
 
-          # Export space-separated list for later step
+          # Space-separated list for eslint
           echo "files=$(echo "$CHANGED" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if no JS/TS changes
+      - name: Skip if no LWC file changes
         id: maybe_skip
+        shell: bash
         run: |
           if [ -z "${{ steps.diff.outputs.files }}" ]; then
-            echo "No JS/TS changes detected. Skipping ESLint."
+            echo "No LWC JS/HTML/CSS changes detected. Skipping ESLint."
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # Optional: add ESLint problem matcher to improve log annotations
-      - name: Add ESLint problem matcher
+      - name: Run ESLint on changed files (console output)
         if: ${{ steps.maybe_skip.outputs.skip != 'true' }}
-        run: |
-          echo '{
-            "problemMatcher": [
-              {
-                "owner": "eslint",
-                "pattern": [
-                  {
-                    "regexp": "^([^:]+):(\\d+):(\\d+):\\s+(error|warning)\\s+(.*)\\s+\\(([^)]+)\\)$",
-                    "file": 1,
-                    "line": 2,
-                    "column": 3,
-                    "severity": 4,
-                    "message": 5,
-                    "code": 6
-                  }
-                ]
-              }
-            ]
-          }' > .github_eslint_matcher.json
-          echo "::add-matcher::.github_eslint_matcher.json"
-
-      - name: Run ESLint on changed files
-        if: ${{ steps.maybe_skip.outputs.skip != 'true' }}
+        shell: bash
         run: |
           FILES="${{ steps.diff.outputs.files }}"
           echo "Linting files: $FILES"
-          # Fail on warnings as well; adjust to your policy
           npx eslint $FILES --max-warnings=0
+
+      - name: Generate SARIF report (vulnerability-style report)
+        if: ${{ steps.maybe_skip.outputs.skip != 'true' }}
+        shell: bash
+        run: |
+          FILES="${{ steps.diff.outputs.files }}"
+          mkdir -p reports
+          npx eslint $FILES \
+            --format @microsoft/eslint-formatter-sarif \
+            --output-file reports/eslint.sarif \
+            || true
+
+      - name: Upload SARIF to GitHub Security tab
+        if: ${{ steps.maybe_skip.outputs.skip != 'true' }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/eslint.sarif
+
+      - name: Upload report artifact
+        if: ${{ steps.maybe_skip.outputs.skip != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eslint-report
+          path: reports/eslint.sarif
