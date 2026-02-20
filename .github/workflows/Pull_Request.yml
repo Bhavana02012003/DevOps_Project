@@ -150,38 +150,20 @@ jobs:
 
           # Extract file list safely (status + file)
           mapfile -t changed_lines < changed_status.txt
-
+          
           if [[ ${#changed_lines[@]} -eq 0 ]]; then
             echo "No .cls/.js/.html files detected."
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
             exit 0
           fi
-          
           TAB=$(printf '\t')
 
-          for entry in "${changed_lines[@]}"; do
-            status=$(echo "$entry" | awk '{print $1}')
-            file=$(echo "$entry" | awk '{print $2}')
-
+          for file in $changed_files; do
             [[ -f "$file" ]] || { echo "Skipping deleted file: $file"; continue; }
 
-            echo "Processing file: $file (Status: $status)"
+            echo "Processing file: $file"
 
-            sanitized="${file//\//_}"
-            TAB=$(printf '\t')
-
-            # =====================================================
-            # ✅ NEW FILE (.cls) → SCAN FULL FILE DIRECTLY
-            # =====================================================
-            if [[ "$status" == "A" && "$file" == *.cls ]]; then
-              echo "🆕 New Apex class detected. Scanning full file directly."
-              echo "$file" >> changed_cls_lwc_files.txt
-              continue
-            fi
-
-            # =====================================================
-            # 🔁 DELTA EXTRACTION (for modified files)
-            # =====================================================
+            # ✅ mawk-safe extraction: actualLine<TAB>content
             git diff -U0 "$RANGE" -- "$file" | awk '
               /^@@/ {
                 line = $0
@@ -199,58 +181,84 @@ jobs:
             ' > lines.tmp || true
 
             if [[ ! -s lines.tmp ]]; then
-              echo "No added lines found for $file. Skipping..."
+              echo "No added lines found for $file (possibly only deletions). Skipping..."
               continue
             fi
 
+            sanitized="${file//\//_}"
+
             case "$file" in
               *.cls)
-                temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
+              temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
 
-                echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" > "$temp_file"
-                temp_line=1
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
+              echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" > "$temp_file"
+              temp_line=1
+              echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+              ((temp_line++))
 
-                echo "  public static void tempMethod() {" >> "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
+              echo "  public static void tempMethod() {" >> "$temp_file"
+              echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+              ((temp_line++))
 
-                has_real_code=false
+              # 🔥 IMPORTANT: Track if real code exists
+              has_real_code=false
 
-                while IFS= read -r row; do
-                  actual_line="${row%%$TAB*}"
-                  content="${row#*"$TAB"}"
-                  trimmed="$(echo "$content" | sed 's/^[[:space:]]*//')"
+              while IFS= read -r row; do
+                actual_line="${row%%$TAB*}"
+                content="${row#*"$TAB"}"
 
-                  if [[ -z "$(echo "$trimmed" | tr -d '[:space:]')" ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^// ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^/\* ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^\* ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
+                trimmed="$(echo "$content" | sed 's/^[[:space:]]*//')"
 
-                  has_real_code=true
-
-                  printf "    %s\n" "$content" >> "$temp_file"
-                  echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
-                  ((temp_line++))
-                done < lines.tmp
-
-                if [[ "$has_real_code" == false ]]; then
-                  echo "⚠️ Only comments detected in $file. Skipping wrapper."
-                  rm -f "$temp_file"
+                # Skip blank lines
+                if [[ -z "$(echo "$trimmed" | tr -d '[:space:]')" ]]; then
                   continue
                 fi
 
-                echo "  }" >> "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                # Skip single-line comments
+                if [[ "$trimmed" =~ ^// ]]; then
+                  continue
+                fi
+
+                # Skip block comment start
+                if [[ "$trimmed" =~ ^/\* ]]; then
+                  continue
+                fi
+
+                # Skip block comment middle
+                if [[ "$trimmed" =~ ^\* ]]; then
+                  continue
+                fi
+
+                # Skip block comment end
+                if [[ "$trimmed" =~ ^\*/ ]]; then
+                  continue
+                fi
+
+                # ✅ If we reach here, it's REAL executable code
+                has_real_code=true
+
+                printf "    %s\n" "$content" >> "$temp_file"
+                echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                 ((temp_line++))
+              done < lines.tmp
 
-                echo "}" >> "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+              # 🔥 If no executable code found → delete wrapper & skip
+              if [[ "$has_real_code" == false ]]; then
+                echo "⚠️ Only comments detected in $file. Skipping wrapper generation."
+                rm -f "$temp_file"
+                continue
+              fi
 
-                echo "$temp_file" >> changed_cls_lwc_files.txt
-                ;;
+              echo "  }" >> "$temp_file"
+              echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+              ((temp_line++))
+
+              echo "}" >> "$temp_file"
+              echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+
+              echo "$temp_file" >> changed_cls_lwc_files.txt
+              echo "Created temp file: $temp_file"
+              ;;
               *.js)
                 temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
                 echo "/* delta-only temp JS */" > "$temp_file"
@@ -273,6 +281,10 @@ jobs:
                 done < lines.tmp
                 echo "</template>" >> "$temp_file"
                 echo "$temp_file" >> changed_cls_lwc_files.txt
+                ;;
+              *)
+                echo "Unhandled type for $file; skipping."
+                continue
                 ;;
             esac
           done
