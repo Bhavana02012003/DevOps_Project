@@ -3,7 +3,7 @@ name: Apex PMD Scan (PRs, CSV, fail-on-violation)
 on:
   pull_request:
     branches:
-      - '**'
+      - "**"
 
 jobs:
   apex-pmd-scan-pull:
@@ -24,30 +24,19 @@ jobs:
       - name: Install Node dependencies (uses package.json)
         run: npm install --legacy-peer-deps
 
-      # ✅ FIX: Install the correct ESLint stack for LWC
-      - name: Ensure ESLint + LWC ESLint plugins exist (hard verify)
+      # ✅ IMPORTANT: only verify (do NOT install random @salesforce lint packages)
+      - name: Ensure ESLint + LWC ESLint plugin exist (hard verify)
         shell: bash
         run: |
           set -euo pipefail
           echo "Node: $(node -v)"
           echo "NPM : $(npm -v)"
 
-          # Always use legacy-peer-deps in CI
-          npm config set legacy-peer-deps true
+          # verify eslint
+          npm ls eslint --depth=0
 
-          # Ensure eslint is available
-          npm ls eslint >/dev/null 2>&1 || npm i -D eslint@8.57.1 --legacy-peer-deps
-
-          # ✅ Required for: plugin:@lwc/lwc/recommended + @lwc/... rules
-          npm ls @lwc/eslint-plugin-lwc >/dev/null 2>&1 || npm i -D @lwc/eslint-plugin-lwc@^2.0.0 --legacy-peer-deps
-
-          # ✅ Required for: @salesforce/lwc/... rules in your config
-          npm ls @salesforce/eslint-plugin-lwc >/dev/null 2>&1 || npm i -D @salesforce/eslint-plugin-lwc --legacy-peer-deps
-
-          echo "✅ Installed versions (top-level):"
-          npm ls eslint --depth=0 || true
-          npm ls @lwc/eslint-plugin-lwc --depth=0 || true
-          npm ls @salesforce/eslint-plugin-lwc --depth=0 || true
+          # verify LWC plugin (must exist because your lwc/.eslintrc.json extends plugin:lwc/recommended)
+          npm ls @lwc/eslint-plugin-lwc --depth=0
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -107,14 +96,13 @@ jobs:
           echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "$GITHUB_ENV"
           echo "SOURCE_BRANCH=${SOURCE_BRANCH}" >> "$GITHUB_ENV"
           echo "COMMIT_LABEL=${COMMIT_LABEL}" >> "$GITHUB_ENV"
-
           FILE_TITLE="Code Scanner Report_${REPO_NAME}_${TARGET_BRANCH}_${COMMIT_LABEL}"
           echo "Target Branch = ${TARGET_BRANCH}"
           echo "Source Branch = ${SOURCE_BRANCH}"
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
 
       # ------------------------------------------------------------
-      # 1) Resolve diff range & collect changed files
+      # 1) Resolve the diff range and collect changed files by type
       # ------------------------------------------------------------
       - name: Resolve diff range & collect changed files
         id: collect-delta-files
@@ -147,7 +135,8 @@ jobs:
           fi
 
       # ------------------------------------------------------------
-      # 2) Get delta added lines & create temp files (Apex wrappers) + keep real JS/HTML
+      # 2) Get delta added lines & create temp files
+      #    ✅ WITH mapping: line_number_mapping.txt (tempLine -> actualLine)
       # ------------------------------------------------------------
       - name: Get changed lines and create temporary files (delta, with Apex wrapper; WITH mapping)
         shell: bash
@@ -247,7 +236,6 @@ jobs:
                 ;;
 
               *.js|*.html)
-                # Scan ORIGINAL JS/HTML file (so LWC ESLint rules apply)
                 echo "$file" >> changed_cls_lwc_files.txt
                 ;;
 
@@ -269,16 +257,6 @@ jobs:
           echo "====== line_number_mapping.txt (first 50) ======"
           head -n 50 line_number_mapping.txt || true
 
-      - name: DEBUG – Print temp wrapper classes
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "==== temp_scanner_files listing ===="
-          ls -lah temp_scanner_files || true
-
-      # ------------------------------------------------------------
-      # 3) Build Actual Line Lookup
-      # ------------------------------------------------------------
       - name: Build Actual Line Lookup
         shell: bash
         run: |
@@ -301,9 +279,6 @@ jobs:
           echo "=== ACTUAL LINE LOOKUP (first 50) ==="
           head -n 50 actual_line_lookup.env || true
 
-      # ------------------------------------------------------------
-      # 4) Build files_to_scan.txt
-      # ------------------------------------------------------------
       - name: Build files_to_scan.txt from temp files
         shell: bash
         run: |
@@ -366,7 +341,6 @@ jobs:
           rm -f pmd.csv
           if [[ -s pmd_targets.txt ]]; then
             echo "🔍 Running PMD via Code Analyzer v5 on temp_scanner_files/ ..."
-
             sf code-analyzer run \
               --workspace "temp_scanner_files" \
               --rule-selector ApexCRUDViolation \
@@ -441,16 +415,9 @@ jobs:
             echo "🔍 Running ESLint on changed JS/HTML (LWC) ..."
 
             ESLINT_EXIT=0
+            npx eslint -f json --no-error-on-unmatched-pattern --resolve-plugins-relative-to . $(cat eslint_targets.txt) > eslint.json || ESLINT_EXIT=$?
 
-            # ✅ Explicit LWC config (prevents "couldn't find config" + ensures correct rules)
-            npx eslint \
-              -f json \
-              --no-error-on-unmatched-pattern \
-              --resolve-plugins-relative-to . \
-              --config force-app/main/default/lwc/.eslintrc.json \
-              $(cat eslint_targets.txt) > eslint.json || ESLINT_EXIT=$?
-
-            # If eslint couldn't execute (plugin/config error) => fail hard
+            # If eslint couldn't produce json at all => config/setup error
             if [[ "$ESLINT_EXIT" -ne 0 && ! -s eslint.json ]]; then
               echo "❌ ESLint failed to run. Setup/config error."
               exit 1
@@ -488,6 +455,8 @@ jobs:
           echo "✅ Final Scanner Report (first 80 lines):"
           head -n 80 scanner-report.csv
 
+      # ---- your remaining Salesforce auth + upload + Scanner_Reports branch + hard gate ----
+      # (unchanged below)
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
