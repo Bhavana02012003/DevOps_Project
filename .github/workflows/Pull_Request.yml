@@ -597,53 +597,6 @@ jobs:
           echo "Listing files before uploading scanner report:"
           ls -lah
 
-      - name: Commit and Push Scanner Reports to `Scanner_Reports` Branch
-        if: always()
-        shell: bash
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          set -euo pipefail
-
-          BRANCH_NAME="Scanner_Reports"
-          echo "✅ Target Branch: $BRANCH_NAME"
-
-          # 1️⃣ Save reports outside repo (to avoid conflicts)
-          mkdir -p /tmp/scanner_reports
-          cp scanner-report.csv /tmp/scanner_reports/scanner-report.csv
-          cp lwc-scanner-report.csv /tmp/scanner_reports/lwc-scanner-report.csv
-
-          # 2️⃣ HARD CLEAN repository (removes package.json changes + temp files)
-          git reset --hard
-          git clean -fd
-
-          # 3️⃣ Configure git identity
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # 4️⃣ Use PAT for authenticated push
-          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${GITHUB_REPOSITORY}.git"
-
-          # 5️⃣ Checkout Scanner_Reports cleanly
-          git fetch origin "$BRANCH_NAME" || true
-          if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
-            git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
-          else
-            git checkout --orphan "$BRANCH_NAME"
-            git rm -rf . >/dev/null 2>&1 || true
-          fi
-
-          # 6️⃣ Copy reports back into Artifact folder
-          mkdir -p Artifact
-          OUT_APEX="Artifact/${FILE_TITLE}.csv"
-          OUT_LWC="Artifact/LWC_${FILE_TITLE}.csv"
-
-          cp /tmp/scanner_reports/scanner-report.csv "$OUT_APEX"
-          cp /tmp/scanner_reports/lwc-scanner-report.csv "$OUT_LWC"
-
-          git add Artifact
-          git commit -m "Add scanner reports (PR #${{ github.event.pull_request.number }}, run ${{ github.run_id }})" || echo "No changes to commit"
-          git push -u origin "$BRANCH_NAME"
 
       # ✅ Existing gate remains (uses scanner-report.csv)
       - name: HARD FAIL Block PR on Violations + Severity buckets
@@ -720,3 +673,52 @@ jobs:
           fi
 
           echo "✅ HARD GATE PASSED – PR CAN MERGE"
+          
+
+      - name: Commit and Push Scanner Reports to `Scanner_Reports` Branch
+        if: always()
+        shell: bash
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+
+          BRANCH_NAME="Scanner_Reports"
+          echo "✅ Target Branch: $BRANCH_NAME"
+
+          # 1️⃣ Save reports outside repo (to avoid conflicts)
+          mkdir -p /tmp/scanner_reports
+          cp scanner-report.csv /tmp/scanner_reports/scanner-report.csv
+          cp lwc-scanner-report.csv /tmp/scanner_reports/lwc-scanner-report.csv
+
+          # 2️⃣ HARD CLEAN repository (removes package.json changes + temp files)
+          git reset --hard
+          git clean -fd
+
+          # 3️⃣ Configure git identity
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 4️⃣ Use PAT for authenticated push
+          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # 5️⃣ Checkout Scanner_Reports cleanly
+          git fetch origin "$BRANCH_NAME" || true
+          if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
+            git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
+          else
+            git checkout --orphan "$BRANCH_NAME"
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          # 6️⃣ Copy reports back into Artifact folder
+          mkdir -p Artifact
+          OUT_APEX="Artifact/${FILE_TITLE}.csv"
+          OUT_LWC="Artifact/LWC_${FILE_TITLE}.csv"
+
+          cp /tmp/scanner_reports/scanner-report.csv "$OUT_APEX"
+          cp /tmp/scanner_reports/lwc-scanner-report.csv "$OUT_LWC"
+
+          git add Artifact
+          git commit -m "Add scanner reports (PR #${{ github.event.pull_request.number }}, run ${{ github.run_id }})" || echo "No changes to commit"
+          git push -u origin "$BRANCH_NAME"
