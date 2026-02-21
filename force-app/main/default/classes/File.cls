@@ -122,6 +122,44 @@ public with sharing class File {
         }
 
         if (!recordsToInsert.isEmpty()) {
+            // Build unique keys for new records
+            Set<String> newKeys = new Set<String>();
+            for (SObject s : recordsToInsert) {
+                Vulnerability__c v = (Vulnerability__c)s;
+                String key = v.Rule__c + '|' + v.File__c + '|' +
+                            v.Line__c + '|' + v.Case__c;
+                newKeys.add(key);
+            }
+
+            // Query existing vulnerabilities
+            Set<String> existingKeys = new Set<String>();
+            for (Vulnerability__c v : [
+                SELECT Rule__c, File__c, Line__c, Case__c
+                FROM Vulnerability__c
+                WHERE Case__c IN :fileToCaseMap.values()
+            ]) {
+                String key = v.Rule__c + '|' + v.File__c + '|' +
+                            v.Line__c + '|' + v.Case__c;
+                existingKeys.add(key);
+            }
+
+            // Remove duplicates
+            List<SObject> finalInsert = new List<SObject>();
+
+            for (SObject s : recordsToInsert) {
+                Vulnerability__c v = (Vulnerability__c)s;
+                String key = v.Rule__c + '|' + v.File__c + '|' +
+                            v.Line__c + '|' + v.Case__c;
+
+                if (!existingKeys.contains(key)) {
+                    finalInsert.add(v);
+                }
+            }
+
+            if (!finalInsert.isEmpty()) {
+                Database.insert(finalInsert, false);
+                System.debug('✅ Inserted: ' + finalInsert.size());
+            }
             Database.insert(recordsToInsert, false);
             System.debug('✅ Vulnerabilities inserted: ' + recordsToInsert.size());
         }
