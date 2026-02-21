@@ -919,7 +919,7 @@ jobs:
           OUT_LWC="Artifact/LWC_${FILE_TITLE}"
 
           cp /tmp/scanner_reports/scanner-report.csv "$OUT_APEX"
-          if [ "${LWC_HAS_VIOLATIONS}" = "true" ] && [ -f /tmp/scanner_reports/lwc-scanner-report.csv ]; then
+          if [ "${LWC_HAS_VIOLATIONS:-false}" = "true" ] && [ -f /tmp/scanner_reports/lwc-scanner-report.csv ]; then
             cp /tmp/scanner_reports/lwc-scanner-report.csv "$OUT_LWC"
             echo "LWC report added to branch"
           else
