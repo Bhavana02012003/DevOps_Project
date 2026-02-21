@@ -42,7 +42,7 @@ global class Demo {  // Violates AvoidGlobalModifier
         if (num > 5) {
             System.debug('Num is greater than 5');
         }
-        System.debug('Testing new method data');
+        System.debug('Testing new method dataa');
     }
 
     public void soqlInjection(String userInput) {  
