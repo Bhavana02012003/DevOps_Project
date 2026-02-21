@@ -629,6 +629,18 @@ jobs:
           echo "✅ LWC-only report (first 50 lines):"
           head -n 50 lwc-scanner-report.csv
 
+          # Count LWC violations (exclude header)
+          # Count LWC violations (exclude header)
+          lwc_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
+
+          if [ "$lwc_count" -gt 0 ]; then
+            echo "LWC_HAS_VIOLATIONS=true" >> $GITHUB_ENV
+            echo "✅ LWC violations found: $lwc_count"
+          else
+            echo "LWC_HAS_VIOLATIONS=false" >> $GITHUB_ENV
+            echo "❌ No LWC violations found"
+          fi
+
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
@@ -669,11 +681,13 @@ jobs:
           echo "Successfully uploaded scanner report to Salesforce."
       # ✅ NEW upload for LWC report
       - name: Upload LWC Scanner Report to Salesforce
-        if: success()
+        if: success() && env.LWC_HAS_VIOLATIONS == 'true'
         run: |
-          if [[ ! -f lwc-scanner-report.csv ]]; then
-            echo "lwc-scanner-report.csv not found, skipping."
-            exit 0
+          if [[ -f lwc-scanner-report.csv ]]; then
+            echo "LWC report found."
+          else
+            echo "No LWC report (no LWC violations). Creating temporary empty file for gate logic."
+            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
           fi
 
           violation_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
@@ -688,18 +702,6 @@ jobs:
             -H "Content-Type: multipart/form-data" \
             -F "entity_content={\"Title\": \"LWC_${{ env.FILE_TITLE }}\", \"PathOnClient\": \"lwc-scanner-report.csv\"};type=application/json" \
             -F "VersionData=@lwc-scanner-report.csv;type=text/csv"
-
-      - name: Ensure Scanner Reports Exist
-        if: always()
-        run: |
-          if [ ! -s scanner-report.csv ]; then
-            echo "No scanner report generated, creating a dummy report."
-            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
-          fi
-          if [ ! -s lwc-scanner-report.csv ]; then
-            echo "No LWC scanner report generated, creating a dummy report."
-            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
-          fi
 
       - name: Debug - List Files Before Upload
         if: always()
@@ -721,8 +723,8 @@ jobs:
           fi
 
           if [[ ! -f lwc-scanner-report.csv ]]; then
-            echo "❌ lwc-scanner-report.csv not found"
-            exit 1
+            echo "No LWC report found. Creating empty placeholder."
+            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
           fi
 
           echo "🔍 Evaluating scanner-report.csv and lwc-scanner-report.csv"
@@ -885,7 +887,11 @@ jobs:
           # 1️⃣ Save reports outside repo (to avoid conflicts)
           mkdir -p /tmp/scanner_reports
           cp scanner-report.csv /tmp/scanner_reports/scanner-report.csv
-          cp lwc-scanner-report.csv /tmp/scanner_reports/lwc-scanner-report.csv
+          if [[ -f lwc-scanner-report.csv ]]; then
+            cp lwc-scanner-report.csv /tmp/scanner_reports/lwc-scanner-report.csv
+          else
+            echo "No LWC report to preserve."
+          fi
 
           # 2️⃣ HARD CLEAN repository (removes package.json changes + temp files)
           git reset --hard
@@ -913,7 +919,12 @@ jobs:
           OUT_LWC="Artifact/LWC_${FILE_TITLE}"
 
           cp /tmp/scanner_reports/scanner-report.csv "$OUT_APEX"
-          cp /tmp/scanner_reports/lwc-scanner-report.csv "$OUT_LWC"
+          if [ "${LWC_HAS_VIOLATIONS:-false}" = "true" ] && [ -f /tmp/scanner_reports/lwc-scanner-report.csv ]; then
+            cp /tmp/scanner_reports/lwc-scanner-report.csv "$OUT_LWC"
+            echo "LWC report added to branch"
+          else
+            echo "Skipping LWC report commit (no violations)"
+          fi
 
           git add Artifact
           git commit -m "Add scanner reports (PR #${{ github.event.pull_request.number }}, run ${{ github.run_id }})" || echo "No changes to commit"
