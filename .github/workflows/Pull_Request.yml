@@ -463,6 +463,30 @@ jobs:
                 --rule-selector CyclomaticComplexity \
                 --rule-selector StdCyclomaticComplexity \
                 --rule-selector ApexUnitTestClassShouldHaveAsserts \
+                --rule-selector VfCsrf \
+                --rule-selector VfUnescapeEl \
+                --rule-selector AvoidNonExistentAnnotations \
+                --rule-selector AvoidStatefulDatabaseResult \
+                --rule-selector EmptyIfStmt \
+                --rule-selector InaccessibleAuraEnabledGetter \
+                --rule-selector OverrideBothEqualsAndHashcode \
+                --rule-selector TestMethodsMustBeInTestClasses \
+                --rule-selector MethodWithSameNameAsEnclosingClass \
+                --rule-selector AvoidGlobalModifier \
+                --rule-selector ApexAssertionsShouldIncludeMessage \
+                --rule-selector ApexUnitTestClassShouldHaveRunAs \
+                --rule-selector ApexUnitTestMethodShouldHaveIsTestAnnotation \
+                --rule-selector AvoidLogicinTrigger \
+                --rule-selector WhileLoopsMustUseBraces \
+                --rule-selector EmptyWhileStmt \
+                --rule-selector ClassNamingConventions \
+                --rule-selector FieldNamingConventions \
+                --rule-selector FieldDeclarationsShouldBeAtStart \
+                --rule-selector LocalVariableNamingConventions \
+                --rule-selector MethodNamingConventions \
+                --rule-selector IfStmtsMustUseBraces \
+                --rule-selector UnusedMethod \
+                --rule-selector ApexDoc \
                 --output-file tmp.csv \
                 --config-file code-analyzer.yml \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
