@@ -683,9 +683,11 @@ jobs:
       - name: Upload LWC Scanner Report to Salesforce
         if: success() && env.LWC_HAS_VIOLATIONS == 'true'
         run: |
-          if [[ ! -f lwc-scanner-report.csv ]]; then
-            echo "lwc-scanner-report.csv not found, skipping."
-            exit 0
+          if [[ -f lwc-scanner-report.csv ]]; then
+            echo "LWC report found."
+          else
+            echo "No LWC report (no LWC violations). Creating temporary empty file for gate logic."
+            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
           fi
 
           violation_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
@@ -885,7 +887,11 @@ jobs:
           # 1️⃣ Save reports outside repo (to avoid conflicts)
           mkdir -p /tmp/scanner_reports
           cp scanner-report.csv /tmp/scanner_reports/scanner-report.csv
-          cp lwc-scanner-report.csv /tmp/scanner_reports/lwc-scanner-report.csv
+          if [[ -f lwc-scanner-report.csv ]]; then
+            cp lwc-scanner-report.csv /tmp/scanner_reports/lwc-scanner-report.csv
+          else
+            echo "No LWC report to preserve."
+          fi
 
           # 2️⃣ HARD CLEAN repository (removes package.json changes + temp files)
           git reset --hard
