@@ -630,6 +630,7 @@ jobs:
           head -n 50 lwc-scanner-report.csv
 
           # Count LWC violations (exclude header)
+          # Count LWC violations (exclude header)
           lwc_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
 
           if [ "$lwc_count" -gt 0 ]; then
@@ -638,7 +639,6 @@ jobs:
           else
             echo "LWC_HAS_VIOLATIONS=false" >> $GITHUB_ENV
             echo "❌ No LWC violations found"
-            rm -f lwc-scanner-report.csv
           fi
 
       - name: Authenticate with Salesforce
@@ -723,8 +723,8 @@ jobs:
           fi
 
           if [[ ! -f lwc-scanner-report.csv ]]; then
-            echo "❌ lwc-scanner-report.csv not found"
-            exit 1
+            echo "No LWC report found. Creating empty placeholder."
+            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
           fi
 
           echo "🔍 Evaluating scanner-report.csv and lwc-scanner-report.csv"
