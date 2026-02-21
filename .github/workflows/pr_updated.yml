@@ -1,0 +1,568 @@
+name: PR Approval & Merge Tracking
+ 
+on:
+  workflow_run:
+    workflows:
+      - "Hard Gating (Code Analyzer)"
+    types: [completed]
+ 
+  pull_request_review:
+    types: [submitted]
+ 
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+ 
+  check_run:
+    types: [completed]
+ 
+  check_suite:
+    types: [completed]
+ 
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  actions: read
+ 
+concurrency:
+  group: pr_process-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+ 
+jobs:
+  pr_process:
+    runs-on:
+      group: cvs-linux-self-hosted
+ 
+    env:
+      DOMAIN_URL: ${{ vars.SF_DOMAIN_URL }}
+      OBJECT_NAME: ${{ vars.SF_OBJECT_NAME }}
+ 
+      CHECK_NAMES: ${{ vars.CHECK_NAMES }}
+      CHECK_ACTION_NAME_FIELDS: ${{ vars.CHECK_ACTION_NAME_FIELDS }}
+      CHECK_ACTION_STATUS_FIELDS: ${{ vars.CHECK_ACTION_STATUS_FIELDS }}
+      CHECK_ACTION_REPORT_FIELDS: ${{ vars.CHECK_ACTION_REPORT_FIELDS }}
+      CHECK_ACTION_LWC_REPORT_FIELDS: ${{ vars.CHECK_ACTION_LWC_REPORT_FIELDS }}
+ 
+      SCANNER_REPORTS_BRANCH: Scanner_Reports
+      SCANNER_REPORTS_DIR: Artifact
+ 
+    steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+ 
+      - name: Authenticate with Salesforce
+        id: sf-auth
+        run: |
+              response=$(curl -X POST "https://test.salesforce.com/services/oauth2/token" \
+                  -d "grant_type=password" \
+                  -d "client_id=${{ secrets.SF_CLIENT_ID }}" \
+                  -d "client_secret=${{ secrets.SF_CLIENT_SECRET }}" \
+                  -d "username=${{ secrets.SF_USERNAME }}" \
+                  -d "password=${{ secrets.SF_PASSWORD }}" )
+              SF_ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
+
+              if [ -z "$SF_ACCESS_TOKEN" ]; then
+                  echo "Salesforce authentication failed."
+                  exit 1
+              fi
+
+              echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> $GITHUB_ENV
+              echo "Successfully authenticated with Salesforce."  
+ 
+      - name: Load PR Context
+        id: pr_ctx
+        shell: bash
+        run: |
+          set -euo pipefail
+ 
+          REPO="${{ github.repository }}"
+          TOKEN="${{ secrets.GITHUB_TOKEN }}"
+ 
+          PR_NUMBER=""
+          PR_HEAD_SHA=""
+ 
+          if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_review" ]]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          elif [[ "${{ github.event_name }}" == "check_run" ]]; then
+            PR_NUMBER=$(echo '${{ toJson(github.event.check_run.check_suite.pull_requests) }}' | jq -r '.[0].number // empty')
+          elif [[ "${{ github.event_name }}" == "check_suite" ]]; then
+            PR_NUMBER=$(echo '${{ toJson(github.event.check_suite.pull_requests) }}' | jq -r '.[0].number // empty')
+          elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            PR_NUMBER=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number // empty')
+            PR_HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          fi
+ 
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "No PR context for event: ${{ github.event_name }}. Skipping."
+            echo "SKIP=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+ 
+          PR_JSON=$(curl -sS \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}")
+ 
+          MSG=$(echo "$PR_JSON" | jq -r '.message // empty')
+          if [[ -n "$MSG" && "$MSG" != "null" ]]; then
+            echo "❌ GitHub PR API error: $MSG"
+            echo "$PR_JSON"
+            exit 1
+          fi
+ 
+          PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
+          PR_LINK=$(echo "$PR_JSON" | jq -r '.html_url')
+          PR_AUTHOR=$(echo "$PR_JSON" | jq -r '.user.login')
+          PR_STATE=$(echo "$PR_JSON" | jq -r '.state')
+          PR_MERGED=$(echo "$PR_JSON" | jq -r '.merged')
+          PR_MERGED_BY=$(echo "$PR_JSON" | jq -r '.merged_by.login // ""')
+          PR_HEAD_SHA_FROM_API=$(echo "$PR_JSON" | jq -r '.head.sha')
+ 
+          if [[ -z "$PR_HEAD_SHA" ]]; then
+            PR_HEAD_SHA="$PR_HEAD_SHA_FROM_API"
+          fi
+ 
+          echo "SKIP=false" >> "$GITHUB_OUTPUT"
+          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "PR_TITLE=$PR_TITLE" >> "$GITHUB_OUTPUT"
+          echo "PR_LINK=$PR_LINK" >> "$GITHUB_OUTPUT"
+          echo "PR_AUTHOR=$PR_AUTHOR" >> "$GITHUB_OUTPUT"
+          echo "PR_STATE=$PR_STATE" >> "$GITHUB_OUTPUT"
+          echo "PR_MERGED=$PR_MERGED" >> "$GITHUB_OUTPUT"
+          echo "PR_MERGED_BY=$PR_MERGED_BY" >> "$GITHUB_OUTPUT"
+          echo "PR_HEAD_SHA=$PR_HEAD_SHA" >> "$GITHUB_OUTPUT"
+ 
+      - name: Stop if no PR context
+        if: steps.pr_ctx.outputs.SKIP == 'true'
+        run: echo "Skipping because event has no PR context."
+ 
+      - name: Determine PR Status
+        if: steps.pr_ctx.outputs.SKIP != 'true'
+        id: pr_status_check
+        shell: bash
+        run: |
+          set -euo pipefail
+ 
+          PR_STATUS="Pending"
+          MERGED_BY=""
+ 
+          prState="${{ steps.pr_ctx.outputs.PR_STATE }}"
+          prMerged="${{ steps.pr_ctx.outputs.PR_MERGED }}"
+          prMergedBy="${{ steps.pr_ctx.outputs.PR_MERGED_BY }}"
+ 
+          if [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            if [[ "${{ github.event.review.state }}" == "approved" ]]; then
+              PR_STATUS="Approved"
+            elif [[ "${{ github.event.review.state }}" == "changes_requested" ]]; then
+              PR_STATUS="Changes Requested"
+            else
+              PR_STATUS="Review Submitted"
+            fi
+          else
+            if [[ "$prMerged" == "true" ]]; then
+              PR_STATUS="Merged"
+              MERGED_BY="$prMergedBy"
+            else
+              if [[ "$prState" == "open" ]]; then
+                PR_STATUS="Open"
+              else
+                PR_STATUS="Closed"
+              fi
+            fi
+          fi
+ 
+          echo "PR_STATUS=$PR_STATUS" >> "$GITHUB_OUTPUT"
+          echo "MERGED_BY=$MERGED_BY" >> "$GITHUB_OUTPUT"
+ 
+      - name: Checkout Scanner_Reports branch (for report lookup)
+        if: steps.pr_ctx.outputs.SKIP != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SCANNER_REPORTS_BRANCH }}
+          fetch-depth: 0
+          path: scanner_reports
+ 
+      - name: Get Delta Report Files for this PR (Code + LWC)
+        if: steps.pr_ctx.outputs.SKIP != 'true'
+        id: latest_report
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="scanner_reports"
+          BRANCH="${{ env.SCANNER_REPORTS_BRANCH }}"
+          REPORTS_DIR="${{ env.SCANNER_REPORTS_DIR }}"
+
+          FULL_SHA="${{ steps.pr_ctx.outputs.PR_HEAD_SHA }}"
+          SHORT_SHA="$(echo "$FULL_SHA" | cut -c1-7)"
+
+          echo "🔎 Need report containing full PR head SHA: $FULL_SHA"
+          echo "🔎 Also accept short SHA: $SHORT_SHA"
+          echo "🔎 Searching in: ${ROOT}/${REPORTS_DIR}"
+          echo "🔎 Branch: $BRANCH"
+
+          pick_latest_by_commit () {
+            local match_list="$1"
+            local best=""
+            local bestTs=0
+
+            while IFS= read -r f; do
+              [[ -z "$f" ]] && continue
+              ts=$(git -C "$ROOT" log -1 --format="%ct" "origin/${BRANCH}" -- "${REPORTS_DIR}/${f}" 2>/dev/null || echo 0)
+              ts=${ts:-0}
+              if [[ "$ts" -gt "$bestTs" ]]; then
+                bestTs="$ts"
+                best="$f"
+              fi
+            done <<< "$match_list"
+
+            echo "$best|$bestTs"
+          }
+
+          refresh_branch () {
+            git -C "$ROOT" fetch origin "$BRANCH" --prune
+            git -C "$ROOT" checkout -q "$BRANCH" || true
+            git -C "$ROOT" reset --hard "origin/$BRANCH"
+            git -C "$ROOT" clean -fd
+          }
+
+          list_files_by_prefix () {
+            local prefix="$1"
+            git -C "$ROOT" ls-tree -r --name-only "origin/$BRANCH" "$REPORTS_DIR" \
+              | grep -E "^${REPORTS_DIR}/${prefix}" \
+              | sed "s#^${REPORTS_DIR}/##" \
+              || true
+          }
+
+          find_file_for_sha () {
+            local all_files="$1"
+            local found=""
+
+            local match_full
+            match_full=$(echo "$all_files" | grep -F "$FULL_SHA" || true)
+            local match_short
+            match_short=$(echo "$all_files" | grep -F "$SHORT_SHA" || true)
+
+            if [[ -n "$match_full" ]]; then
+              found="$match_full"
+            elif [[ -n "$match_short" ]]; then
+              found="$match_short"
+            fi
+
+            if [[ -z "$found" ]]; then
+              echo ""
+              return 0
+            fi
+
+            local result
+            result="$(pick_latest_by_commit "$found")"
+            echo "${result%%|*}"
+          }
+
+          refresh_branch
+
+          CODE_PREFIX="Code Scanner Report_"
+          LWC_PREFIX="LWC_Code Scanner Report_"
+
+          # --- CODE files ---
+          CODE_FILES="$(list_files_by_prefix "$CODE_PREFIX")"
+          CODE_COUNT=$(echo "$CODE_FILES" | sed '/^\s*$/d' | wc -l | tr -d ' ')
+          [[ "$CODE_COUNT" -lt 1 ]] && CODE_MAX=30 || CODE_MAX="$CODE_COUNT"
+
+          echo "Code files count = $CODE_COUNT | attempts=$CODE_MAX"
+
+          CODE_LATEST=""
+          for ((attempt=1; attempt<=CODE_MAX; attempt++)); do
+            refresh_branch
+            CODE_FILES="$(list_files_by_prefix "$CODE_PREFIX")"
+            CODE_LATEST="$(find_file_for_sha "$CODE_FILES")"
+            [[ -n "$CODE_LATEST" ]] && break
+            echo "⏳ Code report not found yet. Waiting 10s..."
+            sleep 10
+          done
+
+          # --- LWC files ---
+          LWC_FILES="$(list_files_by_prefix "$LWC_PREFIX")"
+          LWC_COUNT=$(echo "$LWC_FILES" | sed '/^\s*$/d' | wc -l | tr -d ' ')
+          [[ "$LWC_COUNT" -lt 1 ]] && LWC_MAX=30 || LWC_MAX="$LWC_COUNT"
+
+          echo "LWC files count = $LWC_COUNT | attempts=$LWC_MAX"
+
+          LWC_LATEST=""
+          for ((attempt=1; attempt<=LWC_MAX; attempt++)); do
+            refresh_branch
+            LWC_FILES="$(list_files_by_prefix "$LWC_PREFIX")"
+            LWC_LATEST="$(find_file_for_sha "$LWC_FILES")"
+            [[ -n "$LWC_LATEST" ]] && break
+            echo "⏳ LWC report not found yet. Waiting 10s..."
+            sleep 10
+          done
+
+          echo "✅ Selected CODE report: ${CODE_LATEST:-<none>}"
+          echo "✅ Selected LWC  report: ${LWC_LATEST:-<none>}"
+
+          echo "REPORT_FILE_NAME=$CODE_LATEST" >> "$GITHUB_OUTPUT"
+          echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
+
+          echo "LWC_REPORT_FILE_NAME=$LWC_LATEST" >> "$GITHUB_OUTPUT"
+          echo "LWC_REPORT_FILE_PATH=${REPORTS_DIR}/${LWC_LATEST}" >> "$GITHUB_OUTPUT"
+ 
+      - name: Fetch check runs + map checks into SF fields (status + report file)
+        if: steps.pr_ctx.outputs.SKIP != 'true'
+        id: fetch_checks
+        shell: bash
+        run: |
+          set -euo pipefail
+ 
+          REPO="${{ github.repository }}"
+          SHA="${{ steps.pr_ctx.outputs.PR_HEAD_SHA }}"
+          TOKEN="${{ secrets.GITHUB_TOKEN }}"
+ 
+          DELTA_REPORT_FILE="${{ steps.latest_report.outputs.REPORT_FILE_NAME }}"
+          DELTA_LWC_REPORT_FILE="${{ steps.latest_report.outputs.LWC_REPORT_FILE_NAME }}"
+ 
+          CHECK_NAMES_CLEAN=$(echo "${CHECK_NAMES}" | tr -d '\r')
+          NAME_FIELDS_CLEAN=$(echo "${CHECK_ACTION_NAME_FIELDS}" | tr -d '\r')
+          STATUS_FIELDS_CLEAN=$(echo "${CHECK_ACTION_STATUS_FIELDS}" | tr -d '\r')
+          REPORT_FIELDS_CLEAN=$(echo "${CHECK_ACTION_REPORT_FIELDS}" | tr -d '\r')
+          LWC_REPORT_FIELDS_CLEAN=$(echo "${CHECK_ACTION_LWC_REPORT_FIELDS}" | tr -d '\r')
+ 
+          if [[ -z "$CHECK_NAMES_CLEAN" || -z "$NAME_FIELDS_CLEAN" || -z "$STATUS_FIELDS_CLEAN" || -z "$REPORT_FIELDS_CLEAN" ]]; then
+            echo "❌ One or more GitHub Variables are empty."
+            exit 1
+          fi
+ 
+          IFS=',' read -ra CHECK_LIST <<< "$CHECK_NAMES_CLEAN"
+          IFS=',' read -ra NAME_FIELDS <<< "$NAME_FIELDS_CLEAN"
+          IFS=',' read -ra STATUS_FIELDS <<< "$STATUS_FIELDS_CLEAN"
+          IFS=',' read -ra REPORT_FIELDS <<< "$REPORT_FIELDS_CLEAN"
+ 
+          for i in "${!CHECK_LIST[@]}"; do CHECK_LIST[$i]=$(echo "${CHECK_LIST[$i]}" | xargs); done
+          for i in "${!NAME_FIELDS[@]}"; do NAME_FIELDS[$i]=$(echo "${NAME_FIELDS[$i]}" | xargs); done
+          for i in "${!STATUS_FIELDS[@]}"; do STATUS_FIELDS[$i]=$(echo "${STATUS_FIELDS[$i]}" | xargs); done
+          for i in "${!REPORT_FIELDS[@]}"; do REPORT_FIELDS[$i]=$(echo "${REPORT_FIELDS[$i]}" | xargs); done
+ 
+          if [[ ${#CHECK_LIST[@]} -ne ${#NAME_FIELDS[@]} || ${#CHECK_LIST[@]} -ne ${#STATUS_FIELDS[@]} || ${#CHECK_LIST[@]} -ne ${#REPORT_FIELDS[@]} ]]; then
+            echo "❌ Config error: counts do not match"
+            exit 1
+          fi
+ 
+          CHECK_RUNS=""
+          for attempt in {1..8}; do
+            CHECK_RUNS=$(curl -sS \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${REPO}/commits/${SHA}/check-runs?per_page=100")
+ 
+            total=$(echo "$CHECK_RUNS" | jq -r '.total_count // 0')
+            if [[ "$total" != "0" ]]; then
+              break
+            fi
+            sleep 5
+          done
+ 
+          echo "Total check_runs found: $(echo "$CHECK_RUNS" | jq -r '.total_count // 0')"
+ 
+          ALL_CHECK_NAMES=$(echo "$CHECK_RUNS" | jq -r '.check_runs[]?.name' | paste -sd "," -)
+          ALL_CHECK_STATUSES=$(echo "$CHECK_RUNS" | jq -r '
+            .check_runs[]? |
+            (if .status != "completed" then .status else (.conclusion // "unknown") end)
+          ' | paste -sd "," -)
+ 
+          echo "CHECK_NAMES_ALL=$ALL_CHECK_NAMES" >> "$GITHUB_OUTPUT"
+          echo "CHECK_STATUSES_ALL=$ALL_CHECK_STATUSES" >> "$GITHUB_OUTPUT"
+ 
+          SF_CHECK_FIELDS_JSON="{}"
+
+          SF_LWC_REPORT_FIELDS_JSON="{}"
+
+          if [[ -n "$LWC_REPORT_FIELDS_CLEAN" ]]; then
+            IFS=',' read -ra LWC_REPORT_FIELDS <<< "$LWC_REPORT_FIELDS_CLEAN"
+            for i in "${!LWC_REPORT_FIELDS[@]}"; do LWC_REPORT_FIELDS[$i]=$(echo "${LWC_REPORT_FIELDS[$i]}" | xargs); done
+
+            for rf in "${LWC_REPORT_FIELDS[@]}"; do
+              if [[ -n "$DELTA_LWC_REPORT_FILE" ]]; then
+                SF_LWC_REPORT_FIELDS_JSON=$(echo "$SF_LWC_REPORT_FIELDS_JSON" | jq --arg f "$rf" --arg v "$DELTA_LWC_REPORT_FILE" '. + {($f): $v}')
+              else
+                SF_LWC_REPORT_FIELDS_JSON=$(echo "$SF_LWC_REPORT_FIELDS_JSON" | jq --arg f "$rf" '. + {($f): null}')
+              fi
+            done
+          fi
+ 
+          for i in "${!CHECK_LIST[@]}"; do
+            chk="${CHECK_LIST[$i]}"
+            nameField="${NAME_FIELDS[$i]}"
+            statusField="${STATUS_FIELDS[$i]}"
+            reportField="${REPORT_FIELDS[$i]}"
+ 
+            run=$(echo "$CHECK_RUNS" | jq -c --arg n "$chk" '
+              [ .check_runs[]? | select(.name==$n) ]
+              | sort_by(.id)
+              | last // empty
+            ')
+ 
+            derivedStatus="not_found"
+            reportFileName=""
+ 
+            if [[ -n "$run" && "$run" != "null" ]]; then
+              st=$(echo "$run" | jq -r '.status // "unknown"')
+              concl=$(echo "$run" | jq -r '.conclusion // empty')
+ 
+              if [[ "$st" != "completed" ]]; then
+                derivedStatus="$st"
+              else
+                derivedStatus="${concl:-unknown}"
+              fi
+ 
+              if [[ -n "$DELTA_REPORT_FILE" ]]; then
+                reportFileName="$DELTA_REPORT_FILE"
+              fi
+            fi
+ 
+            echo "Mapped: $chk -> status=$derivedStatus reportFile=${reportFileName:-<null>}"
+ 
+            if [[ -n "$reportFileName" ]]; then
+              SF_CHECK_FIELDS_JSON=$(echo "$SF_CHECK_FIELDS_JSON" | jq \
+                --arg nf "$nameField" --arg nv "$chk" \
+                --arg sf "$statusField" --arg sv "$derivedStatus" \
+                --arg rf "$reportField" --arg rv "$reportFileName" \
+                '. + {($nf): $nv, ($sf): $sv, ($rf): $rv}')
+            else
+              SF_CHECK_FIELDS_JSON=$(echo "$SF_CHECK_FIELDS_JSON" | jq \
+                --arg nf "$nameField" --arg nv "$chk" \
+                --arg sf "$statusField" --arg sv "$derivedStatus" \
+                --arg rf "$reportField" \
+                '. + {($nf): $nv, ($sf): $sv, ($rf): null}')
+            fi
+          done
+ 
+          {
+            echo "SF_CHECK_FIELDS_JSON<<EOF"
+            echo "$SF_CHECK_FIELDS_JSON"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+ 
+          echo "✅ SF_CHECK_FIELDS_JSON:"
+          echo "$SF_CHECK_FIELDS_JSON"
+
+          {
+            echo "SF_LWC_REPORT_FIELDS_JSON<<EOF"
+            echo "$SF_LWC_REPORT_FIELDS_JSON"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "✅ SF_LWC_REPORT_FIELDS_JSON:"
+          echo "$SF_LWC_REPORT_FIELDS_JSON"
+ 
+      - name: Check if PR Record Exists in Salesforce
+        if: steps.pr_ctx.outputs.SKIP != 'true'
+        id: check_existing_pr
+        shell: bash
+        run: |
+          set -euo pipefail
+ 
+          PR_LINK="${{ steps.pr_ctx.outputs.PR_LINK }}"
+          SOQL="SELECT Id, PR_Reviewer__c, PR_Review_Comment__c FROM ${{ env.OBJECT_NAME }} WHERE PR_Link__c='${PR_LINK}' LIMIT 1"
+ 
+          RESPONSE=$(curl -sS -G "${{ env.DOMAIN_URL }}/services/data/v61.0/query" \
+            -H "Authorization: Bearer ${{ env.SF_ACCESS_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            --data-urlencode "q=${SOQL}")
+ 
+          if [[ "$(echo "$RESPONSE" | jq -r 'type')" == "array" ]]; then
+            echo "❌ Salesforce query failed:"
+            echo "$RESPONSE" | jq -r '.[0].errorCode + ": " + .[0].message'
+            exit 1
+          fi
+ 
+          RECORD_ID=$(echo "$RESPONSE" | jq -r '.records[0].Id // empty')
+          EXISTING_REVIEWER=$(echo "$RESPONSE" | jq -r '.records[0].PR_Reviewer__c // empty')
+          EXISTING_COMMENT=$(echo "$RESPONSE" | jq -r '.records[0].PR_Review_Comment__c // empty')
+ 
+          echo "EXISTING_ID=$RECORD_ID" >> "$GITHUB_OUTPUT"
+          echo "EXISTING_REVIEWER=$EXISTING_REVIEWER" >> "$GITHUB_OUTPUT"
+          echo "EXISTING_COMMENT=$EXISTING_COMMENT" >> "$GITHUB_OUTPUT"
+ 
+      - name: Send PR Information to Salesforce (Create or Update)
+        if: steps.pr_ctx.outputs.SKIP != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+ 
+          prStatus="${{ steps.pr_status_check.outputs.PR_STATUS }}"
+          mergedBy="${{ steps.pr_status_check.outputs.MERGED_BY }}"
+          recordId="${{ steps.check_existing_pr.outputs.EXISTING_ID }}"
+ 
+          prTitle="${{ steps.pr_ctx.outputs.PR_TITLE }}"
+          prLink="${{ steps.pr_ctx.outputs.PR_LINK }}"
+          prAuthor="${{ steps.pr_ctx.outputs.PR_AUTHOR }}"
+ 
+          newReviewer=""
+          newComment=""
+ 
+          if [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            newReviewer="${{ github.event.review.user.login }}"
+            newComment="${{ github.event.review.body }}"
+          fi
+ 
+          existingReviewer="${{ steps.check_existing_pr.outputs.EXISTING_REVIEWER }}"
+          existingComment="${{ steps.check_existing_pr.outputs.EXISTING_COMMENT }}"
+ 
+          if [[ -n "$existingReviewer" && "$existingReviewer" != "null" ]]; then
+            updatedReviewer="$existingReviewer $newReviewer"
+          else
+            updatedReviewer="$newReviewer"
+          fi
+ 
+          if [[ -n "$existingComment" && "$existingComment" != "null" ]]; then
+            updatedComment="$existingComment  $newComment"
+          else
+            updatedComment="$newComment"
+          fi
+ 
+          BASE=$(jq -n \
+            --arg title "$prTitle" \
+            --arg link "$prLink" \
+            --arg status "$prStatus" \
+            --arg author "$prAuthor" \
+            --arg reviewer "$updatedReviewer" \
+            --arg comment "$updatedComment" \
+            --arg allNames "${{ steps.fetch_checks.outputs.CHECK_NAMES_ALL }}" \
+            --arg allStats "${{ steps.fetch_checks.outputs.CHECK_STATUSES_ALL }}" \
+            '{
+              PR_Title__c: $title,
+              PR_Link__c: $link,
+              PR_Status__c: $status,
+              PR_Author__c: $author,
+              PR_Reviewer__c: $reviewer,
+              PR_Review_Comment__c: $comment,
+              Code_Analyzer_Check_Name__c: $allNames,
+              Code_Analyzer_Check_Status__c: $allStats
+            }')
+ 
+          CHECK_FIELDS_JSON='${{ steps.fetch_checks.outputs.SF_CHECK_FIELDS_JSON }}'
+          LWC_FIELDS_JSON='${{ steps.fetch_checks.outputs.SF_LWC_REPORT_FIELDS_JSON }}'
+
+          PAYLOAD=$(echo "$BASE" | jq --argjson a "$CHECK_FIELDS_JSON" --argjson b "$LWC_FIELDS_JSON" '. + $a + $b')
+ 
+          if [[ -n "$mergedBy" ]]; then
+            PAYLOAD=$(echo "$PAYLOAD" | jq --arg mergedBy "$mergedBy" '. + { PR_Merged_By__c: $mergedBy }')
+          fi
+ 
+          if [[ -n "$recordId" ]]; then
+            echo "Updating existing PR record: $recordId"
+            RESPONSE=$(curl -sS -X PATCH "${{ env.DOMAIN_URL }}/services/data/v61.0/sobjects/${{ env.OBJECT_NAME }}/$recordId" \
+              -H "Authorization: Bearer ${{ env.SF_ACCESS_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD")
+          else
+            echo "Creating a new PR record"
+            RESPONSE=$(curl -sS -X POST "${{ env.DOMAIN_URL }}/services/data/v61.0/sobjects/${{ env.OBJECT_NAME }}/" \
+              -H "Authorization: Bearer ${{ env.SF_ACCESS_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD")
+          fi
+ 
+          echo "Response: $RESPONSE"
+ 
+ 
