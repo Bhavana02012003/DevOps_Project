@@ -4,7 +4,7 @@ export default class Demo extends LightningElement {
     myVar; // ❌ `no-unused-vars`: Variable is declared but not used
 
     connectedCallback() {
-        console.log('Component Loading Voilation dataa.....'); // ❌ `no-console`: `console.log()` is not allowed
+        console.log('Component Loading Voilation dataaa.....'); // ❌ `no-console`: `console.log()` is not allowed
         debugger; // ❌ `no-debugger`: Debugger statement is not allowed
 
         if (this.myVar === null) { // ❌ `eqeqeq`: Use `===` instead of `==`

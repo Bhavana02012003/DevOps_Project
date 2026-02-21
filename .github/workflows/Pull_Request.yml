@@ -74,7 +74,7 @@ jobs:
           echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "$GITHUB_ENV"
           echo "SOURCE_BRANCH=${SOURCE_BRANCH}" >> "$GITHUB_ENV"
           echo "COMMIT_LABEL=${COMMIT_LABEL}" >> "$GITHUB_ENV"
-          FILE_TITLE="Code Scanner Report_${REPO_NAME}_${TARGET_BRANCH}_${COMMIT_LABEL}"
+          FILE_TITLE="Code Scanner Report_${REPO_NAME}_${TARGET_BRANCH}_${COMMIT_LABEL}.csv"
           echo "Target Branch = ${TARGET_BRANCH}"
           echo "Source Branch = ${SOURCE_BRANCH}"
           echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
@@ -861,8 +861,8 @@ jobs:
 
           # 6️⃣ Copy reports back into Artifact folder
           mkdir -p Artifact
-          OUT_APEX="Artifact/${FILE_TITLE}.csv"
-          OUT_LWC="Artifact/LWC_${FILE_TITLE}.csv"
+          OUT_APEX="Artifact/${FILE_TITLE}"
+          OUT_LWC="Artifact/LWC_${FILE_TITLE}"
 
           cp /tmp/scanner_reports/scanner-report.csv "$OUT_APEX"
           cp /tmp/scanner_reports/lwc-scanner-report.csv "$OUT_LWC"
