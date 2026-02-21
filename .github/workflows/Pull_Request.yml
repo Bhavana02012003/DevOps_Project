@@ -189,15 +189,39 @@ jobs:
 
                 temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
 
-                echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" > "$temp_file"
+                # ------------------------------
+                # ADD APEX DOC FOR WRAPPER CLASS
+                # ------------------------------
+                echo "/**" > "$temp_file"
+                echo " * @description Temporary wrapper class generated for delta scan." >> "$temp_file"
+                echo " * This class is auto-generated during CI for PMD delta analysis." >> "$temp_file"
+                echo " */" >> "$temp_file"
+                echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" >> "$temp_file"
+
                 temp_line=1
                 brace_balance=0
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
 
+                # Map ApexDoc comment lines as 0 (non-original)
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+
+                # ------------------------------
+                # ADD APEX DOC FOR TEMP METHOD
+                # ------------------------------
+                echo "  /**" >> "$temp_file"
+                echo "   * @description Temporary method generated for delta scan." >> "$temp_file"
+                echo "   */" >> "$temp_file"
                 echo "  public static void tempMethod() {" >> "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
+
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                # echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                # ((temp_line++))
 
                 has_real_code=false
 
