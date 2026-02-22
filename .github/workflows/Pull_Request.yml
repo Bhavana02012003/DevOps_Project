@@ -918,14 +918,44 @@ jobs:
           OUT_APEX="Artifact/${FILE_TITLE}"
           OUT_LWC="Artifact/LWC_${FILE_TITLE}"
 
-          cp /tmp/scanner_reports/scanner-report.csv "$OUT_APEX"
+          # ----------------------------------------------------
+          # Count Apex violations (exclude header)
+          # ----------------------------------------------------
+          apex_violation_count=$(tail -n +2 /tmp/scanner_reports/scanner-report.csv | wc -l)
+
+          apex_added=false
+          lwc_added=false
+
+          # ----------------------------------------------------
+          # Copy Apex report only if violations exist
+          # ----------------------------------------------------
+          if [ "$apex_violation_count" -gt 0 ]; then
+            cp /tmp/scanner_reports/scanner-report.csv "$OUT_APEX"
+            echo "✅ Apex report added to branch"
+            apex_added=true
+          else
+            echo "Skipping Apex report commit (no violations)"
+          fi
+
+          # ----------------------------------------------------
+          # Copy LWC report only if violations exist
+          # ----------------------------------------------------
           if [ "${LWC_HAS_VIOLATIONS:-false}" = "true" ] && [ -f /tmp/scanner_reports/lwc-scanner-report.csv ]; then
             cp /tmp/scanner_reports/lwc-scanner-report.csv "$OUT_LWC"
-            echo "LWC report added to branch"
+            echo "✅ LWC report added to branch"
+            lwc_added=true
           else
             echo "Skipping LWC report commit (no violations)"
           fi
 
-          git add Artifact
-          git commit -m "Add scanner reports (PR #${{ github.event.pull_request.number }}, run ${{ github.run_id }})" || echo "No changes to commit"
-          git push -u origin "$BRANCH_NAME"
+          # ----------------------------------------------------
+          # Commit only if at least one report exists
+          # ----------------------------------------------------
+          if [[ "$apex_added" == "true" || "$lwc_added" == "true" ]]; then
+            git add Artifact
+            git commit -m "Add scanner reports (PR #${{ github.event.pull_request.number }}, run ${{ github.run_id }})"
+            git push -u origin "$BRANCH_NAME"
+            echo "🚀 Reports pushed to Scanner_Reports branch"
+          else
+            echo "🎉 No violations at all. Nothing pushed to Scanner_Reports branch."
+          fi
