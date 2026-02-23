@@ -69,7 +69,7 @@ public with sharing class SEO_ScannerReportHandler {
                     List<String> csvLines = csvContent.split('\n');
                     if (csvLines.size() > 1) {
                         String headerLine = csvLines[0];
-                        List<String> headers = headerLine.split(',');
+                        List<String> headers = parseCsvLine(headerLine);
 
                         Integer targetBranchIndex = headers.indexOf('TargetBranch');
                         Integer commitIndex = headers.indexOf('Commit');
@@ -78,7 +78,7 @@ public with sharing class SEO_ScannerReportHandler {
                         Boolean setPriority = false;
 
                         for (Integer i = 1; i < csvLines.size(); i++) {
-                            List<String> values = csvLines[i].split(',');
+                            List<String> values = parseCsvLine(csvLines[i]);
 
                             if (targetBranchIndex != -1 && values.size() > targetBranchIndex) {
                                 newCase.Target_Environment__c = values[targetBranchIndex].trim();
@@ -173,4 +173,34 @@ public with sharing class SEO_ScannerReportHandler {
 
         isProcessing = false;
     }
+
+    private static List<String> parseCsvLine(String line) {
+    List<String> result = new List<String>();
+    Boolean inQuotes = false;
+    String current = '';
+
+    for (Integer i = 0; i < line.length(); i++) {
+        String ch = line.substring(i, i+1);
+
+        if (ch == '"') {
+            inQuotes = !inQuotes;
+        } else if (ch == ',' && !inQuotes) {
+            result.add(current.trim());
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+
+    result.add(current.trim());
+
+    // Remove surrounding quotes if present
+    for (Integer j = 0; j < result.size(); j++) {
+        if (result[j].startsWith('"') && result[j].endsWith('"')) {
+            result[j] = result[j].substring(1, result[j].length()-1);
+        }
+    }
+
+    return result;
+}
 }
