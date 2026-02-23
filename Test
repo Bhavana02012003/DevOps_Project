@@ -112,7 +112,9 @@ public with sharing class SEO_ScannerReportHandler {
                 } catch (Exception e) {
                     //System.debug('❌ Error reading CSV content: ' + e.getMessage());
                 }
-                newCase.Subject = commitAuthor + ' - ' + cv.Title; 
+                String caseOrigin = newCase.Origin != null ? newCase.Origin : 'Unknown';
+				String authorValue = String.isNotBlank(commitAuthor) ? commitAuthor : 'Unknown';
+				newCase.Subject = caseOrigin + ' - ' + authorValue;
                 casesToInsert.add(newCase);
                 caseToFileMap.put(cv.ContentDocumentId, null);
             }
