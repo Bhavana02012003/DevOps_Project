@@ -71,10 +71,23 @@ public with sharing class SEO_ScannerReportHandler {
                         String headerLine = csvLines[0];
                         List<String> headers = parseCsvLine(headerLine);
 
-                        Integer targetBranchIndex = headers.indexOf('TargetBranch');
-                        Integer commitIndex = headers.indexOf('Commit');
-                        Integer severityIndex = headers.indexOf('Severity'); 
-
+                        Integer targetBranchIndex = -1;
+						Integer commitIndex = -1;
+						Integer severityIndex = -1;
+						
+						for (Integer h = 0; h < headers.size(); h++) {
+						    String headerName = headers[h].trim();
+						
+						    if (headerName == 'TargetBranch') {
+						        targetBranchIndex = h;
+						    }
+						    if (headerName == 'CommitAuthor') {
+						        commitIndex = h;
+						    }
+						    if (headerName == 'severity' || headerName == 'Severity') {
+						        severityIndex = h;
+						    }
+						}
                         Boolean setPriority = false;
 
                         for (Integer i = 1; i < csvLines.size(); i++) {
