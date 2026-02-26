@@ -1,0 +1,5 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"no-unused-vars",eslint,2,,"temp_scanner_files/temp_force-app_main_default_aura_AccountCreator_AccountCreatorController.js",3,0,3,0,"'event' is defined but never used.",,Bhavana02012003,Bhavana02012003,2,Backup_Cloned_Branch
+"no-unused-vars",eslint,2,,"temp_scanner_files/temp_force-app_main_default_aura_AccountCreator_AccountCreatorController.js",3,0,3,0,"'helper' is defined but never used.",,Bhavana02012003,Bhavana02012003,2,Backup_Cloned_Branch
+"no-undef",eslint,2,,"temp_scanner_files/temp_force-app_main_default_aura_AccountCreator_AccountCreatorController.js",38,0,38,0,"'$A' is not defined.",,Bhavana02012003,Bhavana02012003,47,Backup_Cloned_Branch
+"no-undef",eslint,2,,"temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js",2,0,2,0,"'console' is not defined.",,Bhavana02012003,Bhavana02012003,7,Backup_Cloned_Branch
