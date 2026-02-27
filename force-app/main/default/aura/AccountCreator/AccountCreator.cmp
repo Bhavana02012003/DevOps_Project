@@ -1,0 +1,39 @@
+<aura:component controller="AccountClass"
+                implements="force:appHostable,
+                            flexipage:availableForAllPageTypes,
+                            force:hasRecordId">
+
+    <aura:attribute name="accountName" type="String"/>
+    <aura:attribute name="phone" type="String"/>
+    <aura:attribute name="type" type="String"/>
+    <aura:attribute name="rating" type="String"/>
+    <aura:attribute name="message" type="String"/>
+
+    <lightning:card title="Create Account">
+
+        <div class="slds-p-around_medium">
+
+            <lightning:input label="Account Name"
+                             value="{!v.accountName}"/>
+
+            <lightning:input label="Phone"
+                             value="{!v.phone}"/>
+
+            <lightning:input label="Type"
+                             value="{!v.type}"/>
+
+            <lightning:input label="Rating"
+                             value="{!v.rating}"/>
+
+            <lightning:button label="Create Account"
+                              variant="brand"
+                              onclick="{!c.createAccount}"/>
+
+            <br/><br/>
+
+            <lightning:formattedText value="{!v.message}"/>
+
+        </div>
+
+    </lightning:card>
+</aura:component>

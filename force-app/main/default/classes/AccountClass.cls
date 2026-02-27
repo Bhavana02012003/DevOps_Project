@@ -1,11 +1,8 @@
 /**
- * @description       : 
- * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
- * @group             : 
- * @last modified on  : 02-19-2026
- * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
-**/
+ * @description Account Creation Class
+ */
 public with sharing class AccountClass {
+
     @AuraEnabled
     public static Id createAccount(
         String Name,
@@ -28,48 +25,47 @@ public with sharing class AccountClass {
         String SLA,
         Date SLAExpirationDate
     ) {
-        // Create the Account instance
+
         Account acc = new Account();
         acc.Name = Name;
         acc.Phone = Phone;
         acc.Type = Type;
         acc.Rating = Rating;
-        
-        // Set additional fields
-        // acc.DOB__c = DOB;
-        // acc.Email__c = Email;
 
-        // Set Billing Address fields
         acc.BillingStreet = BillingStreet;
         acc.BillingCity = BillingCity;
         acc.BillingState = BillingState;
         acc.BillingPostalCode = BillingPostalCode;
         acc.BillingCountry = BillingCountry;
 
-        // Set Shipping Address fields
         acc.ShippingStreet = ShippingStreet;
         acc.ShippingCity = ShippingCity;
         acc.ShippingState = ShippingState;
         acc.ShippingPostalCode = ShippingPostalCode;
         acc.ShippingCountry = ShippingCountry;
 
-        // Set other custom fields
         acc.CustomerPriority__c = CustomerPriority;
         acc.SLA__c = SLA;
         acc.SLAExpirationDate__c = SLAExpirationDate;
 
         try {
+
+            // 🔴 Intentional violation (for scanner)
             System.debug('Attempting to insert Account:: ' + acc);
-            insert acc;  // Insert the Account record
-            return acc.Id;  // Return the ID of the new Account
+
+            insert acc;
+            return acc.Id;
+
         } catch (Exception ex) {
-            System.debug('Error Bro please check once' + ex.getMessage());
-            throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
-            if(ex.getMessage().contains('DUPLICATE_VALUE')) {
-                //System.debug('Duplicate account name detected: ' + Name);
-                throw new AuraHandledException('An account with this name already exists. Please choose a different name.');
+
+            if (ex.getMessage().contains('DUPLICATE_VALUE')) {
+                throw new AuraHandledException(
+                    'Duplicate account name detected.'
+                );
             } else {
-                throw new AuraHandledException('Account creation failed: ' + ex.getMessage());
+                throw new AuraHandledException(
+                    'Account creation failed: ' + ex.getMessage()
+                );
             }
         }
     }
