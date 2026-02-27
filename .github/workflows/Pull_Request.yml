@@ -88,8 +88,8 @@ jobs:
           set -euo pipefail
           echo "Resolving diff range..."
 
-          # Always fetch enough history for merge-base to exist
-          git fetch --no-tags --prune --depth=0 origin +refs/heads/*:refs/remotes/origin/*
+          # fetch remote refs (no --depth=0)
+          git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
 
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
@@ -130,7 +130,7 @@ jobs:
           echo "Checking for changed .cls, .js, .html files..."
 
           # Always fetch enough history
-          git fetch --no-tags --prune --depth=0 origin +refs/heads/*:refs/remotes/origin/*
+          git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
 
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
