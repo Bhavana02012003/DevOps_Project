@@ -1,0 +1,2 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"UnknownRule",eslint,2,,"temp_scanner_files/temp_force-app_main_default_aura_AccountCreator_AccountCreatorController.js",3,0,3,0,"Parsing error: Unexpected token",,Bhavana02012003,Bhavana02012003,N/A,Backup_Cloned_Branch
