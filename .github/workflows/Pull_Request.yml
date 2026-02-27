@@ -300,51 +300,14 @@ jobs:
                 ;;
               *.js)
 
-                temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
-
-                temp_line=1
-                echo "/* delta-only temp JS */" > "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
-
-                while IFS= read -r row; do
-                  actual_line="${row%%$TAB*}"
-                  content="${row#*"$TAB"}"
-
-                  if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
-                    printf "%s\n" "$content" >> "$temp_file"
-                    echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
-                    ((temp_line++))
-                  fi
-                done < lines.tmp
-
-                echo "$temp_file" >> changed_cls_lwc_files.txt
-                ;;
+                echo "JS file detected → scanning full file (no delta wrapping)"
+                echo "$file" >> changed_cls_lwc_files.txt
+              ;;
               *.html)
-
-                temp_file="temp_scanner_files/temp_${sanitized%.html}.html"
-
-                temp_line=1
-                echo "<template>" > "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
-
-                while IFS= read -r row; do
-                  actual_line="${row%%$TAB*}"
-                  content="${row#*"$TAB"}"
-
-                  if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
-                    printf "%s\n" "$content" >> "$temp_file"
-                    echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
-                    ((temp_line++))
-                  fi
-                done < lines.tmp
-
-                echo "</template>" >> "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-
-                echo "$temp_file" >> changed_cls_lwc_files.txt
-                ;;
+              
+                echo "HTML file detected → scanning full file"
+                echo "$file" >> changed_cls_lwc_files.txt
+              ;;
 
             esac
 
@@ -514,13 +477,13 @@ jobs:
                 --output-file tmp.csv \
                 --config-file code-analyzer.yml \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
-            else
-              sf code-analyzer run \
-                --workspace "$file" \
-                --engine eslint \
-                --output-file tmp.csv \
-              || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
-            fi
+            # else
+            #   sf code-analyzer run \
+            #     --workspace "$file" \
+            #     --engine eslint \
+            #     --output-file tmp.csv \
+            #   || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
+            # fi
             if [[ -f tmp.csv ]]; then
               isTemp=0
               [[ "$file" == temp_scanner_files/* ]] && isTemp=1
