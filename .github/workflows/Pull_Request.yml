@@ -87,16 +87,23 @@ jobs:
         run: |
           set -euo pipefail
           echo "Resolving diff range..."
-          git fetch --no-tags --prune --depth=50 origin +refs/heads/*:refs/remotes/origin/*
-          if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.base_ref }}" ]]; then
-            RANGE="origin/${{ github.base_ref }}...${{ github.sha }}"
-            echo "Using PR diff range: $RANGE"
+
+          # Always fetch enough history for merge-base to exist
+          git fetch --no-tags --prune --depth=0 origin +refs/heads/*:refs/remotes/origin/*
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            RANGE="${BASE_SHA}...${HEAD_SHA}"
+            echo "Using PR diff range (SHA): $RANGE"
           else
             RANGE="HEAD~1..HEAD"
             echo "Using fallback diff range: $RANGE"
           fi
+
           echo "RANGE=$RANGE" >> "$GITHUB_OUTPUT"
-          changed_files=$(git diff --name-only $RANGE -- '*.cls' '*.js' '*.html' || true)
+
+          changed_files=$(git diff --name-only "$RANGE" -- '*.cls' '*.js' '*.html' || true)
           if [[ -z "$changed_files" ]]; then
             echo "⚠️ No changes detected for .cls/.js/.html."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
@@ -122,10 +129,14 @@ jobs:
 
           echo "Checking for changed .cls, .js, .html files..."
 
-          if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.base_ref }}" ]]; then
-            RANGE="origin/${{ github.base_ref }}...${{ github.sha }}"
-            echo "Using PR diff: $RANGE"
-            git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
+          # Always fetch enough history
+          git fetch --no-tags --prune --depth=0 origin +refs/heads/*:refs/remotes/origin/*
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            RANGE="${BASE_SHA}...${HEAD_SHA}"
+            echo "Using PR diff (SHA): $RANGE"
           else
             RANGE="HEAD~1..HEAD"
             echo "Using fallback diff: $RANGE"
