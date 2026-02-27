@@ -32,7 +32,7 @@
             if (state === "SUCCESS") {
 
                 component.set("v.message",
-                    "Account Created Successfully: " +
+                    "Account Created Successfully:: " +
                     response.getReturnValue());
 
             } else {
