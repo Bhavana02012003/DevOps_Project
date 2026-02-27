@@ -9,9 +9,9 @@ export default [
   // Base JS recommended rules
   js.configs.recommended,
 
-  // -----------------------------
-  // ✅ LWC + Aura JS (controllers/helpers/components)
-  // -----------------------------
+  // ✅ Use the plugin's recommended rules (prevents "rule not found" crashes)
+  ...(lwc.configs.recommended ?? []),
+
   {
     files: ["**/{lwc,aura}/**/*.js", "temp_scanner_files/**/*.js"],
     plugins: {
@@ -19,40 +19,31 @@ export default [
       "@salesforce/aura": aura,
       "@salesforce/lightning": lightning,
       import: importPlugin,
-      jest: jest,
+      jest: jest
     },
     languageOptions: {
       ecmaVersion: 2023,
-      sourceType: "module",
+      sourceType: "module"
     },
     rules: {
+      // ✅ This is the rule that will catch console.log
       "no-console": ["error", { allow: ["warn", "error"] }],
       "no-debugger": "error",
       "no-unused-vars": "warn",
       "no-undef": "error",
-      eqeqeq: ["error", "always"],
-      curly: "error",
-      semi: ["error", "always"],
-
-      "@lwc/lwc/no-async-await-in-wire": "error",
-      "@lwc/lwc/no-deprecated": "warn",
-      "@lwc/lwc/no-inner-html": "error",
-      "@lwc/lwc/no-dupe-class-members": "error",
-    },
+      "eqeqeq": ["error", "always"],
+      "curly": "error",
+      "semi": ["error", "always"]
+    }
   },
 
-  // -----------------------------
-  // ✅ LWC HTML templates
-  // IMPORTANT: This processor is what prevents "UnknownRule" parsing errors
-  // -----------------------------
+  // ✅ LWC HTML templates (prevents parsing/UnknownRule errors)
   {
     files: ["**/lwc/**/*.html", "temp_scanner_files/**/*.html"],
     plugins: {
-      "@lwc/lwc": lwc,
+      "@lwc/lwc": lwc
     },
     processor: lwc.processors[".html"],
-    rules: {
-      // You can keep this empty or add template rules later
-    },
-  },
+    rules: {}
+  }
 ];

@@ -589,7 +589,8 @@ jobs:
             rm -f eslint-output.json
 
             # ESLint v10 reads eslint.config.js from repo root automatically
-            npx eslint "$file" --no-error-on-unmatched-pattern -f json -o eslint-output.json || true
+            # If ESLint config is broken, show it and stop (otherwise you get empty CSV)
+            npx eslint "$file" --no-error-on-unmatched-pattern -f json -o eslint-output.json
 
             if [[ ! -s eslint-output.json ]]; then
               continue
