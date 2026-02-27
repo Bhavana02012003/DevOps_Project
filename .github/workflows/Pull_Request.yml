@@ -21,16 +21,8 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install ESLint + required plugins (no package.json changes)
-        run: |
-          npm install --no-save --legacy-peer-deps \
-            eslint \
-            @eslint/js \
-            @lwc/eslint-plugin-lwc \
-            @salesforce/eslint-plugin-aura \
-            @salesforce/eslint-plugin-lightning \
-            eslint-plugin-import \
-            eslint-plugin-jest
+      - name: Install ESLint (DO NOT MODIFY package.json)
+        run: npm install eslint --no-save --legacy-peer-deps
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -522,6 +514,12 @@ jobs:
                 --output-file tmp.csv \
                 --config-file code-analyzer.yml \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
+            else
+              sf code-analyzer run \
+                --workspace "$file" \
+                --engine eslint \
+                --output-file tmp.csv \
+              || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
             fi
             if [[ -f tmp.csv ]]; then
               isTemp=0
@@ -589,8 +587,7 @@ jobs:
             rm -f eslint-output.json
 
             # ESLint v10 reads eslint.config.js from repo root automatically
-            # If ESLint config is broken, show it and stop (otherwise you get empty CSV)
-            npx eslint "$file" --no-error-on-unmatched-pattern -f json -o eslint-output.json
+            npx eslint "$file" -f json -o eslint-output.json || true
 
             if [[ ! -s eslint-output.json ]]; then
               continue

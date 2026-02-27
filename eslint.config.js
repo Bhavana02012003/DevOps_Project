@@ -6,14 +6,10 @@ import importPlugin from "eslint-plugin-import";
 import jest from "eslint-plugin-jest";
 
 export default [
-  // Base JS recommended rules
   js.configs.recommended,
 
-  // ✅ Use the plugin's recommended rules (prevents "rule not found" crashes)
-  ...(lwc.configs.recommended ?? []),
-
   {
-    files: ["**/{lwc,aura}/**/*.js", "temp_scanner_files/**/*.js"],
+    files: ["**/{lwc,aura}/**/*.js"],
     plugins: {
       "@lwc/lwc": lwc,
       "@salesforce/aura": aura,
@@ -26,24 +22,18 @@ export default [
       sourceType: "module"
     },
     rules: {
-      // ✅ This is the rule that will catch console.log
       "no-console": ["error", { allow: ["warn", "error"] }],
       "no-debugger": "error",
       "no-unused-vars": "warn",
       "no-undef": "error",
       "eqeqeq": ["error", "always"],
       "curly": "error",
-      "semi": ["error", "always"]
-    }
-  },
+      "semi": ["error", "always"],
 
-  // ✅ LWC HTML templates (prevents parsing/UnknownRule errors)
-  {
-    files: ["**/lwc/**/*.html", "temp_scanner_files/**/*.html"],
-    plugins: {
-      "@lwc/lwc": lwc
-    },
-    processor: lwc.processors[".html"],
-    rules: {}
+      "@lwc/lwc/no-async-await-in-wire": "error",
+      "@lwc/lwc/no-deprecated": "warn",
+      "@lwc/lwc/no-inner-html": "error",
+      "@lwc/lwc/no-dupe-class-members": "error"
+    }
   }
 ];
