@@ -22,7 +22,7 @@ export default [
       sourceType: "module"
     },
     rules: {
-      // "no-console": ["error", { allow: ["warn", "error"] }],
+      "no-console": ["error", { allow: ["warn", "error"] }],
       "no-debugger": "error",
       "no-unused-vars": "warn",
       "no-undef": "error",
