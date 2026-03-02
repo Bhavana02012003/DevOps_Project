@@ -3,7 +3,7 @@ name: PR Approval & Merge Tracking
 on:
   workflow_run:
     workflows:
-      - "Apex PMD Scan (PRs, CSV, fail-on-violation)"
+      - "Salesforce Code Scan and Critical Permissions Check on Pull Request"
     types: [completed]
  
   pull_request_review:
@@ -206,27 +206,36 @@ jobs:
           echo "🔎 Need report containing full PR head SHA: $FULL_SHA"
           echo "🔎 Also accept short SHA: $SHORT_SHA"
 
-          # 18 attempts * 10 seconds = 3 minutes maximum wait time for scanner to finish
           MAX_ATTEMPTS=18 
 
-          # O(1) Search Function: Traverses commit history backwards
-          find_latest_report() {
+          # New Method: Generate a chronologically sorted folder list and search top-down
+          find_latest_report_in_folder() {
             local prefix="$1"
-            local match=""
+            local latest_file=""
             
-            # Step 1: Strictly search for the FULL_SHA first to guarantee absolute uniqueness
-            match=$(git -C "$ROOT" log -1 --name-only --format="" "origin/$BRANCH" \
-              -- "${REPORTS_DIR}/${prefix}*${FULL_SHA}*" 2>/dev/null \
-              | grep "^${REPORTS_DIR}/${prefix}" | head -n 1 || true)
+            # Step 1: Ask Git for all files in the directory, ordered by newest commit to oldest.
+            # awk '!seen[$0]++' removes duplicates so we only get the newest version of each file.
+            local sorted_folder_list
+            sorted_folder_list=$(git -C "$ROOT" log --name-only --format="" "origin/$BRANCH" -- "${REPORTS_DIR}/" \
+              | grep "^${REPORTS_DIR}/${prefix}" \
+              | awk '!seen[$0]++' || true)
+
+            # Step 2: Read the folder list line-by-line (newest first). 
+            # Stop the loop the moment we find the SHA.
+            while IFS= read -r file; do
+              [[ -z "$file" ]] && continue
+              
+              if [[ "$file" == *"$FULL_SHA"* ]]; then
+                latest_file="$file"
+                break
+              elif [[ "$file" == *"$SHORT_SHA"* ]]; then
+                latest_file="$file"
+                break
+              fi
+            done <<< "$sorted_folder_list"
             
-            # Step 2: Only if not found, fall back to the SHORT_SHA 
-            if [[ -z "$match" ]]; then
-              match=$(git -C "$ROOT" log -1 --name-only --format="" "origin/$BRANCH" \
-                -- "${REPORTS_DIR}/${prefix}*${SHORT_SHA}*" 2>/dev/null \
-                | grep "^${REPORTS_DIR}/${prefix}" | head -n 1 || true)
-            fi
-            
-            echo "${match#$REPORTS_DIR/}"
+            # Output the filename without the directory path
+            echo "${latest_file#$REPORTS_DIR/}"
           }
 
           # --- CODE files ---
@@ -234,10 +243,9 @@ jobs:
           CODE_LATEST=""
           echo "--- Searching for CODE Report ---"
           for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
-            # Silently fetch new commits without touching the working directory
             git -C "$ROOT" fetch origin "$BRANCH" --quiet
             
-            CODE_LATEST=$(find_latest_report "$CODE_PREFIX")
+            CODE_LATEST=$(find_latest_report_in_folder "$CODE_PREFIX")
             [[ -n "$CODE_LATEST" ]] && break
             
             echo "⏳ Code report not found yet (attempt $attempt/$MAX_ATTEMPTS). Waiting 10s..."
@@ -251,7 +259,7 @@ jobs:
           for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
             git -C "$ROOT" fetch origin "$BRANCH" --quiet
             
-            LWC_LATEST=$(find_latest_report "$LWC_PREFIX")
+            LWC_LATEST=$(find_latest_report_in_folder "$LWC_PREFIX")
             [[ -n "$LWC_LATEST" ]] && break
             
             echo "⏳ LWC report not found yet (attempt $attempt/$MAX_ATTEMPTS). Waiting 10s..."
@@ -261,7 +269,6 @@ jobs:
           echo "✅ Selected CODE report: ${CODE_LATEST:-<none>}"
           echo "✅ Selected LWC  report: ${LWC_LATEST:-<none>}"
 
-          # Safely export paths downstream
           echo "REPORT_FILE_NAME=$CODE_LATEST" >> "$GITHUB_OUTPUT"
           if [[ -n "$CODE_LATEST" ]]; then
             echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
