@@ -205,114 +205,91 @@ jobs:
 
           echo "🔎 Need report containing full PR head SHA: $FULL_SHA"
           echo "🔎 Also accept short SHA: $SHORT_SHA"
-          echo "🔎 Searching in: ${ROOT}/${REPORTS_DIR}"
-          echo "🔎 Branch: $BRANCH"
+          echo "🔎 Searching in: ${ROOT}/${REPORTS_DIR} on branch: $BRANCH"
 
-          pick_latest_by_commit () {
-            local match_list="$1"
-            local best=""
-            local bestTs=0
-
+          # Helper function to find the most recently committed file from a list of matches
+          get_latest_file() {
+            local file_list="$1"
+            local best_file=""
+            local latest_ts=0
+            
             while IFS= read -r f; do
               [[ -z "$f" ]] && continue
-              ts=$(git -C "$ROOT" log -1 --format="%ct" "origin/${BRANCH}" -- "${REPORTS_DIR}/${f}" 2>/dev/null || echo 0)
-              ts=${ts:-0}
-              if [[ "$ts" -gt "$bestTs" ]]; then
-                bestTs="$ts"
-                best="$f"
+              # Query the timestamp directly from the remote branch tracking reference
+              local ts
+              ts=$(git -C "$ROOT" log -1 --format="%ct" "origin/$BRANCH" -- "$f" 2>/dev/null || echo 0)
+              
+              if [[ "$ts" -ge "$latest_ts" ]]; then
+                latest_ts="$ts"
+                best_file="${f#$REPORTS_DIR/}" # Strip the directory prefix
               fi
-            done <<< "$match_list"
-
-            echo "$best|$bestTs"
+            done <<< "$file_list"
+            
+            echo "$best_file"
           }
 
-          refresh_branch () {
-            git -C "$ROOT" fetch origin "$BRANCH" --prune
-            git -C "$ROOT" checkout -q "$BRANCH" || true
-            git -C "$ROOT" reset --hard "origin/$BRANCH"
-            git -C "$ROOT" clean -fd
-          }
-
-          list_files_by_prefix () {
-            local prefix="$1"
-            git -C "$ROOT" ls-tree -r --name-only "origin/$BRANCH" "$REPORTS_DIR" \
-              | grep -E "^${REPORTS_DIR}/${prefix}" \
-              | sed "s#^${REPORTS_DIR}/##" \
-              || true
-          }
-
-          find_file_for_sha () {
-            local all_files="$1"
-            local found=""
-
-            local match_full
-            match_full=$(echo "$all_files" | grep -F "$FULL_SHA" || true)
-            local match_short
-            match_short=$(echo "$all_files" | grep -F "$SHORT_SHA" || true)
-
-            if [[ -n "$match_full" ]]; then
-              found="$match_full"
-            elif [[ -n "$match_short" ]]; then
-              found="$match_short"
-            fi
-
-            if [[ -z "$found" ]]; then
-              echo ""
-              return 0
-            fi
-
-            local result
-            result="$(pick_latest_by_commit "$found")"
-            echo "${result%%|*}"
-          }
-
-          refresh_branch
-
-          CODE_PREFIX="Code Scanner Report_"
-          LWC_PREFIX="LWC_Code Scanner Report_"
+          # Fixed timeout limit: 18 attempts * 10 seconds = 3 minutes max wait
+          MAX_ATTEMPTS=18 
 
           # --- CODE files ---
-          CODE_FILES="$(list_files_by_prefix "$CODE_PREFIX")"
-          CODE_COUNT=$(echo "$CODE_FILES" | sed '/^\s*$/d' | wc -l | tr -d ' ')
-          [[ "$CODE_COUNT" -lt 1 ]] && CODE_MAX=30 || CODE_MAX="$CODE_COUNT"
-
-          echo "Code files count = $CODE_COUNT | attempts=$CODE_MAX"
-
+          CODE_PREFIX="Code Scanner Report_"
           CODE_LATEST=""
-          for ((attempt=1; attempt<=CODE_MAX; attempt++)); do
-            refresh_branch
-            CODE_FILES="$(list_files_by_prefix "$CODE_PREFIX")"
-            CODE_LATEST="$(find_file_for_sha "$CODE_FILES")"
-            [[ -n "$CODE_LATEST" ]] && break
-            echo "⏳ Code report not found yet. Waiting 10s..."
+          echo "--- Searching for CODE Report ---"
+          for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
+            # Fetch updates without touching the working tree
+            git -C "$ROOT" fetch origin "$BRANCH" --quiet
+            
+            # Read directly from the git tree, filtering by directory, prefix, and SHA
+            MATCHES=$(git -C "$ROOT" ls-tree -r --name-only "origin/$BRANCH" "$REPORTS_DIR" \
+              | grep -E "^${REPORTS_DIR}/${CODE_PREFIX}" \
+              | grep -E "(${FULL_SHA}|${SHORT_SHA})" || true)
+            
+            if [[ -n "$MATCHES" ]]; then
+              CODE_LATEST=$(get_latest_file "$MATCHES")
+              [[ -n "$CODE_LATEST" ]] && break
+            fi
+            
+            echo "⏳ Code report not found yet (attempt $attempt/$MAX_ATTEMPTS). Waiting 10s..."
             sleep 10
           done
 
           # --- LWC files ---
-          LWC_FILES="$(list_files_by_prefix "$LWC_PREFIX")"
-          LWC_COUNT=$(echo "$LWC_FILES" | sed '/^\s*$/d' | wc -l | tr -d ' ')
-          [[ "$LWC_COUNT" -lt 1 ]] && LWC_MAX=30 || LWC_MAX="$LWC_COUNT"
-
-          echo "LWC files count = $LWC_COUNT | attempts=$LWC_MAX"
-
+          LWC_PREFIX="LWC_Code Scanner Report_"
           LWC_LATEST=""
-          for ((attempt=1; attempt<=LWC_MAX; attempt++)); do
-            refresh_branch
-            LWC_FILES="$(list_files_by_prefix "$LWC_PREFIX")"
-            LWC_LATEST="$(find_file_for_sha "$LWC_FILES")"
-            [[ -n "$LWC_LATEST" ]] && break
-            echo "⏳ LWC report not found yet. Waiting 10s..."
+          echo "--- Searching for LWC Report ---"
+          for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
+            git -C "$ROOT" fetch origin "$BRANCH" --quiet
+            
+            MATCHES=$(git -C "$ROOT" ls-tree -r --name-only "origin/$BRANCH" "$REPORTS_DIR" \
+              | grep -E "^${REPORTS_DIR}/${LWC_PREFIX}" \
+              | grep -E "(${FULL_SHA}|${SHORT_SHA})" || true)
+            
+            if [[ -n "$MATCHES" ]]; then
+              LWC_LATEST=$(get_latest_file "$MATCHES")
+              [[ -n "$LWC_LATEST" ]] && break
+            fi
+            
+            echo "⏳ LWC report not found yet (attempt $attempt/$MAX_ATTEMPTS). Waiting 10s..."
             sleep 10
           done
 
           echo "✅ Selected CODE report: ${CODE_LATEST:-<none>}"
           echo "✅ Selected LWC  report: ${LWC_LATEST:-<none>}"
 
+          # Pass values to downstream jobs exactly as before
           echo "REPORT_FILE_NAME=$CODE_LATEST" >> "$GITHUB_OUTPUT"
-          echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$CODE_LATEST" ]]; then
+            echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
+          else
+            echo "REPORT_FILE_PATH=" >> "$GITHUB_OUTPUT"
+          fi
 
           echo "LWC_REPORT_FILE_NAME=$LWC_LATEST" >> "$GITHUB_OUTPUT"
-          echo "LWC_REPORT_FILE_PATH=${REPORTS_DIR}/${LWC_LATEST}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$LWC_LATEST" ]]; then
+            echo "LWC_REPORT_FILE_PATH=${REPORTS_DIR}/${LWC_LATEST}" >> "$GITHUB_OUTPUT"
+          else
+            echo "LWC_REPORT_FILE_PATH=" >> "$GITHUB_OUTPUT"
+          fi
  
       - name: Fetch check runs + map checks into SF fields (status + report file)
         if: steps.pr_ctx.outputs.SKIP != 'true'
