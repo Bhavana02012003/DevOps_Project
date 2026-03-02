@@ -205,65 +205,100 @@ jobs:
 
           echo "🔎 Need report containing full PR head SHA: $FULL_SHA"
           echo "🔎 Also accept short SHA: $SHORT_SHA"
+          echo "🔎 Searching in Commit History: origin/$BRANCH/${REPORTS_DIR}"
 
-          # New Method: Infinite loop, searching folder newest-to-oldest
-          find_latest_report_in_folder() {
+          # O(1) Search Function: Traverses commit history backwards (Enterprise Scale)
+          # Tweak: Prioritizes FULL_SHA uniqueness over SHORT_SHA collision risk
+          find_latest_report() {
             local prefix="$1"
-            local found_file=""
+            local match=""
             
-            while true; do
-              # Silently fetch updates
-              git -C "$ROOT" fetch origin "$BRANCH" --quiet
-              
-              # Step 1: Ask Git for all files in the directory, ordered by newest commit to oldest.
-              # awk '!seen[$0]++' removes duplicates so we only get the newest instance of each file.
-              local sorted_folder_list
-              sorted_folder_list=$(git -C "$ROOT" log --name-only --format="" "origin/$BRANCH" -- "${REPORTS_DIR}/" \
-                | grep "^${REPORTS_DIR}/${prefix}" \
-                | awk '!seen[$0]++' || true)
-
-              # Step 2: Read the folder list line-by-line (newest first).
-              while IFS= read -r file; do
-                [[ -z "$file" ]] && continue
-                
-                # Check if the filename contains the Full or Short SHA
-                if [[ "$file" == *"$FULL_SHA"* || "$file" == *"$SHORT_SHA"* ]]; then
-                  found_file="${file#$REPORTS_DIR/}"
-                  break
-                fi
-              done <<< "$sorted_folder_list"
-              
-              # Step 3: If found, echo the result and exit the infinite loop
-              if [[ -n "$found_file" ]]; then
-                echo "$found_file"
-                return 0
-              fi
-              
-              # Print to stderr (>&2) so it doesn't corrupt the function's return value
-              echo "⏳ $prefix report not found yet. Searching folder again in 10s..." >&2
-              sleep 10
-            done
+            # Step 1: Strictly search for the FULL_SHA first
+            match=$(git -C "$ROOT" log -1 --name-only --format="" "origin/$BRANCH" \
+              -- "${REPORTS_DIR}/${prefix}*${FULL_SHA}*" 2>/dev/null \
+              | grep "^${REPORTS_DIR}/${prefix}" | head -n 1 || true)
+            
+            # Step 2: Fall back to SHORT_SHA only if not found
+            if [[ -z "$match" ]]; then
+              match=$(git -C "$ROOT" log -1 --name-only --format="" "origin/$BRANCH" \
+                -- "${REPORTS_DIR}/${prefix}*${SHORT_SHA}*" 2>/dev/null \
+                | grep "^${REPORTS_DIR}/${prefix}" | head -n 1 || true)
+            fi
+            
+            # Return filename without directory prefix
+            echo "${match#$REPORTS_DIR/}"
           }
 
-          # --- CODE files ---
+          # 18 attempts * 10 seconds = 3 minutes maximum timeout loop
+          MAX_ATTEMPTS=18 
+
           CODE_PREFIX="Code Scanner Report_"
-          echo "--- Searching for CODE Report ---"
-          CODE_LATEST=$(find_latest_report_in_folder "$CODE_PREFIX")
-
-          # --- LWC files ---
           LWC_PREFIX="LWC_Code Scanner Report_"
-          echo "--- Searching for LWC Report ---"
-          LWC_LATEST=$(find_latest_report_in_folder "$LWC_PREFIX")
 
-          echo "✅ Selected CODE report: ${CODE_LATEST}"
-          echo "✅ Selected LWC  report: ${LWC_LATEST}"
+          CODE_FOUND=false
+          LWC_FOUND=false
+          CODE_LATEST=""
+          LWC_LATEST=""
 
-          # Export variables downstream
+          echo "--- Starting Fused-Loop Search for BOTH Reports ---"
+          for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
+            # Silently fetch new commits (tracking only, no working-tree modify)
+            git -C "$ROOT" fetch origin "$BRANCH" --quiet
+            
+            # 1. Search for CODE report if not found yet
+            if [[ "$CODE_FOUND" == "false" ]]; then
+              CODE_LATEST=$(find_latest_report "$CODE_PREFIX")
+              if [[ -n "$CODE_LATEST" ]]; then
+                CODE_FOUND=true
+                echo "✅ Code report found on attempt $attempt."
+              fi
+            fi
+            
+            # 2. Search for LWC report if not found yet
+            if [[ "$LWC_FOUND" == "false" ]]; then
+              LWC_LATEST=$(find_latest_report "$LWC_PREFIX")
+              if [[ -n "$LWC_LATEST" ]]; then
+                LWC_FOUND=true
+                echo "✅ LWC report found on attempt $attempt."
+              fi
+            fi
+
+            # --- OPTIMIZED EARLY EXIT LOGIC ---
+            # Define your exit condition based on workflow requirements.
+            
+            # Condition A: Workflow expects BOTH files. Exit only when both arrive.
+            # if [[ "$CODE_FOUND" == "true" && "$LWC_FOUND" == "true" ]]; then break; fi
+
+            # Condition B (Your Scenario): Workflow must provide the results *it currently has* once 'critical mass' is hit. 
+            # The prompt indicates Code Report is the primary concern, and LWC is optional/missing.
+            # If Code Report is found, stop waiting entirely. We take what we have for LWC on this tick.
+            if [[ "$CODE_FOUND" == "true" ]]; then
+              echo "✅ Primary Code report found. Stopping wait cycle immediately."
+              break
+            fi
+            
+            echo "⏳ Reports not found yet (attempt $attempt/$MAX_ATTEMPTS). Waiting 10s..."
+            sleep 10
+          done
+
+          # Result Reporting (Downstream behavior preserved)
+          echo "✅ Final CODE report: ${CODE_LATEST:-<none>}"
+          echo "✅ Final LWC  report: ${LWC_LATEST:-<none>}"
+
+          # Export variables downstream, safely handling missing states
           echo "REPORT_FILE_NAME=$CODE_LATEST" >> "$GITHUB_OUTPUT"
-          echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$CODE_LATEST" ]]; then
+            echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
+          else
+            echo "REPORT_FILE_PATH=" >> "$GITHUB_OUTPUT"
+          fi
 
           echo "LWC_REPORT_FILE_NAME=$LWC_LATEST" >> "$GITHUB_OUTPUT"
-          echo "LWC_REPORT_FILE_PATH=${REPORTS_DIR}/${LWC_LATEST}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$LWC_LATEST" ]]; then
+            echo "LWC_REPORT_FILE_PATH=${REPORTS_DIR}/${LWC_LATEST}" >> "$GITHUB_OUTPUT"
+          else
+            echo "LWC_REPORT_FILE_PATH=" >> "$GITHUB_OUTPUT"
+          fi
  
       - name: Fetch check runs + map checks into SF fields (status + report file)
         if: steps.pr_ctx.outputs.SKIP != 'true'
