@@ -205,49 +205,37 @@ jobs:
 
           echo "🔎 Need report containing full PR head SHA: $FULL_SHA"
           echo "🔎 Also accept short SHA: $SHORT_SHA"
-          echo "🔎 Searching in: ${ROOT}/${REPORTS_DIR} on branch: $BRANCH"
 
-          # Helper function to find the most recently committed file from a list of matches
-          get_latest_file() {
-            local file_list="$1"
-            local best_file=""
-            local latest_ts=0
-            
-            while IFS= read -r f; do
-              [[ -z "$f" ]] && continue
-              # Query the timestamp directly from the remote branch tracking reference
-              local ts
-              ts=$(git -C "$ROOT" log -1 --format="%ct" "origin/$BRANCH" -- "$f" 2>/dev/null || echo 0)
-              
-              if [[ "$ts" -ge "$latest_ts" ]]; then
-                latest_ts="$ts"
-                best_file="${f#$REPORTS_DIR/}" # Strip the directory prefix
-              fi
-            done <<< "$file_list"
-            
-            echo "$best_file"
-          }
-
-          # Fixed timeout limit: 18 attempts * 10 seconds = 3 minutes max wait
+          # 18 attempts * 10 seconds = 3 minutes maximum wait time for scanner to finish
           MAX_ATTEMPTS=18 
+
+          # O(1) Search Function: Traverses commit history backwards, stopping at the first match
+          find_latest_report() {
+            local prefix="$1"
+            local match=""
+            
+            # git log -1  : Stops at the very first (latest) commit that matches
+            # --name-only : Outputs only the filenames modified in that commit
+            # --format="" : Hides the commit hash and author details, leaving just the path
+            match=$(git -C "$ROOT" log -1 --name-only --format="" "origin/$BRANCH" \
+              -- "${REPORTS_DIR}/${prefix}*${FULL_SHA}*" \
+              "${REPORTS_DIR}/${prefix}*${SHORT_SHA}*" 2>/dev/null \
+              | grep "^${REPORTS_DIR}/${prefix}" | head -n 1 || true)
+            
+            # Output the filename without the directory path
+            echo "${match#$REPORTS_DIR/}"
+          }
 
           # --- CODE files ---
           CODE_PREFIX="Code Scanner Report_"
           CODE_LATEST=""
           echo "--- Searching for CODE Report ---"
           for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
-            # Fetch updates without touching the working tree
+            # Silently fetch new commits without touching the working directory
             git -C "$ROOT" fetch origin "$BRANCH" --quiet
             
-            # Read directly from the git tree, filtering by directory, prefix, and SHA
-            MATCHES=$(git -C "$ROOT" ls-tree -r --name-only "origin/$BRANCH" "$REPORTS_DIR" \
-              | grep -E "^${REPORTS_DIR}/${CODE_PREFIX}" \
-              | grep -E "(${FULL_SHA}|${SHORT_SHA})" || true)
-            
-            if [[ -n "$MATCHES" ]]; then
-              CODE_LATEST=$(get_latest_file "$MATCHES")
-              [[ -n "$CODE_LATEST" ]] && break
-            fi
+            CODE_LATEST=$(find_latest_report "$CODE_PREFIX")
+            [[ -n "$CODE_LATEST" ]] && break
             
             echo "⏳ Code report not found yet (attempt $attempt/$MAX_ATTEMPTS). Waiting 10s..."
             sleep 10
@@ -260,14 +248,8 @@ jobs:
           for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
             git -C "$ROOT" fetch origin "$BRANCH" --quiet
             
-            MATCHES=$(git -C "$ROOT" ls-tree -r --name-only "origin/$BRANCH" "$REPORTS_DIR" \
-              | grep -E "^${REPORTS_DIR}/${LWC_PREFIX}" \
-              | grep -E "(${FULL_SHA}|${SHORT_SHA})" || true)
-            
-            if [[ -n "$MATCHES" ]]; then
-              LWC_LATEST=$(get_latest_file "$MATCHES")
-              [[ -n "$LWC_LATEST" ]] && break
-            fi
+            LWC_LATEST=$(find_latest_report "$LWC_PREFIX")
+            [[ -n "$LWC_LATEST" ]] && break
             
             echo "⏳ LWC report not found yet (attempt $attempt/$MAX_ATTEMPTS). Waiting 10s..."
             sleep 10
@@ -276,7 +258,7 @@ jobs:
           echo "✅ Selected CODE report: ${CODE_LATEST:-<none>}"
           echo "✅ Selected LWC  report: ${LWC_LATEST:-<none>}"
 
-          # Pass values to downstream jobs exactly as before
+          # Safely export paths downstream
           echo "REPORT_FILE_NAME=$CODE_LATEST" >> "$GITHUB_OUTPUT"
           if [[ -n "$CODE_LATEST" ]]; then
             echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
