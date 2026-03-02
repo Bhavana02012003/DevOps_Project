@@ -207,8 +207,15 @@ jobs:
           echo "🔎 Also accept short SHA: $SHORT_SHA"
           echo "🔎 Searching in Commit History: origin/$BRANCH/${REPORTS_DIR}"
 
-          # O(1) Search Function: Traverses commit history backwards (Enterprise Scale)
-          # Tweak: Prioritizes FULL_SHA uniqueness over SHORT_SHA collision risk
+          # Fast File Counter: Reads the Git tree in memory without checking out files
+          count_files() {
+            local prefix="$1"
+            # Lists files in the remote branch directory and counts lines matching the prefix
+            git -C "$ROOT" ls-tree -r --name-only "origin/$BRANCH" "$REPORTS_DIR" 2>/dev/null \
+              | grep -c "^${REPORTS_DIR}/${prefix}" || echo "0"
+          }
+
+          # O(1) Search Function: Traverses commit history backwards
           find_latest_report() {
             local prefix="$1"
             local match=""
@@ -225,7 +232,6 @@ jobs:
                 | grep "^${REPORTS_DIR}/${prefix}" | head -n 1 || true)
             fi
             
-            # Return filename without directory prefix
             echo "${match#$REPORTS_DIR/}"
           }
 
@@ -235,8 +241,6 @@ jobs:
           CODE_PREFIX="Code Scanner Report_"
           LWC_PREFIX="LWC_Code Scanner Report_"
 
-          CODE_FOUND=false
-          LWC_FOUND=false
           CODE_LATEST=""
           LWC_LATEST=""
 
@@ -245,47 +249,33 @@ jobs:
             # Silently fetch new commits (tracking only, no working-tree modify)
             git -C "$ROOT" fetch origin "$BRANCH" --quiet
             
-            # 1. Search for CODE report if not found yet
-            if [[ "$CODE_FOUND" == "false" ]]; then
-              CODE_LATEST=$(find_latest_report "$CODE_PREFIX")
-              if [[ -n "$CODE_LATEST" ]]; then
-                CODE_FOUND=true
-                echo "✅ Code report found on attempt $attempt."
-              fi
-            fi
+            # Print the total number of files currently residing in the Artifact folder
+            CODE_TOTAL=$(count_files "$CODE_PREFIX")
+            LWC_TOTAL=$(count_files "$LWC_PREFIX")
+            echo "📊 Attempt $attempt/$MAX_ATTEMPTS | Files in folder -> Code: $CODE_TOTAL | LWC: $LWC_TOTAL"
             
-            # 2. Search for LWC report if not found yet
-            if [[ "$LWC_FOUND" == "false" ]]; then
-              LWC_LATEST=$(find_latest_report "$LWC_PREFIX")
-              if [[ -n "$LWC_LATEST" ]]; then
-                LWC_FOUND=true
-                echo "✅ LWC report found on attempt $attempt."
-              fi
-            fi
+            # Search for Code report
+            CODE_LATEST=$(find_latest_report "$CODE_PREFIX")
+            
+            # Search for LWC report
+            LWC_LATEST=$(find_latest_report "$LWC_PREFIX")
 
             # --- OPTIMIZED EARLY EXIT LOGIC ---
-            # Define your exit condition based on workflow requirements.
-            
-            # Condition A: Workflow expects BOTH files. Exit only when both arrive.
-            # if [[ "$CODE_FOUND" == "true" && "$LWC_FOUND" == "true" ]]; then break; fi
-
-            # Condition B (Your Scenario): Workflow must provide the results *it currently has* once 'critical mass' is hit. 
-            # The prompt indicates Code Report is the primary concern, and LWC is optional/missing.
-            # If Code Report is found, stop waiting entirely. We take what we have for LWC on this tick.
-            if [[ "$CODE_FOUND" == "true" ]]; then
-              echo "✅ Primary Code report found. Stopping wait cycle immediately."
+            # The moment either report arrives, we know the upstream scanner pushed its commit.
+            # Stop waiting immediately to prevent wasting time on missing/invisible files.
+            if [[ -n "$CODE_LATEST" || -n "$LWC_LATEST" ]]; then
+              echo "✅ Scanner push detected for this SHA! Stopping wait cycle."
               break
             fi
             
-            echo "⏳ Reports not found yet (attempt $attempt/$MAX_ATTEMPTS). Waiting 10s..."
+            echo "⏳ Reports not found yet. Waiting 10s..."
             sleep 10
           done
 
-          # Result Reporting (Downstream behavior preserved)
           echo "✅ Final CODE report: ${CODE_LATEST:-<none>}"
           echo "✅ Final LWC  report: ${LWC_LATEST:-<none>}"
 
-          # Export variables downstream, safely handling missing states
+          # Export variables downstream safely
           echo "REPORT_FILE_NAME=$CODE_LATEST" >> "$GITHUB_OUTPUT"
           if [[ -n "$CODE_LATEST" ]]; then
             echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
