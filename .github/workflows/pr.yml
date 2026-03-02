@@ -206,82 +206,64 @@ jobs:
           echo "🔎 Need report containing full PR head SHA: $FULL_SHA"
           echo "🔎 Also accept short SHA: $SHORT_SHA"
 
-          MAX_ATTEMPTS=18 
-
-          # New Method: Generate a chronologically sorted folder list and search top-down
+          # New Method: Infinite loop, searching folder newest-to-oldest
           find_latest_report_in_folder() {
             local prefix="$1"
-            local latest_file=""
+            local found_file=""
             
-            # Step 1: Ask Git for all files in the directory, ordered by newest commit to oldest.
-            # awk '!seen[$0]++' removes duplicates so we only get the newest version of each file.
-            local sorted_folder_list
-            sorted_folder_list=$(git -C "$ROOT" log --name-only --format="" "origin/$BRANCH" -- "${REPORTS_DIR}/" \
-              | grep "^${REPORTS_DIR}/${prefix}" \
-              | awk '!seen[$0]++' || true)
-
-            # Step 2: Read the folder list line-by-line (newest first). 
-            # Stop the loop the moment we find the SHA.
-            while IFS= read -r file; do
-              [[ -z "$file" ]] && continue
+            while true; do
+              # Silently fetch updates
+              git -C "$ROOT" fetch origin "$BRANCH" --quiet
               
-              if [[ "$file" == *"$FULL_SHA"* ]]; then
-                latest_file="$file"
-                break
-              elif [[ "$file" == *"$SHORT_SHA"* ]]; then
-                latest_file="$file"
-                break
+              # Step 1: Ask Git for all files in the directory, ordered by newest commit to oldest.
+              # awk '!seen[$0]++' removes duplicates so we only get the newest instance of each file.
+              local sorted_folder_list
+              sorted_folder_list=$(git -C "$ROOT" log --name-only --format="" "origin/$BRANCH" -- "${REPORTS_DIR}/" \
+                | grep "^${REPORTS_DIR}/${prefix}" \
+                | awk '!seen[$0]++' || true)
+
+              # Step 2: Read the folder list line-by-line (newest first).
+              while IFS= read -r file; do
+                [[ -z "$file" ]] && continue
+                
+                # Check if the filename contains the Full or Short SHA
+                if [[ "$file" == *"$FULL_SHA"* || "$file" == *"$SHORT_SHA"* ]]; then
+                  found_file="${file#$REPORTS_DIR/}"
+                  break
+                fi
+              done <<< "$sorted_folder_list"
+              
+              # Step 3: If found, echo the result and exit the infinite loop
+              if [[ -n "$found_file" ]]; then
+                echo "$found_file"
+                return 0
               fi
-            done <<< "$sorted_folder_list"
-            
-            # Output the filename without the directory path
-            echo "${latest_file#$REPORTS_DIR/}"
+              
+              # Print to stderr (>&2) so it doesn't corrupt the function's return value
+              echo "⏳ $prefix report not found yet. Searching folder again in 10s..." >&2
+              sleep 10
+            done
           }
 
           # --- CODE files ---
           CODE_PREFIX="Code Scanner Report_"
-          CODE_LATEST=""
           echo "--- Searching for CODE Report ---"
-          for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
-            git -C "$ROOT" fetch origin "$BRANCH" --quiet
-            
-            CODE_LATEST=$(find_latest_report_in_folder "$CODE_PREFIX")
-            [[ -n "$CODE_LATEST" ]] && break
-            
-            echo "⏳ Code report not found yet (attempt $attempt/$MAX_ATTEMPTS). Waiting 10s..."
-            sleep 10
-          done
+          CODE_LATEST=$(find_latest_report_in_folder "$CODE_PREFIX")
 
           # --- LWC files ---
           LWC_PREFIX="LWC_Code Scanner Report_"
-          LWC_LATEST=""
           echo "--- Searching for LWC Report ---"
-          for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
-            git -C "$ROOT" fetch origin "$BRANCH" --quiet
-            
-            LWC_LATEST=$(find_latest_report_in_folder "$LWC_PREFIX")
-            [[ -n "$LWC_LATEST" ]] && break
-            
-            echo "⏳ LWC report not found yet (attempt $attempt/$MAX_ATTEMPTS). Waiting 10s..."
-            sleep 10
-          done
+          LWC_LATEST=$(find_latest_report_in_folder "$LWC_PREFIX")
 
-          echo "✅ Selected CODE report: ${CODE_LATEST:-<none>}"
-          echo "✅ Selected LWC  report: ${LWC_LATEST:-<none>}"
+          echo "✅ Selected CODE report: ${CODE_LATEST}"
+          echo "✅ Selected LWC  report: ${LWC_LATEST}"
 
+          # Export variables downstream
           echo "REPORT_FILE_NAME=$CODE_LATEST" >> "$GITHUB_OUTPUT"
-          if [[ -n "$CODE_LATEST" ]]; then
-            echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
-          else
-            echo "REPORT_FILE_PATH=" >> "$GITHUB_OUTPUT"
-          fi
+          echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
 
           echo "LWC_REPORT_FILE_NAME=$LWC_LATEST" >> "$GITHUB_OUTPUT"
-          if [[ -n "$LWC_LATEST" ]]; then
-            echo "LWC_REPORT_FILE_PATH=${REPORTS_DIR}/${LWC_LATEST}" >> "$GITHUB_OUTPUT"
-          else
-            echo "LWC_REPORT_FILE_PATH=" >> "$GITHUB_OUTPUT"
-          fi
+          echo "LWC_REPORT_FILE_PATH=${REPORTS_DIR}/${LWC_LATEST}" >> "$GITHUB_OUTPUT"
  
       - name: Fetch check runs + map checks into SF fields (status + report file)
         if: steps.pr_ctx.outputs.SKIP != 'true'
