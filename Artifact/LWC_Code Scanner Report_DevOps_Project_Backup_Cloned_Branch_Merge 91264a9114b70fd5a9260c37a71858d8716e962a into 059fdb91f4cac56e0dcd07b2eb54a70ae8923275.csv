@@ -1,0 +1,2 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"no-undef",eslint,2,,"temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js",2,0,2,0,"'console' is not defined.",,Bhavana02012003,Bhavana02012003,7,Backup_Cloned_Branch
