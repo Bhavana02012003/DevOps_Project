@@ -209,20 +209,23 @@ jobs:
           # 18 attempts * 10 seconds = 3 minutes maximum wait time for scanner to finish
           MAX_ATTEMPTS=18 
 
-          # O(1) Search Function: Traverses commit history backwards, stopping at the first match
+          # O(1) Search Function: Traverses commit history backwards
           find_latest_report() {
             local prefix="$1"
             local match=""
             
-            # git log -1  : Stops at the very first (latest) commit that matches
-            # --name-only : Outputs only the filenames modified in that commit
-            # --format="" : Hides the commit hash and author details, leaving just the path
+            # Step 1: Strictly search for the FULL_SHA first to guarantee absolute uniqueness
             match=$(git -C "$ROOT" log -1 --name-only --format="" "origin/$BRANCH" \
-              -- "${REPORTS_DIR}/${prefix}*${FULL_SHA}*" \
-              "${REPORTS_DIR}/${prefix}*${SHORT_SHA}*" 2>/dev/null \
+              -- "${REPORTS_DIR}/${prefix}*${FULL_SHA}*" 2>/dev/null \
               | grep "^${REPORTS_DIR}/${prefix}" | head -n 1 || true)
             
-            # Output the filename without the directory path
+            # Step 2: Only if not found, fall back to the SHORT_SHA 
+            if [[ -z "$match" ]]; then
+              match=$(git -C "$ROOT" log -1 --name-only --format="" "origin/$BRANCH" \
+                -- "${REPORTS_DIR}/${prefix}*${SHORT_SHA}*" 2>/dev/null \
+                | grep "^${REPORTS_DIR}/${prefix}" | head -n 1 || true)
+            fi
+            
             echo "${match#$REPORTS_DIR/}"
           }
 
