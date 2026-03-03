@@ -233,6 +233,8 @@ jobs:
  
           echo "CHECK_NAMES_ALL=$ALL_CHECK_NAMES" >> "$GITHUB_OUTPUT"
           echo "CHECK_STATUSES_ALL=$ALL_CHECK_STATUSES" >> "$GITHUB_OUTPUT"
+          echo "COMMIT_SHA_KEY=$SHA" >> "$GITHUB_OUTPUT"
+          echo "✅ Processing Check Runs for Commit SHA: $SHA"
  
           SF_CHECK_FIELDS_JSON="{}"
  
