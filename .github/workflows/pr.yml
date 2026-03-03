@@ -39,11 +39,6 @@ jobs:
       CHECK_NAMES: ${{ vars.CHECK_NAMES }}
       CHECK_ACTION_NAME_FIELDS: ${{ vars.CHECK_ACTION_NAME_FIELDS }}
       CHECK_ACTION_STATUS_FIELDS: ${{ vars.CHECK_ACTION_STATUS_FIELDS }}
-      CHECK_ACTION_REPORT_FIELDS: ${{ vars.CHECK_ACTION_REPORT_FIELDS }}
-      CHECK_ACTION_LWC_REPORT_FIELDS: ${{ vars.CHECK_ACTION_LWC_REPORT_FIELDS }}
- 
-      SCANNER_REPORTS_BRANCH: Scanner_Reports
-      SCANNER_REPORTS_DIR: Artifact
  
     steps:
       - name: Install jq
@@ -181,140 +176,7 @@ jobs:
           echo "PR_STATUS=$PR_STATUS" >> "$GITHUB_OUTPUT"
           echo "MERGED_BY=$MERGED_BY" >> "$GITHUB_OUTPUT"
  
-      - name: Checkout Scanner_Reports branch (for report lookup)
-        if: steps.pr_ctx.outputs.SKIP != 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.SCANNER_REPORTS_BRANCH }}
-          fetch-depth: 0
-          path: scanner_reports
- 
-      - name: Get Delta Report Files for this PR (Code + LWC)
-        if: steps.pr_ctx.outputs.SKIP != 'true'
-        id: latest_report
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ROOT="scanner_reports"
-          BRANCH="${{ env.SCANNER_REPORTS_BRANCH }}"
-          REPORTS_DIR="${{ env.SCANNER_REPORTS_DIR }}"
-
-          FULL_SHA="${{ steps.pr_ctx.outputs.PR_HEAD_SHA }}"
-          SHORT_SHA="$(echo "$FULL_SHA" | cut -c1-7)"
-
-          echo "🔎 Need report containing full PR head SHA: $FULL_SHA"
-          echo "🔎 Also accept short SHA: $SHORT_SHA"
-          echo "🔎 Searching in: ${ROOT}/${REPORTS_DIR}"
-          echo "🔎 Branch: $BRANCH"
-
-          pick_latest_by_commit () {
-            local match_list="$1"
-            local best=""
-            local bestTs=0
-
-            while IFS= read -r f; do
-              [[ -z "$f" ]] && continue
-              ts=$(git -C "$ROOT" log -1 --format="%ct" "origin/${BRANCH}" -- "${REPORTS_DIR}/${f}" 2>/dev/null || echo 0)
-              ts=${ts:-0}
-              if [[ "$ts" -gt "$bestTs" ]]; then
-                bestTs="$ts"
-                best="$f"
-              fi
-            done <<< "$match_list"
-
-            echo "$best|$bestTs"
-          }
-
-          refresh_branch () {
-            git -C "$ROOT" fetch origin "$BRANCH" --prune
-            git -C "$ROOT" checkout -q "$BRANCH" || true
-            git -C "$ROOT" reset --hard "origin/$BRANCH"
-            git -C "$ROOT" clean -fd
-          }
-
-          list_files_by_prefix () {
-            local prefix="$1"
-            git -C "$ROOT" ls-tree -r --name-only "origin/$BRANCH" "$REPORTS_DIR" \
-              | grep -E "^${REPORTS_DIR}/${prefix}" \
-              | sed "s#^${REPORTS_DIR}/##" \
-              || true
-          }
-
-          find_file_for_sha () {
-            local all_files="$1"
-            local found=""
-
-            local match_full
-            match_full=$(echo "$all_files" | grep -F "$FULL_SHA" || true)
-            local match_short
-            match_short=$(echo "$all_files" | grep -F "$SHORT_SHA" || true)
-
-            if [[ -n "$match_full" ]]; then
-              found="$match_full"
-            elif [[ -n "$match_short" ]]; then
-              found="$match_short"
-            fi
-
-            if [[ -z "$found" ]]; then
-              echo ""
-              return 0
-            fi
-
-            local result
-            result="$(pick_latest_by_commit "$found")"
-            echo "${result%%|*}"
-          }
-
-          refresh_branch
-
-          CODE_PREFIX="Code Scanner Report_"
-          LWC_PREFIX="LWC_Code Scanner Report_"
-
-          # --- CODE files ---
-          CODE_FILES="$(list_files_by_prefix "$CODE_PREFIX")"
-          CODE_COUNT=$(echo "$CODE_FILES" | sed '/^\s*$/d' | wc -l | tr -d ' ')
-          [[ "$CODE_COUNT" -lt 1 ]] && CODE_MAX=30 || CODE_MAX="$CODE_COUNT"
-
-          echo "Code files count = $CODE_COUNT | attempts=$CODE_MAX"
-
-          CODE_LATEST=""
-          for ((attempt=1; attempt<=CODE_MAX; attempt++)); do
-            refresh_branch
-            CODE_FILES="$(list_files_by_prefix "$CODE_PREFIX")"
-            CODE_LATEST="$(find_file_for_sha "$CODE_FILES")"
-            [[ -n "$CODE_LATEST" ]] && break
-            echo "⏳ Code report not found yet. Waiting 10s..."
-            sleep 10
-          done
-
-          # --- LWC files ---
-          LWC_FILES="$(list_files_by_prefix "$LWC_PREFIX")"
-          LWC_COUNT=$(echo "$LWC_FILES" | sed '/^\s*$/d' | wc -l | tr -d ' ')
-          [[ "$LWC_COUNT" -lt 1 ]] && LWC_MAX=30 || LWC_MAX="$LWC_COUNT"
-
-          echo "LWC files count = $LWC_COUNT | attempts=$LWC_MAX"
-
-          LWC_LATEST=""
-          for ((attempt=1; attempt<=LWC_MAX; attempt++)); do
-            refresh_branch
-            LWC_FILES="$(list_files_by_prefix "$LWC_PREFIX")"
-            LWC_LATEST="$(find_file_for_sha "$LWC_FILES")"
-            [[ -n "$LWC_LATEST" ]] && break
-            echo "⏳ LWC report not found yet. Waiting 10s..."
-            sleep 10
-          done
-
-          echo "✅ Selected CODE report: ${CODE_LATEST:-<none>}"
-          echo "✅ Selected LWC  report: ${LWC_LATEST:-<none>}"
-
-          echo "REPORT_FILE_NAME=$CODE_LATEST" >> "$GITHUB_OUTPUT"
-          echo "REPORT_FILE_PATH=${REPORTS_DIR}/${CODE_LATEST}" >> "$GITHUB_OUTPUT"
-
-          echo "LWC_REPORT_FILE_NAME=$LWC_LATEST" >> "$GITHUB_OUTPUT"
-          echo "LWC_REPORT_FILE_PATH=${REPORTS_DIR}/${LWC_LATEST}" >> "$GITHUB_OUTPUT"
- 
-      - name: Fetch check runs + map checks into SF fields (status + report file)
+      - name: Fetch check runs + map checks into SF fields
         if: steps.pr_ctx.outputs.SKIP != 'true'
         id: fetch_checks
         shell: bash
@@ -325,16 +187,11 @@ jobs:
           SHA="${{ steps.pr_ctx.outputs.PR_HEAD_SHA }}"
           TOKEN="${{ secrets.GITHUB_TOKEN }}"
  
-          DELTA_REPORT_FILE="${{ steps.latest_report.outputs.REPORT_FILE_NAME }}"
-          DELTA_LWC_REPORT_FILE="${{ steps.latest_report.outputs.LWC_REPORT_FILE_NAME }}"
- 
           CHECK_NAMES_CLEAN=$(echo "${CHECK_NAMES}" | tr -d '\r')
           NAME_FIELDS_CLEAN=$(echo "${CHECK_ACTION_NAME_FIELDS}" | tr -d '\r')
           STATUS_FIELDS_CLEAN=$(echo "${CHECK_ACTION_STATUS_FIELDS}" | tr -d '\r')
-          REPORT_FIELDS_CLEAN=$(echo "${CHECK_ACTION_REPORT_FIELDS}" | tr -d '\r')
-          LWC_REPORT_FIELDS_CLEAN=$(echo "${CHECK_ACTION_LWC_REPORT_FIELDS}" | tr -d '\r')
  
-          if [[ -z "$CHECK_NAMES_CLEAN" || -z "$NAME_FIELDS_CLEAN" || -z "$STATUS_FIELDS_CLEAN" || -z "$REPORT_FIELDS_CLEAN" ]]; then
+          if [[ -z "$CHECK_NAMES_CLEAN" || -z "$NAME_FIELDS_CLEAN" || -z "$STATUS_FIELDS_CLEAN" ]]; then
             echo "❌ One or more GitHub Variables are empty."
             exit 1
           fi
@@ -342,14 +199,12 @@ jobs:
           IFS=',' read -ra CHECK_LIST <<< "$CHECK_NAMES_CLEAN"
           IFS=',' read -ra NAME_FIELDS <<< "$NAME_FIELDS_CLEAN"
           IFS=',' read -ra STATUS_FIELDS <<< "$STATUS_FIELDS_CLEAN"
-          IFS=',' read -ra REPORT_FIELDS <<< "$REPORT_FIELDS_CLEAN"
  
           for i in "${!CHECK_LIST[@]}"; do CHECK_LIST[$i]=$(echo "${CHECK_LIST[$i]}" | xargs); done
           for i in "${!NAME_FIELDS[@]}"; do NAME_FIELDS[$i]=$(echo "${NAME_FIELDS[$i]}" | xargs); done
           for i in "${!STATUS_FIELDS[@]}"; do STATUS_FIELDS[$i]=$(echo "${STATUS_FIELDS[$i]}" | xargs); done
-          for i in "${!REPORT_FIELDS[@]}"; do REPORT_FIELDS[$i]=$(echo "${REPORT_FIELDS[$i]}" | xargs); done
  
-          if [[ ${#CHECK_LIST[@]} -ne ${#NAME_FIELDS[@]} || ${#CHECK_LIST[@]} -ne ${#STATUS_FIELDS[@]} || ${#CHECK_LIST[@]} -ne ${#REPORT_FIELDS[@]} ]]; then
+          if [[ ${#CHECK_LIST[@]} -ne ${#NAME_FIELDS[@]} || ${#CHECK_LIST[@]} -ne ${#STATUS_FIELDS[@]} ]]; then
             echo "❌ Config error: counts do not match"
             exit 1
           fi
@@ -378,29 +233,15 @@ jobs:
  
           echo "CHECK_NAMES_ALL=$ALL_CHECK_NAMES" >> "$GITHUB_OUTPUT"
           echo "CHECK_STATUSES_ALL=$ALL_CHECK_STATUSES" >> "$GITHUB_OUTPUT"
+          echo "COMMIT_SHA_KEY=$SHA" >> "$GITHUB_OUTPUT"
+          echo "✅ Processing Check Runs for Commit SHA: $SHA"
  
           SF_CHECK_FIELDS_JSON="{}"
-
-          SF_LWC_REPORT_FIELDS_JSON="{}"
-
-          if [[ -n "$LWC_REPORT_FIELDS_CLEAN" ]]; then
-            IFS=',' read -ra LWC_REPORT_FIELDS <<< "$LWC_REPORT_FIELDS_CLEAN"
-            for i in "${!LWC_REPORT_FIELDS[@]}"; do LWC_REPORT_FIELDS[$i]=$(echo "${LWC_REPORT_FIELDS[$i]}" | xargs); done
-
-            for rf in "${LWC_REPORT_FIELDS[@]}"; do
-              if [[ -n "$DELTA_LWC_REPORT_FILE" ]]; then
-                SF_LWC_REPORT_FIELDS_JSON=$(echo "$SF_LWC_REPORT_FIELDS_JSON" | jq --arg f "$rf" --arg v "$DELTA_LWC_REPORT_FILE" '. + {($f): $v}')
-              else
-                SF_LWC_REPORT_FIELDS_JSON=$(echo "$SF_LWC_REPORT_FIELDS_JSON" | jq --arg f "$rf" '. + {($f): null}')
-              fi
-            done
-          fi
  
           for i in "${!CHECK_LIST[@]}"; do
             chk="${CHECK_LIST[$i]}"
             nameField="${NAME_FIELDS[$i]}"
             statusField="${STATUS_FIELDS[$i]}"
-            reportField="${REPORT_FIELDS[$i]}"
  
             run=$(echo "$CHECK_RUNS" | jq -c --arg n "$chk" '
               [ .check_runs[]? | select(.name==$n) ]
@@ -409,7 +250,6 @@ jobs:
             ')
  
             derivedStatus="not_found"
-            reportFileName=""
  
             if [[ -n "$run" && "$run" != "null" ]]; then
               st=$(echo "$run" | jq -r '.status // "unknown"')
@@ -420,27 +260,14 @@ jobs:
               else
                 derivedStatus="${concl:-unknown}"
               fi
- 
-              if [[ -n "$DELTA_REPORT_FILE" ]]; then
-                reportFileName="$DELTA_REPORT_FILE"
-              fi
             fi
  
-            echo "Mapped: $chk -> status=$derivedStatus reportFile=${reportFileName:-<null>}"
+            echo "Mapped: $chk -> status=$derivedStatus"
  
-            if [[ -n "$reportFileName" ]]; then
-              SF_CHECK_FIELDS_JSON=$(echo "$SF_CHECK_FIELDS_JSON" | jq \
-                --arg nf "$nameField" --arg nv "$chk" \
-                --arg sf "$statusField" --arg sv "$derivedStatus" \
-                --arg rf "$reportField" --arg rv "$reportFileName" \
-                '. + {($nf): $nv, ($sf): $sv, ($rf): $rv}')
-            else
-              SF_CHECK_FIELDS_JSON=$(echo "$SF_CHECK_FIELDS_JSON" | jq \
-                --arg nf "$nameField" --arg nv "$chk" \
-                --arg sf "$statusField" --arg sv "$derivedStatus" \
-                --arg rf "$reportField" \
-                '. + {($nf): $nv, ($sf): $sv, ($rf): null}')
-            fi
+            SF_CHECK_FIELDS_JSON=$(echo "$SF_CHECK_FIELDS_JSON" | jq \
+              --arg nf "$nameField" --arg nv "$chk" \
+              --arg sf "$statusField" --arg sv "$derivedStatus" \
+              '. + {($nf): $nv, ($sf): $sv}')
           done
  
           {
@@ -451,15 +278,6 @@ jobs:
  
           echo "✅ SF_CHECK_FIELDS_JSON:"
           echo "$SF_CHECK_FIELDS_JSON"
-
-          {
-            echo "SF_LWC_REPORT_FIELDS_JSON<<EOF"
-            echo "$SF_LWC_REPORT_FIELDS_JSON"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "✅ SF_LWC_REPORT_FIELDS_JSON:"
-          echo "$SF_LWC_REPORT_FIELDS_JSON"
  
       - name: Check if PR Record Exists in Salesforce
         if: steps.pr_ctx.outputs.SKIP != 'true'
@@ -503,6 +321,7 @@ jobs:
           prTitle="${{ steps.pr_ctx.outputs.PR_TITLE }}"
           prLink="${{ steps.pr_ctx.outputs.PR_LINK }}"
           prAuthor="${{ steps.pr_ctx.outputs.PR_AUTHOR }}"
+          commitSha="${{ steps.pr_ctx.outputs.PR_HEAD_SHA }}"
  
           newReviewer=""
           newComment=""
@@ -534,6 +353,7 @@ jobs:
             --arg author "$prAuthor" \
             --arg reviewer "$updatedReviewer" \
             --arg comment "$updatedComment" \
+            --arg commitShaKey "$commitSha" \
             --arg allNames "${{ steps.fetch_checks.outputs.CHECK_NAMES_ALL }}" \
             --arg allStats "${{ steps.fetch_checks.outputs.CHECK_STATUSES_ALL }}" \
             '{
@@ -543,14 +363,13 @@ jobs:
               PR_Author__c: $author,
               PR_Reviewer__c: $reviewer,
               PR_Review_Comment__c: $comment,
+              Commit_SHA_Key__c: $commitShaKey,
               Code_Analyzer_Check_Name__c: $allNames,
               Code_Analyzer_Check_Status__c: $allStats
             }')
  
           CHECK_FIELDS_JSON='${{ steps.fetch_checks.outputs.SF_CHECK_FIELDS_JSON }}'
-          LWC_FIELDS_JSON='${{ steps.fetch_checks.outputs.SF_LWC_REPORT_FIELDS_JSON }}'
-
-          PAYLOAD=$(echo "$BASE" | jq --argjson a "$CHECK_FIELDS_JSON" --argjson b "$LWC_FIELDS_JSON" '. + $a + $b')
+          PAYLOAD=$(echo "$BASE" | jq --argjson a "$CHECK_FIELDS_JSON" '. + $a')
  
           if [[ -n "$mergedBy" ]]; then
             PAYLOAD=$(echo "$PAYLOAD" | jq --arg mergedBy "$mergedBy" '. + { PR_Merged_By__c: $mergedBy }')
@@ -571,5 +390,3 @@ jobs:
           fi
  
           echo "Response: $RESPONSE"
- 
- 
