@@ -2,164 +2,289 @@
  * @description       : 
  * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
  * @group             : 
- * @last modified on  : 02-13-2026
+ * @last modified on  : 03-03-2026
  * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
 **/
 @IsTest
 private class PullRequestCaseLinkerTest {
 
-    // Helper constant to match source class
-    private static final String PR_FILE_FIELD = 'Check1_Report_File__c';
+    /* ------------------------------------------------------------
+       Utility Methods
+    ------------------------------------------------------------ */
 
-    /**
-     * @description Sets up standard Case records for matching.
-     */
-    @TestSetup
-    static void makeData() {
-        List<Case> casesToInsert = new List<Case>();
-        
-        // 1. Happy Path Case
-        casesToInsert.add(new Case(
-            Subject = 'Happy Path',
-            File_Name__c = 'happy_path.pdf'
-        ));
-
-        // 2. Case for Case-Insensitive Check
-        casesToInsert.add(new Case(
-            Subject = 'Case Insensitive',
-            File_Name__c = 'UPPER_CASE.pdf'
-        ));
-
-        insert casesToInsert;
+    private static String buildFileName(String sourceSha) {
+        return 'Code Scanner Report_DevOps_Project_Backup_Cloned_Branch_Merge '
+            + sourceSha
+            + ' into 059fdb91f4cac56e0dcd07b2eb54a70ae8923275.csv';
     }
 
-    /**
-     * @description Tests the standard success scenario where PRs match Cases.
-     */
-    @IsTest
-    static void testHandleAfterSuccessMatches() {
-        // Create PRs that match the setup data
-        Pull_Request__c pr1 = new Pull_Request__c(Check1_Report_File__c = 'happy_path.pdf');
-        Pull_Request__c pr2 = new Pull_Request__c(Check1_Report_File__c = 'UPPER_CASE.pdf'); 
-        
-        List<Pull_Request__c> prList = new List<Pull_Request__c>{pr1, pr2};
-        insert prList;
+    private static Case createCaseWithSha(String sha) {
+        return new Case(
+            Subject = 'Test Case',
+            Status = 'New',
+            Origin = 'Phone',
+            File_Name__c = buildFileName(sha)
+        );
+    }
 
+    /* ------------------------------------------------------------
+       1️⃣ Null List Branch
+    ------------------------------------------------------------ */
+
+    @IsTest
+    static void testNullListEarlyExit() {
         Test.startTest();
-        PullRequestCaseLinker.handleAfter(prList, null, true, false);
+        PullRequestCaseLinker.handleAfter(null, null, true, false);
         Test.stopTest();
-
-        // Verify updates
-        List<Case> updatedCases = [SELECT Id, File_Name__c, Pull_Request__c FROM Case];
-        
-        for (Case c : updatedCases) {
-            System.assertNotEquals(null, c.Pull_Request__c, 'Case ' + c.File_Name__c + ' should be linked');
-        }
+        System.assert(true);
     }
 
-    /**
-     * @description Tests "if (pr == null) continue;" logic.
-     * FIXED: We insert the valid PR first so it has an ID before passing it to the handler.
-     */
+    /* ------------------------------------------------------------
+       2️⃣ Empty List Branch
+    ------------------------------------------------------------ */
+
     @IsTest
-    static void testHandleAfterWithNullPRObject() {
-        // 1. Create and Insert a valid PR first so it generates an ID
-        Pull_Request__c validPr = new Pull_Request__c(Check1_Report_File__c = 'happy_path.pdf');
-        insert validPr;
-
-        // 2. Create the dirty list (Contains Valid PR + Null)
-        List<Pull_Request__c> dirtyList = new List<Pull_Request__c>();
-        dirtyList.add(validPr); // Valid PR with ID
-        dirtyList.add(null);    // Null object to hit the 'continue' statement
-
+    static void testEmptyListEarlyExit() {
         Test.startTest();
-        // Invoke handler
-        PullRequestCaseLinker.handleAfter(dirtyList, null, true, false);
+        PullRequestCaseLinker.handleAfter(
+            new List<Pull_Request__c>(),
+            null,
+            true,
+            false
+        );
         Test.stopTest();
-        
-        // 3. Verify valid PR was linked despite the null in the list
-        Case c = [SELECT Id, Pull_Request__c FROM Case WHERE File_Name__c = 'happy_path.pdf' LIMIT 1];
-        System.assertEquals(validPr.Id, c.Pull_Request__c, 'Valid PR should be linked even if list contained nulls');
+        System.assert(true);
     }
 
-    /**
-     * @description Tests "if (fileNamesForQuery.isEmpty())" return logic.
-     */
+    /* ------------------------------------------------------------
+       3️⃣ No SHA in PR
+    ------------------------------------------------------------ */
+
     @IsTest
-    static void testHandleAfterWithAllBlankFiles() {
-        // We create in-memory PRs with blank files. No need to insert as we are testing early exit.
-        List<Pull_Request__c> blankPrs = new List<Pull_Request__c>{
-            new Pull_Request__c(Check1_Report_File__c = ''),
-            new Pull_Request__c(Check1_Report_File__c = null),
-            new Pull_Request__c(Check1_Report_File__c = '   ') // Whitespace trim check
-        };
+    static void testNoShaInPullRequest() {
 
-        Test.startTest();
-        PullRequestCaseLinker.handleAfter(blankPrs, null, true, false);
-        Test.stopTest();
-
-        // Verify NO updates happened
-        Case c = [SELECT Id, Pull_Request__c FROM Case WHERE File_Name__c = 'happy_path.pdf' LIMIT 1];
-        System.assertEquals(null, c.Pull_Request__c, 'No updates should occur if all files are blank');
-    }
-
-    /**
-     * @description Tests "if (matchingCases.isEmpty())" return logic.
-     */
-    @IsTest
-    static void testHandleAfterWithNoMatchingCases() {
-        // PR file is valid, but no Case exists with this file name
-        List<Pull_Request__c> noMatchPrs = new List<Pull_Request__c>{
-            new Pull_Request__c(Check1_Report_File__c = 'ghost_file.pdf')
-        };
-        // No insert needed for this test as we expect early exit before linking logic
-
-        Test.startTest();
-        PullRequestCaseLinker.handleAfter(noMatchPrs, null, true, false);
-        Test.stopTest();
-        
-        // Assert implicitly by lack of exception
-        System.assert(true, 'Executed without errors when no cases match');
-    }
-
-    /**
-     * @description Tests "if (!casesToUpdate.isEmpty())" -> else block.
-     * Logic: If Case is already linked, it shouldn't be added to update list again.
-     */
-    @IsTest
-    static void testHandleAfterAlreadyLinked() {
-        // Setup: Link the case beforehand
-        Pull_Request__c pr = new Pull_Request__c(Check1_Report_File__c = 'happy_path.pdf');
+        Pull_Request__c pr = new Pull_Request__c();
         insert pr;
 
-        Case c = [SELECT Id, Pull_Request__c FROM Case WHERE File_Name__c = 'happy_path.pdf' LIMIT 1];
-        c.Pull_Request__c = pr.Id;
-        update c;
-
-        // Run Handler Again with same PR
         Test.startTest();
-        PullRequestCaseLinker.handleAfter(new List<Pull_Request__c>{pr}, null, true, false);
+        PullRequestCaseLinker.handleAfter(
+            new List<Pull_Request__c>{ pr },
+            null,
+            true,
+            false
+        );
         Test.stopTest();
 
-        // Logic should detect "c.Pull_Request__c != prId" is false (because they match)
-        // and enter the ELSE block for "No Case needed update"
-        Case cRequery = [SELECT Id, Pull_Request__c FROM Case WHERE Id = :c.Id];
-        System.assertEquals(pr.Id, cRequery.Pull_Request__c, 'Link should remain unchanged');
+        System.assert(true);
     }
 
-    /**
-     * @description Tests Top level null/empty guards.
-     */
+    /* ------------------------------------------------------------
+       4️⃣ No Matching Cases
+    ------------------------------------------------------------ */
+
     @IsTest
-    static void testHandleAfterNullInputs() {
+    static void testNoMatchingCasesBranch() {
+
+        Pull_Request__c pr = new Pull_Request__c();
+        pr.Commit_SHA_Key__c =
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
         Test.startTest();
-        try {
-            PullRequestCaseLinker.handleAfter(null, null, true, false);
-            PullRequestCaseLinker.handleAfter(new List<Pull_Request__c>(), null, true, false);
-        } catch(Exception e) {
-            System.assert(false, 'Should not throw exception on null/empty inputs');
-        }
+        insert pr;
         Test.stopTest();
-        System.assert(true, 'Should exit gracefully');
+
+        System.assert(true);
+    }
+
+    /* ------------------------------------------------------------
+       5️⃣ Insert Matching SHA
+    ------------------------------------------------------------ */
+
+    @IsTest
+    static void testInsertMatchingSha() {
+
+        String sha =
+            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+        Case c = createCaseWithSha(sha);
+        insert c;
+
+        Pull_Request__c pr = new Pull_Request__c();
+        pr.Commit_SHA_Key__c = sha;
+
+        Test.startTest();
+        insert pr;
+        Test.stopTest();
+
+        Case updatedCase = [
+            SELECT Pull_Request__c
+            FROM Case
+            WHERE Id = :c.Id
+        ];
+
+        System.assertEquals(pr.Id, updatedCase.Pull_Request__c);
+    }
+
+    /* ------------------------------------------------------------
+       6️⃣ Update Matching SHA
+    ------------------------------------------------------------ */
+
+    @IsTest
+    static void testUpdateMatchingSha() {
+
+        String sha =
+            'cccccccccccccccccccccccccccccccccccccccc';
+
+        Pull_Request__c pr = new Pull_Request__c();
+        insert pr;
+
+        Case c = createCaseWithSha(sha);
+        insert c;
+
+        pr.Commit_SHA_Key__c = sha;
+
+        Test.startTest();
+        update pr;
+        Test.stopTest();
+
+        Case updatedCase = [
+            SELECT Pull_Request__c
+            FROM Case
+            WHERE Id = :c.Id
+        ];
+
+        System.assertEquals(pr.Id, updatedCase.Pull_Request__c);
+    }
+
+    /* ------------------------------------------------------------
+       7️⃣ Already Linked Branch
+    ------------------------------------------------------------ */
+
+    @IsTest
+    static void testAlreadyLinkedBranch() {
+
+        String sha =
+            'dddddddddddddddddddddddddddddddddddddddd';
+
+        Case c = createCaseWithSha(sha);
+        insert c;
+
+        Pull_Request__c pr = new Pull_Request__c();
+        pr.Commit_SHA_Key__c = sha;
+        insert pr;
+
+        // Run update again to hit "already linked" branch
+        Test.startTest();
+        update pr;
+        Test.stopTest();
+
+        Case result = [
+            SELECT Pull_Request__c
+            FROM Case
+            WHERE Id = :c.Id
+        ];
+
+        System.assertEquals(pr.Id, result.Pull_Request__c);
+    }
+
+    /* ------------------------------------------------------------
+       8️⃣ Duplicate SHA – First PR Wins
+    ------------------------------------------------------------ */
+
+    @IsTest
+    static void testDuplicateShaFirstWins() {
+
+        String sha =
+            'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
+        Case c = createCaseWithSha(sha);
+        insert c;
+
+        Pull_Request__c pr1 = new Pull_Request__c();
+        pr1.Commit_SHA_Key__c = sha;
+
+        Pull_Request__c pr2 = new Pull_Request__c();
+        pr2.Commit_SHA_Key__c = sha;
+
+        Test.startTest();
+        insert new List<Pull_Request__c>{ pr1, pr2 };
+        Test.stopTest();
+
+        Case result = [
+            SELECT Pull_Request__c
+            FROM Case
+            WHERE Id = :c.Id
+        ];
+
+        System.assertEquals(pr1.Id, result.Pull_Request__c);
+    }
+
+    /* ------------------------------------------------------------
+       9️⃣ Bulk Processing
+    ------------------------------------------------------------ */
+
+    @IsTest
+    static void testBulkProcessing() {
+
+        List<Case> cases = new List<Case>();
+        List<Pull_Request__c> prs = new List<Pull_Request__c>();
+
+        for (Integer i = 0; i < 5; i++) {
+
+            String sha =
+                ('fffffffffffffffffffffffffffffffffffffff' + i)
+                .substring(0, 40);
+
+            cases.add(createCaseWithSha(sha));
+
+            Pull_Request__c pr = new Pull_Request__c();
+            pr.Commit_SHA_Key__c = sha;
+            prs.add(pr);
+        }
+
+        insert cases;
+
+        Test.startTest();
+        insert prs;
+        Test.stopTest();
+
+        List<Case> updatedCases = [
+            SELECT Pull_Request__c
+            FROM Case
+            WHERE Id IN :cases
+        ];
+
+        for (Case c : updatedCases) {
+            System.assertNotEquals(null, c.Pull_Request__c);
+        }
+    }
+
+    /* ------------------------------------------------------------
+       🔟 Blank SHA Handling
+    ------------------------------------------------------------ */
+
+    @IsTest
+    static void testBlankShaHandling() {
+
+        Case c = new Case(
+            Subject = 'Blank SHA',
+            Status = 'New',
+            Origin = 'Phone'
+        );
+        insert c;
+
+        Pull_Request__c pr = new Pull_Request__c();
+
+        Test.startTest();
+        insert pr;
+        Test.stopTest();
+
+        Case result = [
+            SELECT Pull_Request__c
+            FROM Case
+            WHERE Id = :c.Id
+        ];
+
+        System.assertEquals(null, result.Pull_Request__c);
     }
 }
