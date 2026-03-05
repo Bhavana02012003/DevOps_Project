@@ -2,6 +2,7 @@
     createAccount : function(component, event, helper) {
 
         var action = component.get("c.createAccount");
+        var state = action.getState();
 
         action.setParams({
             Name: component.get("v.accountName"),
@@ -35,7 +36,17 @@
                     "Account Created Successfully: " +
                     response.getReturnValue());
 
-            } else {
+            } else if (state === "ERROR"){
+
+                var errors = response.getError();
+
+                component.set("v.message",
+                    "Error: " + errors[0].message);
+            }else if (state === "INCOMPLETE"){
+
+                component.set("v.message",
+                    "Error: " + "Incomplete");
+            }else {
 
                 var errors = response.getError();
 

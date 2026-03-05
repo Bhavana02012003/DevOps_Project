@@ -299,51 +299,43 @@ jobs:
                 echo "Created temp file: $temp_file"
                 ;;
               *.js)
-
                 temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
+                
+                # ✅ COPY THE FULL FILE INSTEAD OF CHOPPING IT
+                cp "$file" "$temp_file"
 
-                temp_line=1
-                echo "/* delta-only temp JS */" > "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
-
+                # ✅ MAP ONLY THE CHANGED LINES TO PREVENT LEGACY ERRORS
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
-
+                  
                   if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
-                    printf "%s\n" "$content" >> "$temp_file"
-                    echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
-                    ((temp_line++))
+                    echo "$temp_file,$actual_line,$actual_line" >> line_number_mapping.txt
                   fi
                 done < lines.tmp
 
                 echo "$temp_file" >> changed_cls_lwc_files.txt
+                echo "Copied full file: $temp_file for ESLint analysis"
                 ;;
+                
               *.html)
-
                 temp_file="temp_scanner_files/temp_${sanitized%.html}.html"
+                
+                # ✅ COPY THE FULL FILE INSTEAD OF CHOPPING IT
+                cp "$file" "$temp_file"
 
-                temp_line=1
-                echo "<template>" > "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
-
+                # ✅ MAP ONLY THE CHANGED LINES
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
-
+                  
                   if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
-                    printf "%s\n" "$content" >> "$temp_file"
-                    echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
-                    ((temp_line++))
+                    echo "$temp_file,$actual_line,$actual_line" >> line_number_mapping.txt
                   fi
                 done < lines.tmp
 
-                echo "</template>" >> "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-
                 echo "$temp_file" >> changed_cls_lwc_files.txt
+                echo "Copied full file: $temp_file for ESLint analysis"
                 ;;
 
             esac
@@ -547,8 +539,9 @@ jobs:
           echo "✅ Final Scanner Report (first 50 lines):"
           head -n 50 scanner-report.csv
 
- # ------------------------------------------------------------
-      # ✅ 6) NEW: Build separate LWC-only report using ESLint v10
+      # ------------------------------------------------------------
+      # ✅ 6) Generate LWC-only ESLint v10 report (lwc-scanner-report.csv)
+      #      WITH Full-File Scanning and Delta Filtering
       # ------------------------------------------------------------
       - name: Generate LWC-only ESLint v10 report (lwc-scanner-report.csv)
         shell: bash
@@ -573,7 +566,7 @@ jobs:
           while read -r file; do
             [[ -z "$file" ]] && continue
 
-            # Only js/html (your LWC delta temp files)
+            # Only js/html (your LWC temp files)
             if [[ "$file" != *.js && "$file" != *.html ]]; then
               continue
             fi
@@ -600,6 +593,7 @@ jobs:
             # eslint-output.json is array of file results
             jq -c '.[]' eslint-output.json | while read -r entry; do
               filePath=$(echo "$entry" | jq -r '.filePath // ""')
+              
               jq -c '.messages[]?' <<< "$entry" | while read -r msg; do
                 rule=$(echo "$msg" | jq -r '.ruleId // "UnknownRule"')
                 sev=$(echo "$msg" | jq -r '.severity // 0')
@@ -607,19 +601,25 @@ jobs:
                 message=$(echo "$msg" | jq -r '.message // ""' | sed 's/"/""/g')
 
                 actualLine="$line"
+                is_legacy_violation=false
+
                 if [[ "$isTemp" -eq 1 ]]; then
                   key="${tempBase}|${line}"
                   if [[ -n "${ACTUAL_LINE_MAP[$key]+x}" ]]; then
-                    mapped="${ACTUAL_LINE_MAP[$key]}"
+                    actualLine="${ACTUAL_LINE_MAP[$key]}"
                   else
-                    mapped="N/A"
+                    is_legacy_violation=true
                   fi
-
-                  [[ -z "$mapped" || "$mapped" == "0" ]] && mapped="N/A"
-                  actualLine="$mapped"
                 fi
 
-                # keep same CSV shape as your main report
+                # 🚀 THE FILTER LOGIC: 
+                # Always report parsing errors ("UnknownRule") because they indicate a broken file.
+                # Otherwise, drop the violation if it is on an unmodified legacy line.
+                if [[ "$is_legacy_violation" == true && "$rule" != "UnknownRule" ]]; then
+                  continue
+                fi
+
+                # Write the confirmed PR violation to the CSV
                 echo "\"$rule\",eslint,$sev,,\"$file\",$line,0,$line,0,\"$message\",,${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> lwc-scanner-report.csv
               done
             done
@@ -629,7 +629,6 @@ jobs:
           echo "✅ LWC-only report (first 50 lines):"
           head -n 50 lwc-scanner-report.csv
 
-          # Count LWC violations (exclude header)
           # Count LWC violations (exclude header)
           lwc_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
 
