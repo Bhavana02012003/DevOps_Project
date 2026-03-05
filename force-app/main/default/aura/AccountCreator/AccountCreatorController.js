@@ -2,6 +2,7 @@
     createAccount : function(component, event, helper) {
 
         var action = component.get("c.createAccount");
+        var state23 = action.getState();
 
         action.setParams({
             Name: component.get("v.accountName"),
