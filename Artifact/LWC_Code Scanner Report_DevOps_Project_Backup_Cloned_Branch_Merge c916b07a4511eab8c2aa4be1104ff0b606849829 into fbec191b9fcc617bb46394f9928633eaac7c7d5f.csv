@@ -1,0 +1,3 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"no-unused-vars",eslint,2,,"temp_scanner_files/temp_force-app_main_default_aura_AccountCreator_AccountCreatorController.js",2,0,2,0,"'state23' is assigned a value but never used.",,Bhavana02012003,Bhavana02012003,5,Backup_Cloned_Branch
+"no-undef",eslint,2,,"temp_scanner_files/temp_force-app_main_default_aura_AccountCreator_AccountCreatorController.js",2,0,2,0,"'action' is not defined.",,Bhavana02012003,Bhavana02012003,5,Backup_Cloned_Branch
