@@ -36,12 +36,18 @@
                     "Account Created Successfully: " +
                     response.getReturnValue());
 
-            } else {
+            } else if (state === "ERROR"){
 
                 var errors = response.getError();
 
                 component.set("v.message",
                     "Error: " + errors[0].message);
+            } else (state === "SUCCESS") {
+
+                component.set("v.message",
+                    "Account Created Successfully: " +
+                    response.getReturnValue());
+
             }
         });
 
