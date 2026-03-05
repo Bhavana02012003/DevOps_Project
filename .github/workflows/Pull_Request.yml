@@ -546,12 +546,9 @@ jobs:
           done < files_to_scan.txt
           echo "✅ Final Scanner Report (first 50 lines):"
           head -n 50 scanner-report.csv
-
- # ------------------------------------------------------------
-      # ✅ 6) NEW: Build separate LWC-only report using ESLint v10
+          
       # ------------------------------------------------------------
-      # ------------------------------------------------------------
-      # ✅ 6) NEW: Build separate LWC-only report using ESLint v10
+      # ✅ 6) Generate LWC-only ESLint v10 report (lwc-scanner-report.csv)
       #      WITH Full-File Scanning and Delta Filtering
       # ------------------------------------------------------------
       - name: Generate LWC-only ESLint v10 report (lwc-scanner-report.csv)
@@ -623,8 +620,8 @@ jobs:
                   fi
                 fi
 
-                # 🚀 THE FILTER: 
-                # Always report parsing errors ("UnknownRule") because they break the file.
+                # 🚀 THE FILTER LOGIC: 
+                # Always report parsing errors ("UnknownRule") because they indicate a broken file.
                 # Otherwise, drop the violation if it is on an unmodified legacy line.
                 if [[ "$is_legacy_violation" == true && "$rule" != "UnknownRule" ]]; then
                   continue
