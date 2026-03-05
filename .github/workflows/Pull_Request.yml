@@ -602,6 +602,12 @@ jobs:
               filePath=$(echo "$entry" | jq -r '.filePath // ""')
               jq -c '.messages[]?' <<< "$entry" | while read -r msg; do
                 rule=$(echo "$msg" | jq -r '.ruleId // "UnknownRule"')
+
+                # ✅ ADD THIS BLOCK: Skip parsing errors and unknown rules
+                if [[ "$rule" == "UnknownRule" ]]; then
+                  continue
+                fi
+
                 sev=$(echo "$msg" | jq -r '.severity // 0')
                 line=$(echo "$msg" | jq -r '.line // 0')
                 message=$(echo "$msg" | jq -r '.message // ""' | sed 's/"/""/g')

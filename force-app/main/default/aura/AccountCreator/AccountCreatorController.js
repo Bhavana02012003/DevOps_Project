@@ -42,8 +42,12 @@
 
                 component.set("v.message",
                     "Error: " + errors[0].message);
-            } else (state === "SUCCESS") {
+            }else if(state === "INCOMPLETE"){
 
+                component.set("v.message",
+                    "Error: " + errors[0].message);
+            } else (state === "SUCCESS") {
+                
                 component.set("v.message",
                     "Account Created Successfully: " +
                     response.getReturnValue());
