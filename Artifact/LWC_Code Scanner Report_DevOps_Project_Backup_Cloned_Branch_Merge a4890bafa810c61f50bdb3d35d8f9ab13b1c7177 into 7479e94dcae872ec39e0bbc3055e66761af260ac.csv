@@ -1,0 +1,4 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"no-dupe-else-if",eslint,2,,"temp_scanner_files/temp_force-app_main_default_aura_AccountCreator_AccountCreatorController.js",49,0,49,0,"This branch can never execute. Its condition is a duplicate or covered by previous conditions in the if-else-if chain.",,Bhavana02012003,Bhavana02012003,49,Backup_Cloned_Branch
+"no-redeclare",eslint,2,,"temp_scanner_files/temp_force-app_main_default_aura_AccountCreator_AccountCreatorController.js",51,0,51,0,"'errors' is already defined.",,Bhavana02012003,Bhavana02012003,51,Backup_Cloned_Branch
+"no-undef",eslint,2,,"temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js",7,0,7,0,"'console' is not defined.",,Bhavana02012003,Bhavana02012003,7,Backup_Cloned_Branch
