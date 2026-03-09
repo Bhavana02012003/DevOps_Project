@@ -594,7 +594,7 @@ jobs:
               disable_lwc_base_config: true
           EOF
 
-          # ✅ 3) Define the Python CSV Parser with perfect YAML formatting
+          # ✅ 3) Define the Python CSV Parser with Dynamic Header Matching
           export PYTHON_SCRIPT=$(cat << 'PYEOF'
           import csv, sys, os
           
@@ -607,25 +607,23 @@ jobs:
           
           try:
               with open('tmp_lwc.csv', 'r', encoding='utf-8-sig') as f:
-                  reader = csv.reader(f)
-                  try:
-                      headers = next(reader)
-                  except StopIteration:
-                      sys.exit(0)
-                      
-                  header_map = {h.lower().strip(): h for h in headers}
-                  
-                  f.seek(0)
                   dict_reader = csv.DictReader(f)
                   for row in dict_reader:
-                      rule = row.get(header_map.get('rule', 'Rule'), 'UnknownRule')
-                      line = row.get(header_map.get('line', 'Line'), '0')
-                      sev = row.get(header_map.get('severity', 'Severity'), '0')
-                      msg = row.get(header_map.get('message', 'Message'), row.get(header_map.get('description', 'Description'), ''))
+                      # Dynamically locate the correct column headers
+                      line_key = next((k for k in row.keys() if k and k.lower().strip() in ['startline', 'line']), None)
+                      rule_key = next((k for k in row.keys() if k and k.lower().strip() in ['rule', 'ruleid']), None)
+                      sev_key = next((k for k in row.keys() if k and k.lower().strip() in ['severity']), None)
+                      msg_key = next((k for k in row.keys() if k and k.lower().strip() in ['message', 'description']), None)
+                      
+                      line = str(row.get(line_key, '0')).strip() if line_key else '0'
+                      rule = str(row.get(rule_key, 'UnknownRule')).strip() if rule_key else 'UnknownRule'
+                      sev = str(row.get(sev_key, '0')).strip() if sev_key else '0'
+                      msg = str(row.get(msg_key, '')).strip() if msg_key else ''
                       
                       actual_line = line
                       is_legacy = False
                       
+                      # Filter logic based on the mapped line numbers
                       if sys.argv[4] == '1':
                           key = f'{sys.argv[5]}|{line}'
                           if key in actual_map:
@@ -677,7 +675,7 @@ jobs:
               --output-file tmp_lwc.csv \
             || echo "⚠️ Code analyzer failed for $file (continuing to build report)"
 
-            # ✅ 5) Execute the dedented Python CSV Extraction
+            # ✅ 5) Execute the Python Parser to append real violations
             if [[ -f tmp_lwc.csv && -s tmp_lwc.csv ]]; then
               isTemp=0
               [[ "$file" == temp_scanner_files/* ]] && isTemp=1
