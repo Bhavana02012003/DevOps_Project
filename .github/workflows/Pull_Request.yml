@@ -417,6 +417,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          
+          # ✅ 1) Create a dynamic Code Analyzer config to enforce custom ESLint rules
+          cat << 'EOF' > custom-eslint-config.yml
+          engines:
+            eslint:
+              eslint_config_file: eslint.config.js
+              disable_javascript_base_config: true
+              disable_lwc_base_config: true
+          EOF
+
           # Load lookup into memory
           declare -A ACTUAL_LINE_MAP
           if [[ -s actual_line_lookup.env ]]; then
@@ -424,16 +434,19 @@ jobs:
               ACTUAL_LINE_MAP["$key"]="$value"
             done < actual_line_lookup.env
           fi
+          
           # Final header (NO NYA)
           echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
           if [[ ! -s files_to_scan.txt ]]; then
             echo "✅ Nothing to scan. Empty report created."
             exit 0
           fi
+          
           while read -r file; do
             [[ -z "$file" ]] && continue
             echo "🔍 Scanning $file"
             rm -f tmp.csv
+            
             if [[ "$file" == *.cls ]]; then
               sf code-analyzer run \
                 --workspace "$file" \
@@ -504,13 +517,15 @@ jobs:
                 --config-file code-analyzer.yml \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
             else
-              # ✅ FIXED: Replaced --engine with --rule-selector
+              # ✅ FIXED: Force SFCA to use the dynamic config pointing to eslint.config.js
               sf code-analyzer run \
                 --workspace "$file" \
                 --rule-selector eslint \
+                --config-file custom-eslint-config.yml \
                 --output-file tmp.csv \
               || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
             fi
+            
             if [[ -f tmp.csv ]]; then
               isTemp=0
               [[ "$file" == temp_scanner_files/* ]] && isTemp=1
@@ -534,9 +549,9 @@ jobs:
               done
             fi
           done < files_to_scan.txt
+          
           echo "✅ Final Scanner Report (first 50 lines):"
           head -n 50 scanner-report.csv
-
       # ------------------------------------------------------------
       # ✅ 6) Generate LWC-only ESLint report (lwc-scanner-report.csv)
       #      WITH sf code-analyzer and Delta Filtering
@@ -545,6 +560,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          
+          # ✅ 1) Ensure the custom config is available for this step
+          cat << 'EOF' > custom-eslint-config.yml
+          engines:
+            eslint:
+              eslint_config_file: eslint.config.js
+              disable_javascript_base_config: true
+              disable_lwc_base_config: true
+          EOF
 
           # Load lookup into memory (for temp js/html -> actual line mapping)
           declare -A ACTUAL_LINE_MAP
@@ -577,10 +601,11 @@ jobs:
             echo "🟦 SF Code Analyzer scanning (LWC report): $file"
             rm -f tmp_lwc.csv
 
-            # ✅ FIXED: Use --rule-selector eslint instead of the deprecated --engine flag
+            # ✅ FIXED: Inject the custom configuration into the run command
             sf code-analyzer run \
               --workspace "$file" \
               --rule-selector eslint \
+              --config-file custom-eslint-config.yml \
               --output-file tmp_lwc.csv \
             || echo "⚠️ Code analyzer failed for $file (continuing to build report)"
 
