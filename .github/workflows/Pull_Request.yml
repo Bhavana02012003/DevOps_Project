@@ -561,11 +561,35 @@ jobs:
         run: |
           set -euo pipefail
           
-          # ✅ 1) Ensure the custom config is available for this step
+          # ✅ 1) Generate a legacy .eslintrc.json to bypass SFCA's Flat Config restriction
+          cat << 'EOF' > .eslintrc.json
+          {
+            "parserOptions": {
+              "ecmaVersion": 2023,
+              "sourceType": "module"
+            },
+            "plugins": ["@lwc/lwc", "@salesforce/aura", "@salesforce/lightning"],
+            "rules": {
+              "no-console": ["error", { "allow": ["warn", "error"] }],
+              "no-debugger": "error",
+              "no-unused-vars": "warn",
+              "no-undef": "error",
+              "eqeqeq": ["error", "always"],
+              "curly": "error",
+              "semi": ["error", "always"],
+              "@lwc/lwc/no-async-await-in-wire": "error",
+              "@lwc/lwc/no-deprecated": "warn",
+              "@lwc/lwc/no-inner-html": "error",
+              "@lwc/lwc/no-dupe-class-members": "error"
+            }
+          }
+          EOF
+
+          # ✅ 2) Point the SFCA config to the newly generated legacy file
           cat << 'EOF' > custom-eslint-config.yml
           engines:
             eslint:
-              eslint_config_file: eslint.config.js
+              eslint_config_file: .eslintrc.json
               disable_javascript_base_config: true
               disable_lwc_base_config: true
           EOF
@@ -588,20 +612,18 @@ jobs:
           while read -r file; do
             [[ -z "$file" ]] && continue
 
-            # Only js/html (your LWC temp files)
             if [[ "$file" != *.js && "$file" != *.html ]]; then
               continue
             fi
 
-            # 🚫 Skip eslint config file
-            if [[ "$file" == *eslint.config.js ]]; then
+            if [[ "$file" == *eslint.config.js || "$file" == *.eslintrc.json ]]; then
               continue
             fi
 
             echo "🟦 SF Code Analyzer scanning (LWC report): $file"
             rm -f tmp_lwc.csv
 
-            # ✅ FIXED: Inject the custom configuration into the run command
+            # ✅ 3) Run SFCA targeting the eslint engine
             sf code-analyzer run \
               --workspace "$file" \
               --rule-selector eslint \
@@ -609,17 +631,14 @@ jobs:
               --output-file tmp_lwc.csv \
             || echo "⚠️ Code analyzer failed for $file (continuing to build report)"
 
-            # Parse the standardized CSV output
             if [[ -f tmp_lwc.csv ]]; then
               isTemp=0
               [[ "$file" == temp_scanner_files/* ]] && isTemp=1
               tempBase="$(basename "$file")"
 
-              # Skip the header row and read the results
               tail -n +2 tmp_lwc.csv | while IFS= read -r row; do
                 [[ -z "$row" ]] && continue
                 
-                # Extract rule and startLine for our delta filter logic
                 rule=$(echo "$row" | awk -F',' '{print $1}' | tr -d '"')
                 startLine=$(echo "$row" | awk -F',' '{print $6}' | tr -d '"')
                 
@@ -635,14 +654,10 @@ jobs:
                   fi
                 fi
 
-                # 🚀 THE FILTER LOGIC: 
-                # Drop the violation if it is on an unmodified legacy line.
-                # Allow parsing errors ("UnknownRule" or equivalent) to pass through.
                 if [[ "$is_legacy_violation" == true && "$rule" != "UnknownRule" && "$rule" != "Parsing error" ]]; then
                   continue
                 fi
 
-                # Write the confirmed PR violation to the CSV
                 echo "${row},${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> lwc-scanner-report.csv
               done
             fi
@@ -652,7 +667,6 @@ jobs:
           echo "✅ LWC-only report (first 50 lines):"
           head -n 50 lwc-scanner-report.csv
 
-          # Count LWC violations (exclude header)
           lwc_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
 
           if [ "$lwc_count" -gt 0 ]; then
