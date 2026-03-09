@@ -412,9 +412,6 @@ jobs:
           fi
       # ------------------------------------------------------------
       # 5) Run Code Analyzer v5 on delta temp files and build CSV
-      #    ✅ CommitAuthor = col12
-      #    ✅ ActualLine  = col13
-      #    ✅ TargetBranch= col14
       # ------------------------------------------------------------
       - name: Run SFDX Scanner (Code Analyzer v5) + add ActualLine
         shell: bash
@@ -507,9 +504,10 @@ jobs:
                 --config-file code-analyzer.yml \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
             else
+              # ✅ FIXED: Replaced --engine with --rule-selector
               sf code-analyzer run \
                 --workspace "$file" \
-                --engine eslint \
+                --rule-selector eslint \
                 --output-file tmp.csv \
               || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
             fi
@@ -540,8 +538,8 @@ jobs:
           head -n 50 scanner-report.csv
 
       # ------------------------------------------------------------
-      # ✅ 6) Generate LWC-only ESLint v10 report (lwc-scanner-report.csv)
-      #      WITH Full-File Scanning and Delta Filtering
+      # ✅ 6) Generate LWC-only ESLint report (lwc-scanner-report.csv)
+      #      WITH sf code-analyzer and Delta Filtering
       # ------------------------------------------------------------
       - name: Generate LWC-only ESLint v10 report (lwc-scanner-report.csv)
         shell: bash
@@ -576,35 +574,35 @@ jobs:
               continue
             fi
 
-            echo "🟦 ESLint v10 scanning (LWC report): $file"
-            rm -f eslint-output.json
+            echo "🟦 SF Code Analyzer scanning (LWC report): $file"
+            rm -f tmp_lwc.csv
 
-            # ESLint v10 reads eslint.config.js from repo root automatically
-            npx eslint "$file" -f json -o eslint-output.json || true
+            # ✅ FIXED: Use --rule-selector eslint instead of the deprecated --engine flag
+            sf code-analyzer run \
+              --workspace "$file" \
+              --rule-selector eslint \
+              --output-file tmp_lwc.csv \
+            || echo "⚠️ Code analyzer failed for $file (continuing to build report)"
 
-            if [[ ! -s eslint-output.json ]]; then
-              continue
-            fi
+            # Parse the standardized CSV output
+            if [[ -f tmp_lwc.csv ]]; then
+              isTemp=0
+              [[ "$file" == temp_scanner_files/* ]] && isTemp=1
+              tempBase="$(basename "$file")"
 
-            isTemp=0
-            [[ "$file" == temp_scanner_files/* ]] && isTemp=1
-            tempBase="$(basename "$file")"
-
-            # eslint-output.json is array of file results
-            jq -c '.[]' eslint-output.json | while read -r entry; do
-              filePath=$(echo "$entry" | jq -r '.filePath // ""')
-              
-              jq -c '.messages[]?' <<< "$entry" | while read -r msg; do
-                rule=$(echo "$msg" | jq -r '.ruleId // "UnknownRule"')
-                sev=$(echo "$msg" | jq -r '.severity // 0')
-                line=$(echo "$msg" | jq -r '.line // 0')
-                message=$(echo "$msg" | jq -r '.message // ""' | sed 's/"/""/g')
-
-                actualLine="$line"
+              # Skip the header row and read the results
+              tail -n +2 tmp_lwc.csv | while IFS= read -r row; do
+                [[ -z "$row" ]] && continue
+                
+                # Extract rule and startLine for our delta filter logic
+                rule=$(echo "$row" | awk -F',' '{print $1}' | tr -d '"')
+                startLine=$(echo "$row" | awk -F',' '{print $6}' | tr -d '"')
+                
+                actualLine="$startLine"
                 is_legacy_violation=false
 
                 if [[ "$isTemp" -eq 1 ]]; then
-                  key="${tempBase}|${line}"
+                  key="${tempBase}|${startLine}"
                   if [[ -n "${ACTUAL_LINE_MAP[$key]+x}" ]]; then
                     actualLine="${ACTUAL_LINE_MAP[$key]}"
                   else
@@ -613,16 +611,16 @@ jobs:
                 fi
 
                 # 🚀 THE FILTER LOGIC: 
-                # Always report parsing errors ("UnknownRule") because they indicate a broken file.
-                # Otherwise, drop the violation if it is on an unmodified legacy line.
-                if [[ "$is_legacy_violation" == true && "$rule" != "UnknownRule" ]]; then
+                # Drop the violation if it is on an unmodified legacy line.
+                # Allow parsing errors ("UnknownRule" or equivalent) to pass through.
+                if [[ "$is_legacy_violation" == true && "$rule" != "UnknownRule" && "$rule" != "Parsing error" ]]; then
                   continue
                 fi
 
                 # Write the confirmed PR violation to the CSV
-                echo "\"$rule\",eslint,$sev,,\"$file\",$line,0,$line,0,\"$message\",,${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> lwc-scanner-report.csv
+                echo "${row},${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> lwc-scanner-report.csv
               done
-            done
+            fi
 
           done < files_to_scan.txt
 
