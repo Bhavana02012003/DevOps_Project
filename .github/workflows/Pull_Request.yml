@@ -412,9 +412,6 @@ jobs:
           fi
       # ------------------------------------------------------------
       # 5) Run Code Analyzer v5 on delta temp files and build CSV
-      #    ✅ CommitAuthor = col12
-      #    ✅ ActualLine  = col13
-      #    ✅ TargetBranch= col14
       # ------------------------------------------------------------
       - name: Run SFDX Scanner (Code Analyzer v5) + add ActualLine
         shell: bash
@@ -507,9 +504,10 @@ jobs:
                 --config-file code-analyzer.yml \
               || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
             else
+              # ✅ FIXED: Replaced --engine with --rule-selector
               sf code-analyzer run \
                 --workspace "$file" \
-                --engine eslint \
+                --rule-selector eslint \
                 --output-file tmp.csv \
               || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
             fi
@@ -579,10 +577,10 @@ jobs:
             echo "🟦 SF Code Analyzer scanning (LWC report): $file"
             rm -f tmp_lwc.csv
 
-            # ✅ Use sf code-analyzer instead of npx eslint
+            # ✅ FIXED: Use --rule-selector eslint instead of the deprecated --engine flag
             sf code-analyzer run \
               --workspace "$file" \
-              --engine eslint \
+              --rule-selector eslint \
               --output-file tmp_lwc.csv \
             || echo "⚠️ Code analyzer failed for $file (continuing to build report)"
 
@@ -620,7 +618,6 @@ jobs:
                 fi
 
                 # Write the confirmed PR violation to the CSV
-                # We reuse the intact row from sf code-analyzer and seamlessly append our custom git columns
                 echo "${row},${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> lwc-scanner-report.csv
               done
             fi
