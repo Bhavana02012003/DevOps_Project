@@ -554,7 +554,7 @@ jobs:
           head -n 50 scanner-report.csv
       # ------------------------------------------------------------
       # ✅ 6) Generate LWC-only ESLint report (lwc-scanner-report.csv)
-      #      WITH sf code-analyzer and Delta Filtering
+      #      WITH sf code-analyzer and Python-powered Delta Filtering
       # ------------------------------------------------------------
       - name: Generate LWC-only ESLint v10 report (lwc-scanner-report.csv)
         shell: bash
@@ -594,12 +594,58 @@ jobs:
               disable_lwc_base_config: true
           EOF
 
-          # Load lookup into memory (for temp js/html -> actual line mapping)
-          declare -A ACTUAL_LINE_MAP
-          if [[ -s actual_line_lookup.env ]]; then
-            while IFS='=' read -r key value; do
-              ACTUAL_LINE_MAP["$key"]="$value"
-            done < actual_line_lookup.env
+          # ✅ 3) Define the Python CSV Parser with perfect YAML formatting
+          export PYTHON_SCRIPT=$(cat << 'PYEOF'
+          import csv, sys, os
+          
+          actual_map = {}
+          with open('actual_line_lookup.env', 'r') as f:
+              for string in f:
+                  if '=' in string:
+                      k, v = string.strip().split('=', 1)
+                      actual_map[k] = v
+          
+          try:
+              with open('tmp_lwc.csv', 'r', encoding='utf-8-sig') as f:
+                  reader = csv.reader(f)
+                  try:
+                      headers = next(reader)
+                  except StopIteration:
+                      sys.exit(0)
+                      
+                  header_map = {h.lower().strip(): h for h in headers}
+                  
+                  f.seek(0)
+                  dict_reader = csv.DictReader(f)
+                  for row in dict_reader:
+                      rule = row.get(header_map.get('rule', 'Rule'), 'UnknownRule')
+                      line = row.get(header_map.get('line', 'Line'), '0')
+                      sev = row.get(header_map.get('severity', 'Severity'), '0')
+                      msg = row.get(header_map.get('message', 'Message'), row.get(header_map.get('description', 'Description'), ''))
+                      
+                      actual_line = line
+                      is_legacy = False
+                      
+                      if sys.argv[4] == '1':
+                          key = f'{sys.argv[5]}|{line}'
+                          if key in actual_map:
+                              actual_line = actual_map[key]
+                          else:
+                              is_legacy = True
+                              
+                      if is_legacy and rule not in ('UnknownRule', 'Parsing error'):
+                          continue
+                          
+                      msg_escaped = msg.replace('"', '""')
+                      print(f'"{rule}",eslint,"{sev}",,"{sys.argv[1]}",{line},0,{line},0,"{msg_escaped}",,"{sys.argv[2]}","{sys.argv[2]}",{actual_line},"{sys.argv[3]}"')
+          except Exception as e:
+              print(f'Error parsing CSV: {e}', file=sys.stderr)
+          PYEOF
+          )
+
+          # Ensure lookup file exists
+          if [[ ! -f actual_line_lookup.env ]]; then
+            touch actual_line_lookup.env
           fi
 
           echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
@@ -623,7 +669,7 @@ jobs:
             echo "🟦 SF Code Analyzer scanning (LWC report): $file"
             rm -f tmp_lwc.csv
 
-            # ✅ 3) Run SFCA targeting the eslint engine
+            # ✅ 4) Run SFCA targeting the eslint engine
             sf code-analyzer run \
               --workspace "$file" \
               --rule-selector eslint \
@@ -631,35 +677,14 @@ jobs:
               --output-file tmp_lwc.csv \
             || echo "⚠️ Code analyzer failed for $file (continuing to build report)"
 
-            if [[ -f tmp_lwc.csv ]]; then
+            # ✅ 5) Execute the dedented Python CSV Extraction
+            if [[ -f tmp_lwc.csv && -s tmp_lwc.csv ]]; then
               isTemp=0
               [[ "$file" == temp_scanner_files/* ]] && isTemp=1
               tempBase="$(basename "$file")"
 
-              tail -n +2 tmp_lwc.csv | while IFS= read -r row; do
-                [[ -z "$row" ]] && continue
-                
-                rule=$(echo "$row" | awk -F',' '{print $1}' | tr -d '"')
-                startLine=$(echo "$row" | awk -F',' '{print $6}' | tr -d '"')
-                
-                actualLine="$startLine"
-                is_legacy_violation=false
-
-                if [[ "$isTemp" -eq 1 ]]; then
-                  key="${tempBase}|${startLine}"
-                  if [[ -n "${ACTUAL_LINE_MAP[$key]+x}" ]]; then
-                    actualLine="${ACTUAL_LINE_MAP[$key]}"
-                  else
-                    is_legacy_violation=true
-                  fi
-                fi
-
-                if [[ "$is_legacy_violation" == true && "$rule" != "UnknownRule" && "$rule" != "Parsing error" ]]; then
-                  continue
-                fi
-
-                echo "${row},${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> lwc-scanner-report.csv
-              done
+              python3 -c "import textwrap, os; exec(textwrap.dedent(os.environ['PYTHON_SCRIPT']))" \
+                "$file" "${COMMIT_AUTHOR}" "${TARGET_BRANCH}" "$isTemp" "$tempBase" >> lwc-scanner-report.csv
             fi
 
           done < files_to_scan.txt
