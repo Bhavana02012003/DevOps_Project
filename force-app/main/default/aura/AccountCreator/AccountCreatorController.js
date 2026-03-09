@@ -46,7 +46,7 @@
 
                 component.set("v.message",
                     "Error: " + "Incomplete");
-            }else if (state === "ERROR"){
+            }else if (state === "ERRORS"){
 
                 var errors = response.getError();
 
