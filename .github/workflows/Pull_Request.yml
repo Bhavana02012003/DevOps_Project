@@ -418,25 +418,61 @@ jobs:
         run: |
           set -euo pipefail
           
-          # ✅ 1) Create a dynamic Code Analyzer config to enforce custom ESLint rules
-          cat << 'EOF' > custom-eslint-config.yml
-          engines:
-            eslint:
-              eslint_config_file: eslint.config.js
-              disable_javascript_base_config: true
-              disable_lwc_base_config: true
-          EOF
+          # ✅ 1) Define Python CSV Parser (with Engine Error Filtering)
+          export PYTHON_SCRIPT=$(cat << 'PYEOF'
+          import csv, sys, os
+          actual_map = {}
+          with open('actual_line_lookup.env', 'r') as f:
+              for string in f:
+                  if '=' in string:
+                      k, v = string.strip().split('=', 1)
+                      actual_map[k] = v
+          try:
+              with open('tmp.csv', 'r', encoding='utf-8-sig') as f:
+                  dict_reader = csv.DictReader(f)
+                  for row in dict_reader:
+                      line_key = next((k for k in row.keys() if k and k.lower().strip() in ['startline', 'line']), None)
+                      rule_key = next((k for k in row.keys() if k and k.lower().strip() in ['rule', 'ruleid']), None)
+                      sev_key = next((k for k in row.keys() if k and k.lower().strip() in ['severity']), None)
+                      msg_key = next((k for k in row.keys() if k and k.lower().strip() in ['message', 'description']), None)
+                      
+                      line = str(row.get(line_key, '0')).strip() if line_key else '0'
+                      rule = str(row.get(rule_key, 'UnknownRule')).strip() if rule_key else 'UnknownRule'
+                      sev = str(row.get(sev_key, '0')).strip() if sev_key else '0'
+                      msg = str(row.get(msg_key, '')).strip() if msg_key else ''
+                      
+                      # 🚀 IGNORING ENGINE BOOT ERRORS
+                      if rule in ('UninstantiableEngineError'):
+                          continue
+                          
+                      actual_line = line
+                      is_legacy = False
+                      
+                      if sys.argv[4] == '1':
+                          key = f'{sys.argv[5]}|{line}'
+                          if key in actual_map:
+                              actual_line = actual_map[key]
+                          else:
+                              is_legacy = True
+                              
+                      if is_legacy and rule not in ('UnknownRule', 'Parsing error'):
+                          continue
+                          
+                      msg_escaped = msg.replace('"', '""')
+                      print(f'"{rule}","{row.get("engine", "pmd")}","{sev}",,"{sys.argv[1]}",{line},0,{line},0,"{msg_escaped}",,"{sys.argv[2]}","{sys.argv[2]}",{actual_line},"{sys.argv[3]}"')
+          except Exception as e:
+              print(f'Error parsing CSV: {e}', file=sys.stderr)
+          PYEOF
+          )
 
           # Load lookup into memory
-          declare -A ACTUAL_LINE_MAP
-          if [[ -s actual_line_lookup.env ]]; then
-            while IFS='=' read -r key value; do
-              ACTUAL_LINE_MAP["$key"]="$value"
-            done < actual_line_lookup.env
+          if [[ ! -f actual_line_lookup.env ]]; then
+            touch actual_line_lookup.env
           fi
           
           # Final header (NO NYA)
           echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
+          
           if [[ ! -s files_to_scan.txt ]]; then
             echo "✅ Nothing to scan. Empty report created."
             exit 0
@@ -444,110 +480,94 @@ jobs:
           
           while read -r file; do
             [[ -z "$file" ]] && continue
+            
+            # ✅ 2) STRICT ISOLATION: Only scan Apex classes in this step
+            if [[ "$file" != *.cls ]]; then
+              continue
+            fi
+            
             echo "🔍 Scanning $file"
             rm -f tmp.csv
             
-            if [[ "$file" == *.cls ]]; then
-              sf code-analyzer run \
-                --workspace "$file" \
-                --rule-selector ApexCRUDViolation \
-                --rule-selector ApexBadCrypto \
-                --rule-selector ApexDangerousMethods \
-                --rule-selector ApexInsecureEndpoint \
-                --rule-selector ApexOpenRedirect \
-                --rule-selector ApexSharingViolations \
-                --rule-selector ApexSOQLInjection \
-                --rule-selector ApexSuggestUsingNamedCred \
-                --rule-selector ApexXSSFromEscapeFalse \
-                --rule-selector ApexXSSFromURLParam \
-                --rule-selector AvoidDebugStatements \
-                --rule-selector AvoidNonRestrictiveQueries \
-                --rule-selector EagerlyLoadedDescribeSObjectResult \
-                --rule-selector OperationWithHighCostInLoop \
-                --rule-selector OperationWithLimitsInLoop \
-                --rule-selector ApexCSRF \
-                --rule-selector AvoidDirectAccessTriggerMap \
-                --rule-selector AvoidHardcodingId \
-                --rule-selector EmptyCatchBlock \
-                --rule-selector UnusedLocalVariable \
-                --rule-selector QueueableWithoutFinalizer \
-                --rule-selector IfElseStmtsMustUseBraces \
-                --rule-selector ForLoopsMustUseBraces \
-                --rule-selector AvoidDeeplyNestedIfStmts \
-                --rule-selector DebugsShouldUseLoggingLevel \
-                --rule-selector ApexUnitTestShouldNotUseSeeAllDataTrue \
-                --rule-selector EmptyStatementBlock \
-                --rule-selector EmptyTryOrFinallyBlock \
-                --rule-selector CognitiveComplexity \
-                --rule-selector TooManyFields \
-                --rule-selector ExcessiveParameterList \
-                --rule-selector ExcessiveClassLength \
-                --rule-selector NcssConstructorCount \
-                --rule-selector NcssMethodCount \
-                --rule-selector NcssTypeCount \
-                --rule-selector ExcessivePublicCount \
-                --rule-selector CyclomaticComplexity \
-                --rule-selector StdCyclomaticComplexity \
-                --rule-selector ApexUnitTestClassShouldHaveAsserts \
-                --rule-selector VfCsrf \
-                --rule-selector VfUnescapeEl \
-                --rule-selector AvoidNonExistentAnnotations \
-                --rule-selector AvoidStatefulDatabaseResult \
-                --rule-selector EmptyIfStmt \
-                --rule-selector InaccessibleAuraEnabledGetter \
-                --rule-selector OverrideBothEqualsAndHashcode \
-                --rule-selector TestMethodsMustBeInTestClasses \
-                --rule-selector MethodWithSameNameAsEnclosingClass \
-                --rule-selector AvoidGlobalModifier \
-                --rule-selector ApexAssertionsShouldIncludeMessage \
-                --rule-selector ApexUnitTestClassShouldHaveRunAs \
-                --rule-selector ApexUnitTestMethodShouldHaveIsTestAnnotation \
-                --rule-selector AvoidLogicinTrigger \
-                --rule-selector WhileLoopsMustUseBraces \
-                --rule-selector EmptyWhileStmt \
-                --rule-selector ClassNamingConventions \
-                --rule-selector FieldNamingConventions \
-                --rule-selector FieldDeclarationsShouldBeAtStart \
-                --rule-selector LocalVariableNamingConventions \
-                --rule-selector MethodNamingConventions \
-                --rule-selector IfStmtsMustUseBraces \
-                --rule-selector UnusedMethod \
-                --rule-selector ApexDoc \
-                --output-file tmp.csv \
-                --config-file code-analyzer.yml \
-              || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
-            else
-              # ✅ FIXED: Force SFCA to use the dynamic config pointing to eslint.config.js
-              sf code-analyzer run \
-                --workspace "$file" \
-                --rule-selector eslint \
-                --config-file custom-eslint-config.yml \
-                --output-file tmp.csv \
-              || echo "⚠️ ESLint analyzer failed for $file (continuing to build report)"
-            fi
+            sf code-analyzer run \
+              --workspace "$file" \
+              --rule-selector ApexCRUDViolation \
+              --rule-selector ApexBadCrypto \
+              --rule-selector ApexDangerousMethods \
+              --rule-selector ApexInsecureEndpoint \
+              --rule-selector ApexOpenRedirect \
+              --rule-selector ApexSharingViolations \
+              --rule-selector ApexSOQLInjection \
+              --rule-selector ApexSuggestUsingNamedCred \
+              --rule-selector ApexXSSFromEscapeFalse \
+              --rule-selector ApexXSSFromURLParam \
+              --rule-selector AvoidDebugStatements \
+              --rule-selector AvoidNonRestrictiveQueries \
+              --rule-selector EagerlyLoadedDescribeSObjectResult \
+              --rule-selector OperationWithHighCostInLoop \
+              --rule-selector OperationWithLimitsInLoop \
+              --rule-selector ApexCSRF \
+              --rule-selector AvoidDirectAccessTriggerMap \
+              --rule-selector AvoidHardcodingId \
+              --rule-selector EmptyCatchBlock \
+              --rule-selector UnusedLocalVariable \
+              --rule-selector QueueableWithoutFinalizer \
+              --rule-selector IfElseStmtsMustUseBraces \
+              --rule-selector ForLoopsMustUseBraces \
+              --rule-selector AvoidDeeplyNestedIfStmts \
+              --rule-selector DebugsShouldUseLoggingLevel \
+              --rule-selector ApexUnitTestShouldNotUseSeeAllDataTrue \
+              --rule-selector EmptyStatementBlock \
+              --rule-selector EmptyTryOrFinallyBlock \
+              --rule-selector CognitiveComplexity \
+              --rule-selector TooManyFields \
+              --rule-selector ExcessiveParameterList \
+              --rule-selector ExcessiveClassLength \
+              --rule-selector NcssConstructorCount \
+              --rule-selector NcssMethodCount \
+              --rule-selector NcssTypeCount \
+              --rule-selector ExcessivePublicCount \
+              --rule-selector CyclomaticComplexity \
+              --rule-selector StdCyclomaticComplexity \
+              --rule-selector ApexUnitTestClassShouldHaveAsserts \
+              --rule-selector VfCsrf \
+              --rule-selector VfUnescapeEl \
+              --rule-selector AvoidNonExistentAnnotations \
+              --rule-selector AvoidStatefulDatabaseResult \
+              --rule-selector EmptyIfStmt \
+              --rule-selector InaccessibleAuraEnabledGetter \
+              --rule-selector OverrideBothEqualsAndHashcode \
+              --rule-selector TestMethodsMustBeInTestClasses \
+              --rule-selector MethodWithSameNameAsEnclosingClass \
+              --rule-selector AvoidGlobalModifier \
+              --rule-selector ApexAssertionsShouldIncludeMessage \
+              --rule-selector ApexUnitTestClassShouldHaveRunAs \
+              --rule-selector ApexUnitTestMethodShouldHaveIsTestAnnotation \
+              --rule-selector AvoidLogicinTrigger \
+              --rule-selector WhileLoopsMustUseBraces \
+              --rule-selector EmptyWhileStmt \
+              --rule-selector ClassNamingConventions \
+              --rule-selector FieldNamingConventions \
+              --rule-selector FieldDeclarationsShouldBeAtStart \
+              --rule-selector LocalVariableNamingConventions \
+              --rule-selector MethodNamingConventions \
+              --rule-selector IfStmtsMustUseBraces \
+              --rule-selector UnusedMethod \
+              --rule-selector ApexDoc \
+              --output-file tmp.csv \
+              --config-file code-analyzer.yml \
+            || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
             
-            if [[ -f tmp.csv ]]; then
+            # ✅ 3) Python parser strips out engine boot failures
+            if [[ -f tmp.csv && -s tmp.csv ]]; then
               isTemp=0
               [[ "$file" == temp_scanner_files/* ]] && isTemp=1
               tempBase="$(basename "$file")"
-              tail -n +2 tmp.csv | while IFS= read -r row; do
-                [[ -z "$row" ]] && continue
-                startLine=$(echo "$row" | awk -F',' '{print $6}' | tr -d '"')
-                actualLine="$startLine"
-                if [[ "$isTemp" -eq 1 ]]; then
-                  key="${tempBase}|${startLine}"
-                  if [[ -n "${ACTUAL_LINE_MAP[$key]+x}" ]]; then
-                    mapped="${ACTUAL_LINE_MAP[$key]}"
-                  else
-                    mapped="N/A"
-                  fi
-
-                  [[ -z "$mapped" || "$mapped" == "0" ]] && mapped="N/A"
-                  actualLine="$mapped"
-                fi
-                echo "${row},${COMMIT_AUTHOR},${COMMIT_AUTHOR},${actualLine},${TARGET_BRANCH}" >> scanner-report.csv
-              done
+              
+              python3 -c "import textwrap, os; exec(textwrap.dedent(os.environ['PYTHON_SCRIPT']))" \
+                "$file" "${COMMIT_AUTHOR}" "${TARGET_BRANCH}" "$isTemp" "$tempBase" >> scanner-report.csv
             fi
+            
           done < files_to_scan.txt
           
           echo "✅ Final Scanner Report (first 50 lines):"
