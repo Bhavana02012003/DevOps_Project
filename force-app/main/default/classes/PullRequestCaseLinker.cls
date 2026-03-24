@@ -1,106 +1,253 @@
-@SuppressWarnings('PMD.ApexCRUDViolation')
-public with sharing class PullRequestCaseLinker {
+/**
+ * @description       : 
+ * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
+ * @group             : 
+ * @last modified on  : 03-24-2026
+ * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
+**/
+public with sharing class File {
 
-    // ✅ Now matching based on the new Commit SHA Key field
-    private static final String PR_COMMIT_SHA_FIELD = 'Commit_SHA_Key__c';
+    private static final String VULN_OBJECT_API = 'Vulnerability__c';
 
-    public static void handleAfter(
-        List<Pull_Request__c> newList,
-        Map<Id, Pull_Request__c> oldMap,
-        Boolean isInsert,
-        Boolean isUpdate
-    ) {
-        System.debug('=== PullRequestCaseLinker.handleAfter START ===');
-        System.debug('isInsert=' + isInsert + ', isUpdate=' + isUpdate + ', prCount=' + (newList == null ? 0 : newList.size()));
+    /* ================= ENTRY ================= */
 
-        if (newList == null || newList.isEmpty()) {
-            System.debug('No PR records. Exiting.');
-            return;
-        }
-
-        // 1) Collect SHA keys to query + map normalized SHA key -> PR Id
-        Set<String> shaKeysForQuery = new Set<String>();
-        Map<String, Id> normalizedShaToPrId = new Map<String, Id>();
-
-        for (Pull_Request__c pr : newList) {
-            if (pr == null) continue;
-
-            // Read the Commit SHA field
-            String rawSha = (String) pr.get(PR_COMMIT_SHA_FIELD);
-            System.debug('PR Id=' + pr.Id + ' raw SHA=' + rawSha);
-
-            String normalized = normalize(rawSha);
-            if (String.isBlank(normalized)) {
-                continue;
-            }
-
-            // Query Cases using ORIGINAL trimmed value (text IN comparisons)
-            String trimmedOriginal = rawSha.trim();
-            shaKeysForQuery.add(trimmedOriginal);
-
-            // first PR wins for same SHA in this transaction
-            if (!normalizedShaToPrId.containsKey(normalized)) {
-                normalizedShaToPrId.put(normalized, pr.Id);
+    public static void processNewFiles(List<ContentVersion> contentVersions) {
+        Set<Id> contentDocIds = new Set<Id>();
+        for (ContentVersion cv : contentVersions) {
+            if (cv.ContentDocumentId != null) {
+                contentDocIds.add(cv.ContentDocumentId);
             }
         }
-
-        System.debug('Collected shaKeysForQuery=' + shaKeysForQuery);
-
-        if (shaKeysForQuery.isEmpty()) {
-            System.debug('No SHA keys found in PR records. Exiting.');
-            return;
+        if (!contentDocIds.isEmpty()) {
+            processNewContentDocuments(contentDocIds);
         }
+    }
 
-        // 2) Query Cases matching the Commit SHA Keys
-        List<Case> matchingCases = [
-            SELECT Id, Commit_SHA_Key__c, Pull_Request__c
-            FROM Case
-            WHERE Commit_SHA_Key__c IN :shaKeysForQuery
+    public static void processNewContentDocuments(Set<Id> contentDocIds) {
+        // 1. Ensure Standard Cases exist for these files
+        createScannerReportCases(contentDocIds);
+        
+        // 2. Parse CSV and create Vulnerabilities
+        importVulnerabilityData(new List<Id>(contentDocIds));
+    }
+
+    /* =========================================================
+       🆕 FILE → STANDARD CASE MAP 
+       ========================================================= */
+    private static Map<Id, Id> getFileToCaseMap(Set<Id> contentDocIds) {
+        Map<Id, Id> fileToCaseMap = new Map<Id, Id>();
+
+        List<ContentDocumentLink> links = [
+            SELECT LinkedEntityId, ContentDocumentId
+            FROM ContentDocumentLink
+            WHERE ContentDocumentId IN :contentDocIds
+            AND LinkedEntityId IN (SELECT Id FROM Case)
         ];
 
-        System.debug('matchingCases size=' + matchingCases.size());
+        for (ContentDocumentLink link : links) {
+            fileToCaseMap.put(link.ContentDocumentId, link.LinkedEntityId);
+        }
+        return fileToCaseMap;
+    }
 
-        if (matchingCases.isEmpty()) {
-            System.debug('No cases found with Commit_SHA_Key__c IN collected SHA keys. Exiting.');
+    /* ================= CORE ================= */
+
+    private static void importVulnerabilityData(List<Id> contentDocIds) {
+        Map<String, Schema.SObjectType> gd = Schema.getGlobalDescribe();
+        if (!gd.containsKey(VULN_OBJECT_API)) {
+            System.debug('❌ Object not found: ' + VULN_OBJECT_API);
             return;
         }
 
-        // 3) Update Cases to link PR
-        List<Case> casesToUpdate = new List<Case>();
+        Schema.SObjectType vulnType = gd.get(VULN_OBJECT_API);
+        Set<Id> docIdSet = new Set<Id>(contentDocIds);
+        Map<Id, Id> fileToCaseMap = getFileToCaseMap(docIdSet);
 
-        for (Case c : matchingCases) {
-            String caseShaNorm = normalize(c.Commit_SHA_Key__c);
-            Id prId = normalizedShaToPrId.get(caseShaNorm);
+        List<ContentVersion> versions = [
+            SELECT Id, VersionData, ContentDocumentId
+            FROM ContentVersion
+            WHERE ContentDocumentId IN :contentDocIds
+            AND IsLatest = true
+        ];
 
-            System.debug('Case Id=' + c.Id + ' caseSha=' + c.Commit_SHA_Key__c + ' norm=' + caseShaNorm + ' matchedPrId=' + prId);
+        List<SObject> recordsToInsert = new List<SObject>();
 
-            if (prId != null && c.Pull_Request__c != prId) {
-                c.Pull_Request__c = prId;
-                casesToUpdate.add(c);
-            }
-        }
+        for (ContentVersion cv : versions) {
+            Id relatedCaseId = fileToCaseMap.get(cv.ContentDocumentId);
+            if (cv.VersionData == null) continue;
 
-        System.debug('casesToUpdate size=' + casesToUpdate.size());
+            String csv = cv.VersionData.toString()
+                .replace('\r\n', '\n')
+                .replace('\r', '\n');
 
-        if (!casesToUpdate.isEmpty()) {
-            try {
-                update casesToUpdate;
-                System.debug('✅ Cases updated successfully.');
-            } catch (DmlException dmle) {
-                System.debug('❌ Failed to update Cases: ' + dmle.getMessage());
-                for (Integer i = 0; i < dmle.getNumDml(); i++) {
-                    System.debug('Row ' + i + ' error: ' + dmle.getDmlMessage(i));
+            List<String> rows = csv.split('\n');
+            if (rows.size() < 2) continue;
+
+            Map<String, Integer> headerIndex = buildHeaderIndex(rows[0]);
+
+            for (Integer i = 1; i < rows.size(); i++) {
+                if (String.isBlank(rows[i])) continue;
+                List<String> cols = parseCSVLine(rows[i]);
+
+                String rule = getValue(cols, headerIndex, 'rule');
+                String file = getValue(cols, headerIndex, 'file');
+
+                if (String.isBlank(rule) || String.isBlank(file)) continue;
+
+                SObject vuln = vulnType.newSObject();
+
+                // Link to Standard Case
+                if (relatedCaseId != null) {
+                    vuln.put('Case__c', relatedCaseId);
                 }
-                throw dmle;
+
+                vuln.put('Rule__c', rule);
+                vuln.put('Engine__c', getValue(cols, headerIndex, 'engine'));
+                vuln.put('Severity__c', getValue(cols, headerIndex, 'severity'));
+                vuln.put('Category__c', getValue(cols, headerIndex, 'tags'));
+                vuln.put('File__c', file);
+                vuln.put('Line__c', getValue(cols, headerIndex, 'startline'));
+                vuln.put('Column__c', getValue(cols, headerIndex, 'startcolumn'));
+                vuln.put('Description__c', getValue(cols, headerIndex, 'message'));
+                vuln.put('URL__c', getValue(cols, headerIndex, 'resources'));
+                vuln.put('Commit__c', getValue(cols, headerIndex, 'commitauthor'));
+                vuln.put('ActualLine__c', getValue(cols, headerIndex, 'actualline'));
+                vuln.put('TargetBranch__c', getValue(cols, headerIndex, 'targetbranch'));
+                vuln.put('Violation_Status__c', 'Open');
+
+                recordsToInsert.add(vuln);
             }
-        } else {
-            System.debug('No Case needed update (already linked or no match).');
         }
 
-        System.debug('=== PullRequestCaseLinker.handleAfter END ===');
+        if (!recordsToInsert.isEmpty()) {
+            Set<String> newKeys = new Set<String>();
+            for (SObject s : recordsToInsert) {
+                Vulnerability__c v = (Vulnerability__c)s;
+                String key = v.Rule__c + '|' + v.File__c + '|' + v.Line__c + '|' + v.Case__c;
+                newKeys.add(key);
+            }
+
+            Set<String> existingKeys = new Set<String>();
+            for (Vulnerability__c v : [
+                SELECT Rule__c, File__c, Line__c, Case__c
+                FROM Vulnerability__c
+                WHERE Case__c IN :fileToCaseMap.values()
+            ]) {
+                String key = v.Rule__c + '|' + v.File__c + '|' + v.Line__c + '|' + v.Case__c;
+                existingKeys.add(key);
+            }
+
+            List<SObject> finalInsert = new List<SObject>();
+            for (SObject s : recordsToInsert) {
+                Vulnerability__c v = (Vulnerability__c)s;
+                String key = v.Rule__c + '|' + v.File__c + '|' + v.Line__c + '|' + v.Case__c;
+
+                if (!existingKeys.contains(key)) {
+                    finalInsert.add(v);
+                }
+            }
+
+            // ONLY execute one insert block
+            if (!finalInsert.isEmpty()) {
+                Database.insert(finalInsert, false);
+                System.debug('✅ Vulnerabilities inserted: ' + finalInsert.size());
+            }
+        }
+    }
+
+    /* ================= HELPERS (UNCHANGED) ================= */
+    private static Map<String, Integer> buildHeaderIndex(String header) {
+        Map<String, Integer> indexMap = new Map<String, Integer>();
+        List<String> headers = parseCSVLine(header);
+        for (Integer i = 0; i < headers.size(); i++) {
+            indexMap.put(normalize(headers[i]), i);
+        }
+        return indexMap;
+    }
+
+    private static String getValue(List<String> row, Map<String, Integer> headerIndex, String key) {
+        String normalizedKey = normalize(key);
+        if (headerIndex.containsKey(normalizedKey) && headerIndex.get(normalizedKey) < row.size()) {
+            return row[headerIndex.get(normalizedKey)];
+        }
+        return null;
     }
 
     private static String normalize(String s) {
-        return String.isBlank(s) ? '' : s.trim().toLowerCase();
+        return s == null ? '' : s.toLowerCase().replace(' ', '').replace('_', '').replace('-', '');
+    }
+
+    private static List<String> parseCSVLine(String line) {
+        List<String> cols = new List<String>();
+        Boolean inQuotes = false;
+        String cur = '';
+        for (Integer i = 0; i < line.length(); i++) {
+            String c = line.substring(i, i + 1);
+            if (c == '"') inQuotes = !inQuotes;
+            else if (c == ',' && !inQuotes) {
+                cols.add(cur.trim());
+                cur = '';
+            } else cur += c;
+        }
+        cols.add(cur.trim());
+        return cols;
+    }
+
+    /* ===== REWRITTEN TO CREATE STANDARD CASES AND AVOID GOVERNOR LIMITS ===== */
+    private static void createScannerReportCases(Set<Id> contentDocIds) {
+        List<ContentDocument> docs = [
+            SELECT Id, Title
+            FROM ContentDocument
+            WHERE Id IN :contentDocIds
+        ];
+
+        // Bulk-safe query outside the loop
+        Set<Id> existingCaseDocIds = new Set<Id>();
+        for (ContentDocumentLink cdl : [
+            SELECT ContentDocumentId 
+            FROM ContentDocumentLink 
+            WHERE ContentDocumentId IN :contentDocIds 
+            AND LinkedEntityId IN (SELECT Id FROM Case)
+        ]) {
+            existingCaseDocIds.add(cdl.ContentDocumentId);
+        }
+
+        List<Case> casesToInsert = new List<Case>();
+        Map<Id, ContentDocument> docMapForLinks = new Map<Id, ContentDocument>();
+
+        for (ContentDocument doc : docs) {
+            if (doc.Title != null && doc.Title.contains('Code_Scanner_Report')) {
+                // If a case already exists for this file, skip
+                if (existingCaseDocIds.contains(doc.Id)) continue;
+
+                Case newCase = new Case();
+                newCase.Subject = 'Scanner Report: ' + doc.Title;
+                newCase.Status = 'New';
+                newCase.OwnerId = UserInfo.getUserId();
+                // Add your Commit_SHA_Key__c logic here if possible!
+                
+                casesToInsert.add(newCase);
+                docMapForLinks.put(doc.Id, doc); 
+            }
+        }
+
+        if (!casesToInsert.isEmpty()) {
+            insert casesToInsert;
+
+            // ⚠️ CRITICAL: We must link the newly created Case back to the file
+            List<ContentDocumentLink> newLinks = new List<ContentDocumentLink>();
+            Integer index = 0;
+            for (Id docId : docMapForLinks.keySet()) {
+                ContentDocumentLink cdl = new ContentDocumentLink();
+                cdl.ContentDocumentId = docId;
+                cdl.LinkedEntityId = casesToInsert[index].Id; // Associate with the new case
+                cdl.ShareType = 'V'; // View permission
+                newLinks.add(cdl);
+                index++;
+            }
+            if (!newLinks.isEmpty()) {
+                insert newLinks;
+            }
+        }
     }
 }
