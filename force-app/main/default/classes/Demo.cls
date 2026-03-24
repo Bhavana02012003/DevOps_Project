@@ -11,7 +11,7 @@ global class Demo {  // Violates AvoidGlobalModifier
        // Violates ExcessiveParameterList (more than 4 params)
        String[] params = new String[] {param1, param2, param3, param4, param5};
        for (String param : params) {
-           System.debug('Parameters: ' + param);
+           System.debug('Parameter: ' + param);
            System.debug('Excessive Parameters Testing!!');
        }
     }
@@ -20,7 +20,7 @@ global class Demo {  // Violates AvoidGlobalModifier
         String hardcodedId = '0019000000XXXXXXX';  // Violates AvoidHardcodingId
         // Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId WITH SECURITY_ENFORCED];
         Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId];
-        System.debug('Accounts'+acc);
+        System.debug('Account'+acc);
    } 
 
     public void deeplyNestedIfMethod(Integer value) {  
