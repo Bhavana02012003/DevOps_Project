@@ -57,111 +57,76 @@ public with sharing class ScannerReportHandler {
  
         for (ContentVersion cv : contentVersions) {
 
-            if (cv.Title.contains('Code Scanner') || cv.Title.contains('Code Scanner Delta')) {
+            if (cv.Title != null && cv.Title.toLowerCase().contains('code scanner')) {
 
-                Case newCase = new Case();
+            Case newCase = new Case();   // ✅ MISSING LINE (VERY IMPORTANT)
 
-                newCase.File_Name__c = cv.Title;
+            newCase.Subject = 'Scanner Report - ' + cv.Title;
+            newCase.Origin = 'Web';
+            newCase.Status = 'New';
+            newCase.File_Name__c = cv.Title;
 
-                newCase.Status = 'New';
- 
-                try {
+            try {
+                ContentVersion cvWithData = [SELECT VersionData FROM ContentVersion WHERE Id = :cv.Id LIMIT 1];
 
-                    ContentVersion cvWithData = [SELECT VersionData FROM ContentVersion WHERE Id = :cv.Id LIMIT 1];
+                Blob csvBlob = cvWithData.VersionData;
+                String csvContent = csvBlob.toString();
 
-                    Blob csvBlob = cvWithData.VersionData;
+                List<String> csvLines = csvContent.split('\n');
 
-                    String csvContent = csvBlob.toString();
- 
-                    List<String> csvLines = csvContent.split('\n');
+                if (csvLines.size() > 1) {
 
-                    if (csvLines.size() > 1) {
+                    String headerLine = csvLines[0];
+                    List<String> headers = headerLine.split(',');
 
-                        String headerLine = csvLines[0];
+                    Integer targetBranchIndex = headers.indexOf('TargetBranch');
+                    Integer commitIndex = headers.indexOf('Commit');
+                    Integer severityIndex = headers.indexOf('Severity');
 
-                        List<String> headers = headerLine.split(',');
- 
-                        Integer targetBranchIndex = headers.indexOf('TargetBranch');
+                    Boolean setPriority = false;
 
-                        Integer commitIndex = headers.indexOf('Commit');
+                    for (Integer i = 1; i < csvLines.size(); i++) {
 
-                        Integer severityIndex = headers.indexOf('Severity'); // 🔽 NEW
- 
-                        Boolean setPriority = false;
- 
-                        for (Integer i = 1; i < csvLines.size(); i++) {
+                        List<String> values = csvLines[i].split(',');
 
-                            List<String> values = csvLines[i].split(',');
- 
-                            if (targetBranchIndex != -1 && values.size() > targetBranchIndex) {
-
-                                String targetBranchValue = values[targetBranchIndex].trim();
-
-                                newCase.Target_Environment__c = targetBranchValue;
-
-                            }
- 
-                            if (commitIndex != -1 && values.size() > commitIndex) {
-
-                                String commitValue = values[commitIndex].trim();
-
-                                newCase.Case_Created_By__c = commitValue;
-
-                            }
- 
-                            // 🔽 NEW: Priority update logic based on Severity column
-
-                            if (!setPriority && severityIndex != -1 && values.size() > severityIndex) {
-
-                                String severityValue = values[severityIndex].trim();
-
-                                if (severityValue == '1' || severityValue == '2') {
-
-                                    newCase.Priority = 'High';
-
-                                    setPriority = true;
-
-                                } else if (severityValue == '3') {
-
-                                    newCase.Priority = 'Medium';
-
-                                    setPriority = true;
-
-                                } else if (severityValue == '4' || severityValue == '5') {
-
-                                    newCase.Priority = 'Low';
-
-                                    setPriority = true;
-
-                                }
-
-                            }
- 
-                            // Exit early if both are set
-
-                            if ((newCase.Target_Environment__c != null || newCase.Case_Created_By__c != null) && setPriority) {
-
-                                break;
-
-                            }
-
+                        if (targetBranchIndex != -1 && values.size() > targetBranchIndex) {
+                            newCase.Target_Environment__c = values[targetBranchIndex].trim();
                         }
 
+                        if (commitIndex != -1 && values.size() > commitIndex) {
+                            newCase.Case_Created_By__c = values[commitIndex].trim();
+                        }
+
+                        if (!setPriority && severityIndex != -1 && values.size() > severityIndex) {
+
+                            String severityValue = values[severityIndex].trim();
+
+                            if (severityValue == '1' || severityValue == '2') {
+                                newCase.Priority = 'High';
+                                setPriority = true;
+                            } else if (severityValue == '3') {
+                                newCase.Priority = 'Medium';
+                                setPriority = true;
+                            } else if (severityValue == '4' || severityValue == '5') {
+                                newCase.Priority = 'Low';
+                                setPriority = true;
+                            }
+                        }
+
+                        if ((newCase.Target_Environment__c != null || newCase.Case_Created_By__c != null) && setPriority) {
+                            break;
+                        }
                     }
-
-                } catch (Exception e) {
-
-                    System.debug('❌ Error reading CSV content: ' + e.getMessage());
-
                 }
- 
-                casesToInsert.add(newCase);
 
-                caseToFileMap.put(cv.ContentDocumentId, null);
-
+            } catch (Exception e) {
+                System.debug('❌ Error reading CSV content: ' + e.getMessage());
             }
 
+            casesToInsert.add(newCase);
+            caseToFileMap.put(cv.ContentDocumentId, null);
         }
+                }
  
         if (!casesToInsert.isEmpty()) {
 
@@ -169,16 +134,16 @@ public with sharing class ScannerReportHandler {
 
                 insert casesToInsert;
  
-                Integer index = 0;
+                Integer i = 0;
 
-                for (Case createdCase : casesToInsert) {
+                for (ContentVersion cv : contentVersions) {
 
-                    Id docId = contentVersions[index].ContentDocumentId;
+                    if (cv.Title != null && cv.Title.toLowerCase().contains('code scanner')) {
 
-                    caseToFileMap.put(docId, createdCase.Id);
-
-                    index++;
-
+                        Case createdCase = casesToInsert[i];
+                        caseToFileMap.put(cv.ContentDocumentId, createdCase.Id);
+                        i++;
+                    }
                 }
  
             } catch (DmlException e) {
@@ -251,9 +216,15 @@ public with sharing class ScannerReportHandler {
 
         }
  
+        // 🔗 Link file to Case done above
+
         isProcessing = false;
+
+        // ✅ NOW call File processor
+        if (!caseToFileMap.isEmpty()) {
+            File.processNewContentDocuments(contentDocumentIds);
+        }
 
     }
 
 }
- 
