@@ -2,7 +2,7 @@
  * @description       : 
  * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
  * @group             : 
- * @last modified on  : 03-23-2026
+ * @last modified on  : 03-24-2026
  * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
 **/
 global class Demo {  // Violates AvoidGlobalModifier
@@ -20,7 +20,7 @@ global class Demo {  // Violates AvoidGlobalModifier
         String hardcodedId = '0019000000XXXXXXX';  // Violates AvoidHardcodingId
         // Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId WITH SECURITY_ENFORCED];
         Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId];
-        System.debug('Account'+acc);
+        System.debug('Accounts'+acc);
    } 
 
     public void deeplyNestedIfMethod(Integer value) {  
