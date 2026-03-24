@@ -11,7 +11,7 @@ global class Demo {  // Violates AvoidGlobalModifier
        // Violates ExcessiveParameterList (more than 4 params)
        String[] params = new String[] {param1, param2, param3, param4, param5};
        for (String param : params) {
-           System.debug('Parameter: ' + param);
+           System.debug('Parameters: ' + param);
            System.debug('Excessive Parameters Testing!!');
        }
     }
