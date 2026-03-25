@@ -21,7 +21,7 @@ export default class Demo extends LightningElement {
         console.log(myUndefinedVar);
         try {
             // intentionally left empty
-        } catch (e) {
+        } catch (Exception e) {
             console.log("Exception caughts: " + e.message);
         }
     }
