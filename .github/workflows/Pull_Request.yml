@@ -574,7 +574,7 @@ jobs:
           head -n 50 scanner-report.csv
       # ------------------------------------------------------------
       # ✅ 6) Generate LWC-only ESLint report (lwc-scanner-report.csv)
-      #      WITH sf code-analyzer and Python-powered Delta Filtering
+      #    WITH sf code-analyzer and Python-powered Delta Filtering
       # ------------------------------------------------------------
       - name: Generate LWC-only ESLint v10 report (lwc-scanner-report.csv)
         shell: bash
@@ -587,6 +587,11 @@ jobs:
             "parserOptions": {
               "ecmaVersion": 2023,
               "sourceType": "module"
+            },
+            "env": {
+              "browser": true,
+              "node": true,
+              "es2022": true
             },
             "plugins": ["@lwc/lwc", "@salesforce/aura", "@salesforce/lightning"],
             "rules": {
