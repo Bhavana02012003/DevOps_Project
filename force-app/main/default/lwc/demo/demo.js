@@ -22,7 +22,7 @@ export default class Demo extends LightningElement {
         try {
             // intentionally left empty
         } catch (Exception e) {
-            console.log("Exception caught: " + e.message);
+            console.log("Exception caughts: " + e.message);
         }
     }
 }
