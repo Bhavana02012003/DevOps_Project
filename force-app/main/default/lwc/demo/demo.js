@@ -7,7 +7,7 @@ export default class Demo extends LightningElement {
         console.log('Component Loading Bro please checkigfdgng the voilations...'); // ❌ `no-console`: `console.log()` is not allowed
         debugger; // ❌ `no-debugger`: Debugger statement is not allowed
 
-        if (this.myVar == null) { // ❌ `eqeqeq`: Use `===` instead of `==`
+        if (this.myVar === null) { // ❌ `eqeqeq`: Use `===` instead of `==`
             console.warn("Warning: Variable is null");
         }
 
@@ -17,8 +17,12 @@ export default class Demo extends LightningElement {
     }
 
     testFunction() { // ❌ `no-unused-vars`: Function is defined but never used
-         // ❌ `no-undef`: Variable is used before being defined
+        let myUndefinedVar; // ❌ `no-undef`: Variable is used before being defined
         console.log(myUndefinedVar);
-        myUndefinedVar;
+        try {
+            // intentionally left empty
+        } catch (e) {
+            print("Exception caught: $e");
+        }
     }
 }
