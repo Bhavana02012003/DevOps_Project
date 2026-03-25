@@ -1,0 +1,2 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"eqeqeq",eslint,"3",,"temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js",10,0,10,0,"Expected '===' and instead saw '=='.",,"Bhavana02012003","Bhavana02012003",10,"Backup_Cloned_Branch"
