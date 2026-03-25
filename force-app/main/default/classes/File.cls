@@ -1,3 +1,10 @@
+/**
+ * @description       : 
+ * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
+ * @group             : 
+ * @last modified on  : 03-24-2026
+ * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
+**/
 public with sharing class File {
 
     private static final String VULN_OBJECT_API = 'Vulnerability__c';
@@ -158,11 +165,12 @@ public with sharing class File {
 
             if (!finalInsert.isEmpty()) {
                 Database.insert(finalInsert, false);
-                System.debug('✅ Inserted: ' + finalInsert.size());
+                System.debug('✅ Vulnerabilities inserted: ' + finalInsert.size());
+            } else {
+                System.debug('⚠️ No new vulnerabilities to insert');
             }
-            Database.insert(recordsToInsert, false);
-            System.debug('✅ Vulnerabilities inserted: ' + recordsToInsert.size());
-        }
+
+            } 
     }
 
     /* ================= HELPERS ================= */
@@ -221,7 +229,7 @@ public with sharing class File {
 
         for (ContentDocument doc : docs) {
 
-            if (doc.Title != null && doc.Title.contains('Code_Scanner_Report')) {
+            if (doc.Title != null && doc.Title.toLowerCase().contains('code scanner report')) {
 
                 List<Scanner_Report_Case__c> existing = [
                     SELECT Id FROM Scanner_Report_Case__c

@@ -19,5 +19,10 @@ export default class Demo extends LightningElement {
     testFunction() { // ❌ `no-unused-vars`: Function is defined but never used
         let myUndefinedVar; // ❌ `no-undef`: Variable is used before being defined
         console.log(myUndefinedVar);
+        try {
+            // intentionally left empty
+        } catch (e) {
+            console.error("Exception caught: " + e.message);
+        }
     }
 }
