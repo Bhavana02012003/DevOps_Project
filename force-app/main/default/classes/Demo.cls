@@ -2,7 +2,7 @@
  * @description       : 
  * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
  * @group             : 
- * @last modified on  : 03-24-2026
+ * @last modified on  : 03-25-2026
  * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
 **/
 global class Demo {  // Violates AvoidGlobalModifier
@@ -11,7 +11,7 @@ global class Demo {  // Violates AvoidGlobalModifier
        // Violates ExcessiveParameterList (more than 4 params)
        String[] params = new String[] {param1, param2, param3, param4, param5};
        for (String param : params) {
-           System.debug('Parameters: ' + param);
+           System.debug('Parameterss: ' + param);
            System.debug('Excessive Parameters Testing!!');
        }
     }
