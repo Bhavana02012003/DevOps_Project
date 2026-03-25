@@ -47,6 +47,11 @@ public with sharing class File {
         for (ContentDocumentLink link : links) {
             fileToCaseMap.put(link.ContentDocumentId, link.LinkedEntityId);
         }
+        System.debug('📌 Checking File to Case mapping...');
+
+        if (fileToCaseMap.isEmpty()) {
+            System.debug('❌ No Case linked yet. Skipping vulnerability creation.');
+        }
 
         System.debug('🧠 File → Case Map: ' + fileToCaseMap);
         return fileToCaseMap;

@@ -1,15 +1,16 @@
 public class ScannerAttachmentQueueable implements Queueable {
 
-    private List<Id> caseIds;
+    private Set<Id> docIds;
 
-    public ScannerAttachmentQueueable(List<Id> caseIds) {
-        this.caseIds = caseIds;
+    public ScannerAttachmentQueueable(Set<Id> docIds) {
+        this.docIds = docIds;
     }
 
     public void execute(QueueableContext context) {
+        System.debug('🚀 Queueable → Processing AFTER Case creation');
 
-        for (Id caseId : caseIds) {
-            AttachmentHandler.createAttachmentForCase(caseId);
+        if (docIds != null && !docIds.isEmpty()) {
+            File.processNewContentDocuments(docIds);
         }
     }
 }
