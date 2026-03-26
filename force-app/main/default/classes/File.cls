@@ -30,47 +30,60 @@ public with sharing class File {
             WHERE Id IN :contentDocIds
         ];
 
-        System.debug('📄 Documents Found: ' + docs.size());
-
         List<Case> casesToInsert = new List<Case>();
         Map<Id, ContentDocument> pendingDocs = new Map<Id, ContentDocument>();
 
         for (ContentDocument doc : docs) {
 
-            System.debug('👉 Checking doc: ' + doc.Title);
-
             if (
                 doc.Title != null &&
                 doc.Title.toLowerCase().contains('code scanner')
             ) {
-                System.debug('✅ MATCHED FILE: ' + doc.Title);
 
                 Case c = new Case();
                 c.Subject = 'Scanner Report - ' + doc.Title;
                 c.Origin = 'Web';
                 c.Status = 'New';
                 c.File_Name__c = doc.Title;
+                c.pk__c = 'new';
 
-                // ✅ FIX (MANDATORY FIELD)
-                c.pk__c = 'new';   // <-- EXACT VALUE FROM YOUR PICKLIST
+                // 🔥 NEW: Populate Case fields from CSV
+                ContentVersion cv = [
+                    SELECT VersionData FROM ContentVersion 
+                    WHERE ContentDocumentId = :doc.Id LIMIT 1
+                ];
+
+                String csv = cv.VersionData.toString();
+                List<String> rows = csv.split('\n');
+
+                if(rows.size() > 1){
+                    Map<String, Integer> headerIndex = buildHeaderIndex(rows[0]);
+                    List<String> cols = parseCSVLine(rows[1]);
+
+                    c.Target_Environment__c = getValue(cols, headerIndex, 'targetbranch');
+
+                    // SAFE FIELD (create if needed)
+                    // c.Commit_SHA__c = getValue(cols, headerIndex, 'commitsha');
+
+                    String severity = getValue(cols, headerIndex, 'severity');
+
+                    if(severity == '1' || severity == '2'){
+                        c.Priority = 'High';
+                    } else if(severity == '3'){
+                        c.Priority = 'Medium';
+                    } else {
+                        c.Priority = 'Low';
+                    }
+                }
 
                 casesToInsert.add(c);
                 pendingDocs.put(doc.Id, doc);
             }
         }
 
-        System.debug('📌 Cases to Insert: ' + casesToInsert.size());
-
         if (!casesToInsert.isEmpty()) {
 
-            try {
-                insert casesToInsert;
-                System.debug('✅ Cases Inserted Successfully');
-
-            } catch (Exception e) {
-                System.debug('❌ Case Insert FAILED: ' + e.getMessage());
-                return;
-            }
+            insert casesToInsert;
 
             List<ContentDocumentLink> linksToInsert = new List<ContentDocumentLink>();
             Integer i = 0;
@@ -78,56 +91,18 @@ public with sharing class File {
 
             for (Id docId : docIdList) {
 
-                Case createdCase = casesToInsert[i];
-
                 ContentDocumentLink link = new ContentDocumentLink();
                 link.ContentDocumentId = docId;
-                link.LinkedEntityId = createdCase.Id;
+                link.LinkedEntityId = casesToInsert[i].Id;
                 link.ShareType = 'V';
                 link.Visibility = 'AllUsers';
 
                 linksToInsert.add(link);
-
-                System.debug('🔗 Linking File → Case: ' + docId + ' → ' + createdCase.Id);
-
                 i++;
             }
 
-            try {
-                insert linksToInsert;
-                System.debug('✅ File linked to Cases');
-
-            } catch (Exception e) {
-                System.debug('❌ Link FAILED: ' + e.getMessage());
-            }
-        } else {
-            System.debug('⚠️ No Cases created (file name mismatch)');
+            insert linksToInsert;
         }
-    }
-
-    // ================= MAP =================
-    private static Map<Id, Id> getFileToCaseMap(Set<Id> contentDocIds) {
-
-        System.debug('🔥 STEP 2: Mapping File → Case');
-
-        Map<Id, Id> fileToCaseMap = new Map<Id, Id>();
-
-        List<ContentDocumentLink> links = [
-            SELECT LinkedEntityId, ContentDocumentId
-            FROM ContentDocumentLink
-            WHERE ContentDocumentId IN :contentDocIds
-        ];
-
-        for (ContentDocumentLink link : links) {
-
-            if(link.LinkedEntityId.getSObjectType() == Case.SObjectType){
-                fileToCaseMap.put(link.ContentDocumentId, link.LinkedEntityId);
-            }
-        }
-
-        System.debug('🧠 File → Case Map: ' + fileToCaseMap);
-
-        return fileToCaseMap;
     }
 
     // ================= VULNERABILITY =================
@@ -137,10 +112,7 @@ public with sharing class File {
 
         Map<Id, Id> fileToCaseMap = getFileToCaseMap(new Set<Id>(contentDocIds));
 
-        if (fileToCaseMap.isEmpty()) {
-            System.debug('❌ NO CASE FOUND → STOP');
-            return;
-        }
+        if (fileToCaseMap.isEmpty()) return;
 
         List<ContentVersion> versions = [
             SELECT Id, VersionData, ContentDocumentId
@@ -149,63 +121,111 @@ public with sharing class File {
             AND IsLatest = true
         ];
 
-        System.debug('📄 ContentVersions found: ' + versions.size());
-
         List<Vulnerability__c> recordsToInsert = new List<Vulnerability__c>();
 
         for (ContentVersion cv : versions) {
 
             Id caseId = fileToCaseMap.get(cv.ContentDocumentId);
-
-            if (caseId == null) {
-                System.debug('❌ No Case for doc: ' + cv.ContentDocumentId);
-                continue;
-            }
-
-            if (cv.VersionData == null) {
-                System.debug('❌ VersionData is NULL');
-                continue;
-            }
+            if (caseId == null) continue;
 
             String csv = cv.VersionData.toString();
-            System.debug('📄 CSV Content: ' + csv.substring(0, Math.min(200, csv.length())));
-
             List<String> rows = csv.split('\n');
 
-            System.debug('📊 Rows count: ' + rows.size());
+            if(rows.isEmpty()) continue;
+
+            Map<String, Integer> headerIndex = buildHeaderIndex(rows[0]);
 
             for (Integer i = 1; i < rows.size(); i++) {
 
                 if (String.isBlank(rows[i])) continue;
 
-                List<String> cols = rows[i].split(',');
-
-                if (cols.size() < 5) continue;
+                List<String> cols = parseCSVLine(rows[i]);
 
                 Vulnerability__c v = new Vulnerability__c();
 
                 v.Case__c = caseId;
-                v.Rule__c = cols[0];
-                v.File__c = cols[1];
-                v.Severity__c = cols[2];
-                v.Description__c = rows[i];
+                v.Rule__c = getValue(cols, headerIndex, 'rule');
+                v.Engine__c = getValue(cols, headerIndex, 'engine');
+                v.Severity__c = getValue(cols, headerIndex, 'severity');
+                v.Category__c = getValue(cols, headerIndex, 'tags');
+                v.File__c = getValue(cols, headerIndex, 'file');
+                v.Line__c = getValue(cols, headerIndex, 'startline');
+                v.Column__c = getValue(cols, headerIndex, 'startcolumn');
+                v.Description__c = getValue(cols, headerIndex, 'message');
+                v.URL__c = getValue(cols, headerIndex, 'resources');
+                v.Commit__c = getValue(cols, headerIndex, 'commitauthor');
+                v.TargetBranch__c = getValue(cols, headerIndex, 'targetbranch');
+                v.ActualLine__c = getValue(cols, headerIndex, 'actualline');
+                v.Violation_Status__c = 'Open';
 
                 recordsToInsert.add(v);
             }
         }
 
-        System.debug('📌 Vulnerabilities to insert: ' + recordsToInsert.size());
-
         if (!recordsToInsert.isEmpty()) {
-            try {
-                insert recordsToInsert;
-                System.debug('✅ Vulnerabilities inserted');
-
-            } catch (Exception e) {
-                System.debug('❌ Vulnerability Insert FAILED: ' + e.getMessage());
-            }
-        } else {
-            System.debug('⚠️ No vulnerabilities parsed');
+            insert recordsToInsert;
         }
+    }
+
+    // ================= HELPERS =================
+    private static Map<Id, Id> getFileToCaseMap(Set<Id> contentDocIds) {
+
+        Map<Id, Id> fileToCaseMap = new Map<Id, Id>();
+
+        for (ContentDocumentLink link : [
+            SELECT LinkedEntityId, ContentDocumentId
+            FROM ContentDocumentLink
+            WHERE ContentDocumentId IN :contentDocIds
+        ]) {
+            if(link.LinkedEntityId.getSObjectType() == Case.SObjectType){
+                fileToCaseMap.put(link.ContentDocumentId, link.LinkedEntityId);
+            }
+        }
+
+        return fileToCaseMap;
+    }
+
+    private static List<String> parseCSVLine(String line) {
+        List<String> cols = new List<String>();
+        Boolean inQuotes = false;
+        String cur = '';
+
+        for (Integer i = 0; i < line.length(); i++) {
+            String c = line.substring(i, i+1);
+
+            if (c == '"') {
+                inQuotes = !inQuotes;
+            } else if (c == ',' && !inQuotes) {
+                cols.add(cur.trim());
+                cur = '';
+            } else {
+                cur += c;
+            }
+        }
+
+        cols.add(cur.trim());
+        return cols;
+    }
+
+    private static Map<String, Integer> buildHeaderIndex(String header) {
+        Map<String, Integer> mapIndex = new Map<String, Integer>();
+        List<String> headers = parseCSVLine(header);
+
+        for (Integer i = 0; i < headers.size(); i++) {
+            mapIndex.put(normalize(headers[i]), i);
+        }
+        return mapIndex;
+    }
+
+    private static String getValue(List<String> cols, Map<String, Integer> index, String key) {
+        String k = normalize(key);
+        if (index.containsKey(k) && index.get(k) < cols.size()) {
+            return cols[index.get(k)];
+        }
+        return null;
+    }
+
+    private static String normalize(String s) {
+        return s == null ? '' : s.toLowerCase().replace(' ', '').replace('_', '');
     }
 }
