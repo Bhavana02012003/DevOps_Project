@@ -2,30 +2,27 @@ public with sharing class File {
 
     private static final String VULN_OBJECT_API = 'Vulnerability__c';
 
-    public static void processNewFiles(List<ContentVersion> contentVersions) {
-        Set<Id> contentDocIds = new Set<Id>();
-
-        for (ContentVersion cv : contentVersions) {
-            if (cv.ContentDocumentId != null) {
-                contentDocIds.add(cv.ContentDocumentId);
-            }
-        }
-
-        if (!contentDocIds.isEmpty()) {
-            processNewContentDocuments(contentDocIds);
-        }
-    }
-
     public static void processNewContentDocuments(Set<Id> contentDocIds) {
 
-        // 1️⃣ Create Cases FIRST
+        System.debug('🔥 ENTRY: processNewContentDocuments');
+        System.debug('📂 Incoming Doc IDs: ' + contentDocIds);
+
+        if(contentDocIds == null || contentDocIds.isEmpty()){
+            System.debug('❌ No ContentDocumentIds received');
+            return;
+        }
+
+        // STEP 1: Create Case
         ensureStandardCasesExist(contentDocIds);
 
-        // 2️⃣ Now create Vulnerabilities (Case is guaranteed)
+        // STEP 2: Create Vulnerabilities
         importVulnerabilityData(new List<Id>(contentDocIds));
     }
 
+    // ================= CASE CREATION =================
     private static void ensureStandardCasesExist(Set<Id> contentDocIds) {
+
+        System.debug('🔥 STEP 1: Creating Cases');
 
         List<ContentDocument> docs = [
             SELECT Id, Title
@@ -33,26 +30,21 @@ public with sharing class File {
             WHERE Id IN :contentDocIds
         ];
 
-        Map<Id, Case> existingCaseByDocId = new Map<Id, Case>();
-
-        for (ContentDocumentLink cdl : [
-            SELECT ContentDocumentId, LinkedEntityId
-            FROM ContentDocumentLink
-            WHERE ContentDocumentId IN :contentDocIds
-            AND LinkedEntityId IN (SELECT Id FROM Case)
-        ]) {
-            existingCaseByDocId.put(cdl.ContentDocumentId, null);
-        }
+        System.debug('📄 Documents Found: ' + docs.size());
 
         List<Case> casesToInsert = new List<Case>();
         Map<Id, ContentDocument> pendingDocs = new Map<Id, ContentDocument>();
 
         for (ContentDocument doc : docs) {
+
+            System.debug('👉 Checking doc: ' + doc.Title);
+
             if (
                 doc.Title != null &&
-                doc.Title.toLowerCase().contains('code scanner') &&
-                !existingCaseByDocId.containsKey(doc.Id)
+                doc.Title.toLowerCase().contains('code scanner')
             ) {
+                System.debug('✅ MATCHED FILE: ' + doc.Title);
+
                 Case c = new Case();
                 c.Subject = 'Scanner Report - ' + doc.Title;
                 c.Origin = 'Web';
@@ -64,14 +56,25 @@ public with sharing class File {
             }
         }
 
+        System.debug('📌 Cases to Insert: ' + casesToInsert.size());
+
         if (!casesToInsert.isEmpty()) {
-            insert casesToInsert;
+
+            try {
+                insert casesToInsert;
+                System.debug('✅ Cases Inserted Successfully');
+
+            } catch (Exception e) {
+                System.debug('❌ Case Insert FAILED: ' + e.getMessage());
+                return;
+            }
 
             List<ContentDocumentLink> linksToInsert = new List<ContentDocumentLink>();
             Integer i = 0;
             List<Id> docIdList = new List<Id>(pendingDocs.keySet());
 
             for (Id docId : docIdList) {
+
                 Case createdCase = casesToInsert[i];
 
                 ContentDocumentLink link = new ContentDocumentLink();
@@ -79,18 +82,30 @@ public with sharing class File {
                 link.LinkedEntityId = createdCase.Id;
                 link.ShareType = 'V';
                 link.Visibility = 'AllUsers';
+
                 linksToInsert.add(link);
+
+                System.debug('🔗 Linking File → Case: ' + docId + ' → ' + createdCase.Id);
 
                 i++;
             }
 
-            if (!linksToInsert.isEmpty()) {
+            try {
                 insert linksToInsert;
+                System.debug('✅ File linked to Cases');
+
+            } catch (Exception e) {
+                System.debug('❌ Link FAILED: ' + e.getMessage());
             }
+        } else {
+            System.debug('⚠️ No Cases created (file name mismatch)');
         }
     }
 
+    // ================= MAP =================
     private static Map<Id, Id> getFileToCaseMap(Set<Id> contentDocIds) {
+
+        System.debug('🔥 STEP 2: Mapping File → Case');
 
         Map<Id, Id> fileToCaseMap = new Map<Id, Id>();
 
@@ -98,32 +113,29 @@ public with sharing class File {
             SELECT LinkedEntityId, ContentDocumentId
             FROM ContentDocumentLink
             WHERE ContentDocumentId IN :contentDocIds
-            AND LinkedEntityId IN (SELECT Id FROM Case)
         ];
 
         for (ContentDocumentLink link : links) {
-            fileToCaseMap.put(link.ContentDocumentId, link.LinkedEntityId);
+
+            if(link.LinkedEntityId.getSObjectType() == Case.SObjectType){
+                fileToCaseMap.put(link.ContentDocumentId, link.LinkedEntityId);
+            }
         }
 
         System.debug('🧠 File → Case Map: ' + fileToCaseMap);
+
         return fileToCaseMap;
     }
 
+    // ================= VULNERABILITY =================
     private static void importVulnerabilityData(List<Id> contentDocIds) {
 
-        Map<String, Schema.SObjectType> gd = Schema.getGlobalDescribe();
-        if (!gd.containsKey(VULN_OBJECT_API)) {
-            System.debug('❌ Object not found: ' + VULN_OBJECT_API);
-            return;
-        }
+        System.debug('🔥 STEP 3: Creating Vulnerabilities');
 
-        Schema.SObjectType vulnType = gd.get(VULN_OBJECT_API);
-
-        Set<Id> docIdSet = new Set<Id>(contentDocIds);
-        Map<Id, Id> fileToCaseMap = getFileToCaseMap(docIdSet);
+        Map<Id, Id> fileToCaseMap = getFileToCaseMap(new Set<Id>(contentDocIds));
 
         if (fileToCaseMap.isEmpty()) {
-            System.debug('❌ No linked standard Case found. Vulnerability creation skipped.');
+            System.debug('❌ NO CASE FOUND → STOP');
             return;
         }
 
@@ -134,187 +146,63 @@ public with sharing class File {
             AND IsLatest = true
         ];
 
-        List<SObject> recordsToInsert = new List<SObject>();
+        System.debug('📄 ContentVersions found: ' + versions.size());
+
+        List<Vulnerability__c> recordsToInsert = new List<Vulnerability__c>();
 
         for (ContentVersion cv : versions) {
 
-            Id relatedCaseId = fileToCaseMap.get(cv.ContentDocumentId);
+            Id caseId = fileToCaseMap.get(cv.ContentDocumentId);
 
-            if (relatedCaseId == null || cv.VersionData == null) {
+            if (caseId == null) {
+                System.debug('❌ No Case for doc: ' + cv.ContentDocumentId);
                 continue;
             }
 
-            String csv = cv.VersionData.toString()
-                .replace('\r\n', '\n')
-                .replace('\r', '\n');
+            if (cv.VersionData == null) {
+                System.debug('❌ VersionData is NULL');
+                continue;
+            }
+
+            String csv = cv.VersionData.toString();
+            System.debug('📄 CSV Content: ' + csv.substring(0, Math.min(200, csv.length())));
 
             List<String> rows = csv.split('\n');
-            if (rows.size() < 2) {
-                continue;
-            }
 
-            Map<String, Integer> headerIndex = buildHeaderIndex(rows[0]);
+            System.debug('📊 Rows count: ' + rows.size());
 
             for (Integer i = 1; i < rows.size(); i++) {
 
-                if (String.isBlank(rows[i])) {
-                    continue;
-                }
+                if (String.isBlank(rows[i])) continue;
 
-                List<String> cols = parseCSVLine(rows[i]);
+                List<String> cols = rows[i].split(',');
 
-                String rule = getValue(cols, headerIndex, 'rule');
-                String file = getValue(cols, headerIndex, 'file');
+                if (cols.size() < 5) continue;
 
-                if (String.isBlank(rule) || String.isBlank(file)) {
-                    continue;
-                }
+                Vulnerability__c v = new Vulnerability__c();
 
-                SObject vuln = vulnType.newSObject();
-                vuln.put('Case__c', relatedCaseId);
-                vuln.put('Rule__c', rule);
-                vuln.put('Engine__c', getValue(cols, headerIndex, 'engine'));
-                vuln.put('Severity__c', getValue(cols, headerIndex, 'severity'));
-                vuln.put('Category__c', getValue(cols, headerIndex, 'tags'));
-                vuln.put('File__c', file);
-                vuln.put('Line__c', getValue(cols, headerIndex, 'startline'));
-                vuln.put('Column__c', getValue(cols, headerIndex, 'startcolumn'));
-                vuln.put('Description__c', getValue(cols, headerIndex, 'message'));
-                vuln.put('URL__c', getValue(cols, headerIndex, 'resources'));
-                vuln.put('Commit__c', getValue(cols, headerIndex, 'commitauthor'));
-                vuln.put('ActualLine__c', getValue(cols, headerIndex, 'actualline'));
-                vuln.put('TargetBranch__c', getValue(cols, headerIndex, 'targetbranch'));
-                vuln.put('Violation_Status__c', 'Open');
+                v.Case__c = caseId;
+                v.Rule__c = cols[0];
+                v.File__c = cols[1];
+                v.Severity__c = cols[2];
+                v.Description__c = rows[i];
 
-                recordsToInsert.add(vuln);
+                recordsToInsert.add(v);
             }
         }
 
-        if (recordsToInsert.isEmpty()) {
-            System.debug('⚠️ No vulnerability records parsed from CSV.');
-            return;
-        }
+        System.debug('📌 Vulnerabilities to insert: ' + recordsToInsert.size());
 
-        Set<String> existingKeys = new Set<String>();
-        for (Vulnerability__c v : [
-            SELECT Rule__c, File__c, Line__c, Case__c
-            FROM Vulnerability__c
-            WHERE Case__c IN :fileToCaseMap.values()
-        ]) {
-            String key = v.Rule__c + '|' + v.File__c + '|' + v.Line__c + '|' + v.Case__c;
-            existingKeys.add(key);
-        }
+        if (!recordsToInsert.isEmpty()) {
+            try {
+                insert recordsToInsert;
+                System.debug('✅ Vulnerabilities inserted');
 
-        List<SObject> finalInsert = new List<SObject>();
-
-        for (SObject s : recordsToInsert) {
-            Vulnerability__c v = (Vulnerability__c) s;
-            String key = v.Rule__c + '|' + v.File__c + '|' + v.Line__c + '|' + v.Case__c;
-
-            if (!existingKeys.contains(key)) {
-                finalInsert.add(v);
+            } catch (Exception e) {
+                System.debug('❌ Vulnerability Insert FAILED: ' + e.getMessage());
             }
-        }
-
-        if (!finalInsert.isEmpty()) {
-            Database.SaveResult[] results = Database.insert(finalInsert, false);
-
-            Integer successCount = 0;
-            for (Database.SaveResult sr : results) {
-                if (sr.isSuccess()) {
-                    successCount++;
-                } else {
-                    for (Database.Error err : sr.getErrors()) {
-                        System.debug('❌ Vulnerability insert error: ' + err.getMessage());
-                    }
-                }
-            }
-
-            System.debug('✅ Vulnerabilities inserted: ' + successCount);
         } else {
-            System.debug('⚠️ No new vulnerabilities to insert.');
-        }
-    }
-
-    private static Map<String, Integer> buildHeaderIndex(String header) {
-        Map<String, Integer> indexMap = new Map<String, Integer>();
-        List<String> headers = parseCSVLine(header);
-        for (Integer i = 0; i < headers.size(); i++) {
-            indexMap.put(normalize(headers[i]), i);
-        }
-        return indexMap;
-    }
-
-    private static String getValue(List<String> row, Map<String, Integer> headerIndex, String key) {
-        String normalizedKey = normalize(key);
-        if (headerIndex.containsKey(normalizedKey) && headerIndex.get(normalizedKey) < row.size()) {
-            return row[headerIndex.get(normalizedKey)];
-        }
-        return null;
-    }
-
-    private static String normalize(String s) {
-        return s == null ? '' : s.toLowerCase().replace(' ', '').replace('_', '').replace('-', '');
-    }
-
-    private static List<String> parseCSVLine(String line) {
-        List<String> cols = new List<String>();
-        Boolean inQuotes = false;
-        String cur = '';
-
-        for (Integer i = 0; i < line.length(); i++) {
-            String c = line.substring(i, i + 1);
-
-            if (c == '"') {
-                inQuotes = !inQuotes;
-            } else if (c == ',' && !inQuotes) {
-                cols.add(cur.trim());
-                cur = '';
-            } else {
-                cur += c;
-            }
-        }
-
-        cols.add(cur.trim());
-        return cols;
-    }
-
-    private static void createScannerReportCases(Set<Id> contentDocIds) {
-
-        List<ContentDocument> docs = [
-            SELECT Id, Title
-            FROM ContentDocument
-            WHERE Id IN :contentDocIds
-        ];
-
-        List<Scanner_Report_Case__c> casesToInsert = new List<Scanner_Report_Case__c>();
-
-        for (ContentDocument doc : docs) {
-            if (doc.Title != null && doc.Title.toLowerCase().contains('code scanner report')) {
-
-                List<Scanner_Report_Case__c> existing = [
-                    SELECT Id
-                    FROM Scanner_Report_Case__c
-                    WHERE File_Id__c = :doc.Id
-                    LIMIT 1
-                ];
-
-                if (!existing.isEmpty()) {
-                    continue;
-                }
-
-                Scanner_Report_Case__c newCase = new Scanner_Report_Case__c();
-                newCase.File_Id__c = doc.Id;
-                newCase.File_Name__c = doc.Title;
-                newCase.Status__c = 'New';
-                newCase.OwnerId = UserInfo.getUserId();
-
-                casesToInsert.add(newCase);
-            }
-        }
-
-        if (!casesToInsert.isEmpty()) {
-            insert casesToInsert;
+            System.debug('⚠️ No vulnerabilities parsed');
         }
     }
 }
