@@ -62,6 +62,7 @@ public with sharing class AccountClass {
                 throw new AuraHandledException(
                     'Duplicate account name detected.'
                 );
+                System.debug('❌ Duplicate account name: ' + Name);
             } else {
                 throw new AuraHandledException(
                     'Account creation failed: ' + ex.getMessage()
