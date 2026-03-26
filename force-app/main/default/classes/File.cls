@@ -111,9 +111,10 @@ public with sharing class File {
 
         if (fileToCaseMap.isEmpty()) return;
 
-        // 🔥 FETCH EXISTING RECORDS (DUPLICATE CHECK)
-        Set<String> existingKeys = new Set<String>();
+        // 🔥 GLOBAL SET (VERY IMPORTANT FIX)
+        Set<String> globalKeys = new Set<String>();
 
+        // 🔥 EXISTING RECORDS FROM DB
         List<Vulnerability__c> existingRecords = [
             SELECT Id, Case__c, Rule__c, File__c, Line__c
             FROM Vulnerability__c
@@ -127,7 +128,7 @@ public with sharing class File {
                 ev.File__c,
                 String.valueOf(ev.Line__c)
             );
-            existingKeys.add(key);
+            globalKeys.add(key);
         }
 
         List<ContentVersion> versions = [
@@ -157,15 +158,31 @@ public with sharing class File {
 
                 List<String> cols = parseCSVLine(rows[i]);
 
+                String rule = getValue(cols, headerIndex, 'rule');
+                String file = getValue(cols, headerIndex, 'file');
+                String line = getValue(cols, headerIndex, 'startline');
+
+                // 🔥 BUILD UNIQUE KEY EARLY
+                String uniqueKey = buildUniqueKey(caseId, rule, file, line);
+
+                // 🔥 FINAL DUPLICATE CHECK (GLOBAL)
+                if(globalKeys.contains(uniqueKey)){
+                    System.debug('🚫 DUPLICATE BLOCKED: ' + uniqueKey);
+                    continue;
+                }
+
+                // 🔥 ADD TO GLOBAL BEFORE INSERT
+                globalKeys.add(uniqueKey);
+
                 Vulnerability__c v = new Vulnerability__c();
 
                 v.Case__c = caseId;
-                v.Rule__c = getValue(cols, headerIndex, 'rule');
+                v.Rule__c = rule;
                 v.Engine__c = getValue(cols, headerIndex, 'engine');
                 v.Severity__c = getValue(cols, headerIndex, 'severity');
                 v.Category__c = getValue(cols, headerIndex, 'tags');
-                v.File__c = getValue(cols, headerIndex, 'file');
-                v.Line__c = getValue(cols, headerIndex, 'startline');
+                v.File__c = file;
+                v.Line__c = line;
                 v.Column__c = getValue(cols, headerIndex, 'startcolumn');
                 v.Description__c = getValue(cols, headerIndex, 'message');
                 v.URL__c = getValue(cols, headerIndex, 'resources');
@@ -174,24 +191,11 @@ public with sharing class File {
                 v.ActualLine__c = getValue(cols, headerIndex, 'actualline');
                 v.Violation_Status__c = 'Open';
 
-                // 🔥 DUPLICATE CHECK
-                String uniqueKey = buildUniqueKey(
-                    caseId,
-                    v.Rule__c,
-                    v.File__c,
-                    String.valueOf(v.Line__c)
-                );
-
-                if(existingKeys.contains(uniqueKey)){
-                    System.debug('⚠️ Duplicate Found → Skipping: ' + uniqueKey);
-                    continue;
-                }
-
-                existingKeys.add(uniqueKey);
-
                 recordsToInsert.add(v);
             }
         }
+
+        System.debug('📌 FINAL INSERT COUNT: ' + recordsToInsert.size());
 
         if (!recordsToInsert.isEmpty()) {
             insert recordsToInsert;
