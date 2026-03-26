@@ -47,7 +47,7 @@ public with sharing class File {
                 c.File_Name__c = doc.Title;
                 c.pk__c = 'new';
 
-                // 🔥 NEW: Populate Case fields from CSV
+                // CSV → Case fields
                 ContentVersion cv = [
                     SELECT VersionData FROM ContentVersion 
                     WHERE ContentDocumentId = :doc.Id LIMIT 1
@@ -61,9 +61,6 @@ public with sharing class File {
                     List<String> cols = parseCSVLine(rows[1]);
 
                     c.Target_Environment__c = getValue(cols, headerIndex, 'targetbranch');
-
-                    // SAFE FIELD (create if needed)
-                    // c.Commit_SHA__c = getValue(cols, headerIndex, 'commitsha');
 
                     String severity = getValue(cols, headerIndex, 'severity');
 
@@ -114,6 +111,25 @@ public with sharing class File {
 
         if (fileToCaseMap.isEmpty()) return;
 
+        // 🔥 FETCH EXISTING RECORDS (DUPLICATE CHECK)
+        Set<String> existingKeys = new Set<String>();
+
+        List<Vulnerability__c> existingRecords = [
+            SELECT Id, Case__c, Rule__c, File__c, Line__c
+            FROM Vulnerability__c
+            WHERE Case__c IN :fileToCaseMap.values()
+        ];
+
+        for(Vulnerability__c ev : existingRecords){
+            String key = buildUniqueKey(
+                ev.Case__c,
+                ev.Rule__c,
+                ev.File__c,
+                String.valueOf(ev.Line__c)
+            );
+            existingKeys.add(key);
+        }
+
         List<ContentVersion> versions = [
             SELECT Id, VersionData, ContentDocumentId
             FROM ContentVersion
@@ -158,6 +174,21 @@ public with sharing class File {
                 v.ActualLine__c = getValue(cols, headerIndex, 'actualline');
                 v.Violation_Status__c = 'Open';
 
+                // 🔥 DUPLICATE CHECK
+                String uniqueKey = buildUniqueKey(
+                    caseId,
+                    v.Rule__c,
+                    v.File__c,
+                    String.valueOf(v.Line__c)
+                );
+
+                if(existingKeys.contains(uniqueKey)){
+                    System.debug('⚠️ Duplicate Found → Skipping: ' + uniqueKey);
+                    continue;
+                }
+
+                existingKeys.add(uniqueKey);
+
                 recordsToInsert.add(v);
             }
         }
@@ -165,6 +196,14 @@ public with sharing class File {
         if (!recordsToInsert.isEmpty()) {
             insert recordsToInsert;
         }
+    }
+
+    // ================= UNIQUE KEY =================
+    private static String buildUniqueKey(Id caseId, String rule, String file, String line) {
+        return String.valueOf(caseId) + '|' +
+               String.valueOf(rule) + '|' +
+               String.valueOf(file) + '|' +
+               String.valueOf(line);
     }
 
     // ================= HELPERS =================
