@@ -17,8 +17,11 @@ public with sharing class File {
     }
 
     public static void processNewContentDocuments(Set<Id> contentDocIds) {
-        createScannerReportCases(contentDocIds);          // your existing custom object logic
-        ensureStandardCasesExist(contentDocIds);          // new fallback for standard Case
+
+        // 1️⃣ Create Cases FIRST
+        ensureStandardCasesExist(contentDocIds);
+
+        // 2️⃣ Now create Vulnerabilities (Case is guaranteed)
         importVulnerabilityData(new List<Id>(contentDocIds));
     }
 
@@ -66,8 +69,9 @@ public with sharing class File {
 
             List<ContentDocumentLink> linksToInsert = new List<ContentDocumentLink>();
             Integer i = 0;
+            List<Id> docIdList = new List<Id>(pendingDocs.keySet());
 
-            for (Id docId : pendingDocs.keySet()) {
+            for (Id docId : docIdList) {
                 Case createdCase = casesToInsert[i];
 
                 ContentDocumentLink link = new ContentDocumentLink();
