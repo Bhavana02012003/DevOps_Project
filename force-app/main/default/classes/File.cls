@@ -51,6 +51,9 @@ public with sharing class File {
                 c.Status = 'New';
                 c.File_Name__c = doc.Title;
 
+                // ✅ FIX (MANDATORY FIELD)
+                c.pk__c = 'new';   // <-- EXACT VALUE FROM YOUR PICKLIST
+
                 casesToInsert.add(c);
                 pendingDocs.put(doc.Id, doc);
             }
