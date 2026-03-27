@@ -51,7 +51,7 @@ public with sharing class AccountClass {
         try {
 
             // 🔴 Intentional violation (for scanner)
-            System.debug('Attempting to insert Account: ' + acc);
+            System.debug('Attempting to insert Account:: ' + acc);
 
             insert acc;
             return acc.Id;
