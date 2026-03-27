@@ -19,4 +19,12 @@ public class DummyActionTest {
         
         // Deliberate Violation: ApexUnitTestClassShouldHaveAsserts (no System.assert used)
     }
+    @isTest
+    static void testDeltaLogic() {
+        try {
+            Integer x = 5 / 0;
+        } catch (Exception e) {
+            // Deliberate Violation: EmptyCatchBlock
+        }
+    }
 }
