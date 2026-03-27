@@ -34,6 +34,7 @@
   "salesforcedx-vscode-core.internal-development": false,
   "eslint.workingDirectories": [
     "c:/CVS Health/DevOps_Project"
+    "c:/CVSHealth/Git Hub Dev/DevOps_Project"
   ],
   "eslint.validate": [
     "javascript",
@@ -41,5 +42,6 @@
   ],
   "eslint.options": {
     "overrideConfigFile": "c:\\CVS Health\\DevOps_Project\\.eslintrc.json"
+    "overrideConfigFile": "c:\\CVSHealth\\Git Hub Dev\\DevOps_Project\\.eslintrc.json"
   }
 }
