@@ -47,7 +47,7 @@ public with sharing class File {
                 c.File_Name__c = doc.Title;
                 c.pk__c = 'new';
 
-                // 🔥 NEW: Populate Case fields from CSV
+                // CSV → Case fields
                 ContentVersion cv = [
                     SELECT VersionData FROM ContentVersion 
                     WHERE ContentDocumentId = :doc.Id LIMIT 1
@@ -61,9 +61,6 @@ public with sharing class File {
                     List<String> cols = parseCSVLine(rows[1]);
 
                     c.Target_Environment__c = getValue(cols, headerIndex, 'targetbranch');
-
-                    // SAFE FIELD (create if needed)
-                    // c.Commit_SHA__c = getValue(cols, headerIndex, 'commitsha');
 
                     String severity = getValue(cols, headerIndex, 'severity');
 
@@ -114,6 +111,26 @@ public with sharing class File {
 
         if (fileToCaseMap.isEmpty()) return;
 
+        // 🔥 GLOBAL SET (VERY IMPORTANT FIX)
+        Set<String> globalKeys = new Set<String>();
+
+        // 🔥 EXISTING RECORDS FROM DB
+        List<Vulnerability__c> existingRecords = [
+            SELECT Id, Case__c, Rule__c, File__c, Line__c
+            FROM Vulnerability__c
+            WHERE Case__c IN :fileToCaseMap.values()
+        ];
+
+        for(Vulnerability__c ev : existingRecords){
+            String key = buildUniqueKey(
+                ev.Case__c,
+                ev.Rule__c,
+                ev.File__c,
+                String.valueOf(ev.Line__c)
+            );
+            globalKeys.add(key);
+        }
+
         List<ContentVersion> versions = [
             SELECT Id, VersionData, ContentDocumentId
             FROM ContentVersion
@@ -141,15 +158,31 @@ public with sharing class File {
 
                 List<String> cols = parseCSVLine(rows[i]);
 
+                String rule = getValue(cols, headerIndex, 'rule');
+                String file = getValue(cols, headerIndex, 'file');
+                String line = getValue(cols, headerIndex, 'startline');
+
+                // 🔥 BUILD UNIQUE KEY EARLY
+                String uniqueKey = buildUniqueKey(caseId, rule, file, line);
+
+                // 🔥 FINAL DUPLICATE CHECK (GLOBAL)
+                if(globalKeys.contains(uniqueKey)){
+                    System.debug('🚫 DUPLICATE BLOCKED: ' + uniqueKey);
+                    continue;
+                }
+
+                // 🔥 ADD TO GLOBAL BEFORE INSERT
+                globalKeys.add(uniqueKey);
+
                 Vulnerability__c v = new Vulnerability__c();
 
                 v.Case__c = caseId;
-                v.Rule__c = getValue(cols, headerIndex, 'rule');
+                v.Rule__c = rule;
                 v.Engine__c = getValue(cols, headerIndex, 'engine');
                 v.Severity__c = getValue(cols, headerIndex, 'severity');
                 v.Category__c = getValue(cols, headerIndex, 'tags');
-                v.File__c = getValue(cols, headerIndex, 'file');
-                v.Line__c = getValue(cols, headerIndex, 'startline');
+                v.File__c = file;
+                v.Line__c = line;
                 v.Column__c = getValue(cols, headerIndex, 'startcolumn');
                 v.Description__c = getValue(cols, headerIndex, 'message');
                 v.URL__c = getValue(cols, headerIndex, 'resources');
@@ -162,9 +195,19 @@ public with sharing class File {
             }
         }
 
+        System.debug('📌 FINAL INSERT COUNT: ' + recordsToInsert.size());
+
         if (!recordsToInsert.isEmpty()) {
             insert recordsToInsert;
         }
+    }
+
+    // ================= UNIQUE KEY =================
+    private static String buildUniqueKey(Id caseId, String rule, String file, String line) {
+        return String.valueOf(caseId) + '|' +
+               String.valueOf(rule) + '|' +
+               String.valueOf(file) + '|' +
+               String.valueOf(line);
     }
 
     // ================= HELPERS =================

@@ -1,0 +1,19 @@
+{
+  "folders": [
+    {
+      "path": "c:/CVSHealth/Git Hub Dev/DevOps_Project"
+    }
+  ],
+  "settings": {
+    "eslint.workingDirectories": [
+      "c:/CVSHealth/Git Hub Dev/DevOps_Project"
+    ],
+    "eslint.validate": [
+      "javascript",
+      "typescript"
+    ],
+    "eslint.options": {
+      "overrideConfigFile": "c:\\CVSHealth\\Git Hub Dev\\DevOps_Project\\.eslintrc.json"
+    }
+  }
+}

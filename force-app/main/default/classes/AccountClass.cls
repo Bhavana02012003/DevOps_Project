@@ -51,7 +51,7 @@ public with sharing class AccountClass {
         try {
 
             // 🔴 Intentional violation (for scanner)
-            System.debug('Attempting to insert Account:: ' + acc);
+            System.debug('Attempting to insert Account: ' + acc);
 
             insert acc;
             return acc.Id;
@@ -62,10 +62,12 @@ public with sharing class AccountClass {
                 throw new AuraHandledException(
                     'Duplicate account name detected.'
                 );
+                System.debug('❌ Duplicate account name: ' + Name);
             } else {
                 throw new AuraHandledException(
                     'Account creation failed: ' + ex.getMessage()
                 );
+                System.debug('❌ Account creation error:: ' + ex.getMessage());
             }
         }
     }
