@@ -37,3 +37,56 @@ export default [
     }
   }
 ];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//Changes to be made
+
+
+{
+  "parser": "@babel/eslint-parser",
+  "parserOptions": {
+    "requireConfigFile": false,
+    "ecmaVersion": 2023,
+    "sourceType": "module"
+  },
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2022": true
+  },
+  "plugins": ["@lwc/lwc", "@salesforce/aura", "@salesforce/lightning"],
+  "extends": ["plugin:@lwc/lwc/recommended"],
+  "rules": {
+    "no-console": "error",
+    "no-debugger": "error",
+    "no-unused-vars": "warn",
+    "no-undef": "error",
+    "eqeqeq": ["error", "always"],
+    "curly": "error",
+    "semi": ["error", "always"],
+    "@lwc/lwc/no-async-await-in-wire": "error",
+    "@lwc/lwc/no-deprecated": "warn",
+    "@lwc/lwc/no-inner-html": "error",
+    "@lwc/lwc/no-dupe-class-members": "error"
+  }
+}
