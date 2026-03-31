@@ -225,3 +225,1051 @@ Selecting rules... Eligible engines: retire-js, regex, eslint, flow, sfge, pmd, 
 ✅ LWC-only report (first 50 lines):
 rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
 ❌ No LWC violations found
+
+============================================================================================================================================================
+name: Hard Gating (Code Analyzer)
+
+on:
+  pull_request:
+    branches:
+      - 'ESOINT4'
+
+jobs:
+  hard-code-gating-scan-pull:
+    name: hard-code-gating-scan-pull
+    runs-on:
+      group: cvs-linux-self-hosted
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install ESLint (DO NOT MODIFY package.json)
+        run: npm install eslint --no-save --legacy-peer-deps
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Salesforce CLI
+        run: npm install @salesforce/cli --global
+
+      - name: Disable Auto Plugin Install
+        run: |
+          mkdir -p ~/.sf
+          echo '{"plugins":{"autoInstall":false}}' > ~/.sf/sf-config.json
+      - name: Install Code Analyzer Plugin v5
+        run: |
+          sf plugins uninstall @salesforce/plugin-code-analyzer || true
+          sf plugins install @salesforce/plugin-code-analyzer@5.1.0
+      - name: Confirm Only v5 Plugin
+        run: sf plugins | grep code-analyzer
+
+      - name: Get Commit Author
+        id: commit-author
+        run: |
+          AUTHOR_NAME=$(git log -1 --pretty=format:'%an')
+          AUTHOR_EMAIL=$(git log -1 --pretty=format:'%ae')
+          COMMITTER_NAME=$(git log -1 --pretty=format:'%cn')
+          COMMITTER_EMAIL=$(git log -1 --pretty=format:'%ce')
+          echo "Author: $AUTHOR_NAME <$AUTHOR_EMAIL>"
+          echo "Committer: $COMMITTER_NAME <$COMMITTER_EMAIL>"
+          echo "commit-author=$AUTHOR_NAME" >> $GITHUB_OUTPUT
+          echo "GITHUB_USERNAME=$AUTHOR_NAME" >> $GITHUB_ENV
+          echo "COMMIT_AUTHOR=$AUTHOR_NAME" >> $GITHUB_ENV
+      - name: Get Repository and Branch Info
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO_NAME="$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)"
+          # ✅ Target branch for PRs (base branch)
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            TARGET_BRANCH="${GITHUB_BASE_REF}"
+            SOURCE_BRANCH="${GITHUB_HEAD_REF}"
+          else
+            TARGET_BRANCH="${GITHUB_REF#refs/heads/}"
+            SOURCE_BRANCH="${TARGET_BRANCH}"
+          fi
+          COMMIT_LABEL="$(git log -1 --pretty=format:'%s')"
+          echo "REPO_NAME=${REPO_NAME}" >> "$GITHUB_ENV"
+          echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "$GITHUB_ENV"
+          echo "SOURCE_BRANCH=${SOURCE_BRANCH}" >> "$GITHUB_ENV"
+          echo "COMMIT_LABEL=${COMMIT_LABEL}" >> "$GITHUB_ENV"
+          FILE_TITLE="Code Scanner Report_${REPO_NAME}_${TARGET_BRANCH}_${COMMIT_LABEL}.csv"
+          echo "Target Branch = ${TARGET_BRANCH}"
+          echo "Source Branch = ${SOURCE_BRANCH}"
+          echo "FILE_TITLE=${FILE_TITLE}" >> $GITHUB_ENV
+      # ------------------------------------------------------------
+      # 1) Resolve the diff range and collect changed files by type
+      # ------------------------------------------------------------
+      - name: Resolve diff range & collect changed files
+        id: collect-delta-files
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Resolving diff range..."
+          git fetch --no-tags --prune --depth=50 origin +refs/heads/*:refs/remotes/origin/*
+          if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.base_ref }}" ]]; then
+            RANGE="origin/${{ github.base_ref }}...${{ github.sha }}"
+            echo "Using PR diff range: $RANGE"
+          else
+            RANGE="HEAD~1..HEAD"
+            echo "Using fallback diff range: $RANGE"
+          fi
+          echo "RANGE=$RANGE" >> "$GITHUB_OUTPUT"
+          changed_files=$(git diff --name-only $RANGE -- '*.cls' '*.js' '*.html' || true)
+          if [[ -z "$changed_files" ]]; then
+            echo "⚠️ No changes detected for .cls/.js/.html."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            printf "%s\n" $changed_files | sort -u > changed_files.txt
+            echo "Detected changed files:"
+            cat changed_files.txt
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+      # ------------------------------------------------------------
+      # 2) Get delta added lines & create temp files
+      #    ✅ WITH mapping: line_number_mapping.txt (tempLine -> actualLine)
+      # ------------------------------------------------------------
+      - name: Get changed lines and create temporary files (delta, with Apex wrapper; WITH mapping)
+        shell: bash
+        id: get-changes
+        run: |
+          set -euo pipefail
+
+          mkdir -p temp_scanner_files
+          : > changed_cls_lwc_files.txt
+          : > line_number_mapping.txt
+
+          echo "Checking for changed .cls, .js, .html files..."
+
+          if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.base_ref }}" ]]; then
+            RANGE="origin/${{ github.base_ref }}...${{ github.sha }}"
+            echo "Using PR diff: $RANGE"
+            git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
+          else
+            RANGE="HEAD~1..HEAD"
+            echo "Using fallback diff: $RANGE"
+          fi
+
+          # ✅ IMPORTANT: Get file status (A, M, D)
+          git diff --name-status "$RANGE" -- '*.cls' '*.js' '*.html' > changed_status.txt || true
+
+          if [[ ! -s changed_status.txt ]]; then
+            echo "No .cls/.js/.html files detected."
+            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
+            exit 0
+          fi
+
+          TAB=$(printf '\t')
+
+          while read -r status file; do
+
+            [[ -f "$file" ]] || { echo "Skipping deleted file: $file"; continue; }
+
+            echo "Processing file: $file (Status: $status)"
+
+            sanitized="${file//\//_}"
+
+            # =====================================================
+            # ✅ IF NEW APEX CLASS → SCAN FULL FILE DIRECTLY
+            # =====================================================
+            if [[ "$status" == "A" && "$file" == *.cls ]]; then
+              echo "🆕 New Apex class detected. Scanning full file directly."
+              echo "$file" >> changed_cls_lwc_files.txt
+              continue
+            fi
+
+            # =====================================================
+            # 🔁 FOR MODIFIED FILES → USE EXISTING DELTA LOGIC
+            # =====================================================
+
+            git diff -U0 "$RANGE" -- "$file" | awk '
+              /^@@/ {
+                line = $0
+                sub(/^.*\+/, "", line)
+                sub(/,.*/, "", line)
+                newLine = line + 0
+                next
+              }
+              /^diff / || /^index / || /^--- / || /^\+\+\+ / { next }
+              /^\+/ {
+                print newLine "\t" substr($0,2)
+                newLine++
+                next
+              }
+            ' > lines.tmp || true
+
+            if [[ ! -s lines.tmp ]]; then
+              echo "No added lines found for $file (possibly only deletions). Skipping..."
+              continue
+            fi
+
+            case "$file" in
+            *.cls)
+
+                temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
+
+                # ------------------------------
+                # ADD APEX DOC FOR WRAPPER CLASS
+                # ------------------------------
+                echo "/**" > "$temp_file"
+                echo " * @description Temporary wrapper class generated for delta scan." >> "$temp_file"
+                echo " * This class is auto-generated during CI for PMD delta analysis." >> "$temp_file"
+                echo " */" >> "$temp_file"
+                echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" >> "$temp_file"
+
+                temp_line=1
+                brace_balance=0
+
+                # Map ApexDoc comment lines as 0 (non-original)
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+
+                # ------------------------------
+                # ADD APEX DOC FOR TEMP METHOD
+                # ------------------------------
+                echo "  /**" >> "$temp_file"
+                echo "   * @description Temporary method generated for delta scan." >> "$temp_file"
+                echo "   */" >> "$temp_file"
+                echo "  public static void tempMethod() {" >> "$temp_file"
+
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                # echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                # ((temp_line++))
+
+                has_real_code=false
+
+                while IFS= read -r row; do
+                  actual_line="${row%%$TAB*}"
+                  content="${row#*"$TAB"}"
+
+                  # ------------------------------
+                  # SAFE MINIMAL FILTER
+                  # ------------------------------
+
+                  trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+                  # Skip empty lines
+                  if [[ -z "$trimmed" ]]; then continue; fi
+
+                  # Skip comment-only lines
+                  if [[ "$trimmed" =~ ^// ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^/\* ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^\* ]]; then continue; fi
+                  if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
+
+                  # ------------------------------
+                  # BRACE TRACKING LOGIC
+                  # ------------------------------
+
+                  open_count=$(echo "$content" | grep -o '{' | wc -l || true)
+                  close_count=$(echo "$content" | grep -o '}' | wc -l || true)
+
+                  delta=$((open_count - close_count))
+
+                  # Prevent negative brace balance (orphan closing brace)
+                  if (( brace_balance + delta < 0 )); then
+                    continue
+                  fi
+
+                  brace_balance=$((brace_balance + delta))
+
+                  has_real_code=true
+
+                  # Write to temp file
+                  printf "    %s\n" "$content" >> "$temp_file"
+                  echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
+                  ((temp_line++))
+
+                done < lines.tmp
+
+                if [[ "$has_real_code" == false ]]; then
+                  echo "⚠️ Only comments detected in $file. Skipping wrapper generation."
+                  rm -f "$temp_file"
+                  continue
+                fi
+
+                # ------------------------------
+                # AUTO-CLOSE UNBALANCED BRACES
+                # ------------------------------
+
+                while (( brace_balance > 0 )); do
+                  echo "    }" >> "$temp_file"
+                  echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                  ((temp_line++))
+                  brace_balance=$((brace_balance - 1))
+                done
+
+                # Close tempMethod
+                echo "  }" >> "$temp_file"
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                ((temp_line++))
+
+                # Close class
+                echo "}" >> "$temp_file"
+                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+
+                echo "$temp_file" >> changed_cls_lwc_files.txt
+                echo "Created temp file: $temp_file"
+                ;;
+              *.js)
+                temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
+                
+                # ✅ COPY THE FULL FILE INSTEAD OF CHOPPING IT
+                cp "$file" "$temp_file"
+
+                # ✅ MAP ONLY THE CHANGED LINES TO PREVENT LEGACY ERRORS
+                while IFS= read -r row; do
+                  actual_line="${row%%$TAB*}"
+                  content="${row#*"$TAB"}"
+                  
+                  if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
+                    echo "$temp_file,$actual_line,$actual_line" >> line_number_mapping.txt
+                  fi
+                done < lines.tmp
+
+                echo "$temp_file" >> changed_cls_lwc_files.txt
+                echo "Copied full file: $temp_file for ESLint analysis"
+                ;;
+                
+              *.html)
+                temp_file="temp_scanner_files/temp_${sanitized%.html}.html"
+                
+                # ✅ COPY THE FULL FILE INSTEAD OF CHOPPING IT
+                cp "$file" "$temp_file"
+
+                # ✅ MAP ONLY THE CHANGED LINES
+                while IFS= read -r row; do
+                  actual_line="${row%%$TAB*}"
+                  content="${row#*"$TAB"}"
+                  
+                  if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
+                    echo "$temp_file,$actual_line,$actual_line" >> line_number_mapping.txt
+                  fi
+                done < lines.tmp
+
+                echo "$temp_file" >> changed_cls_lwc_files.txt
+                echo "Copied full file: $temp_file for ESLint analysis"
+                ;;
+
+            esac
+
+          done < changed_status.txt
+          echo "====== Generated files list ======"
+          if [[ -s changed_cls_lwc_files.txt ]]; then
+            cat changed_cls_lwc_files.txt
+          else
+            echo "No temp files created. Exiting."
+            exit 0
+          fi
+          echo "====== line_number_mapping.txt (first 50) ======"
+          head -n 50 line_number_mapping.txt || true
+      # ✅ NEW: Print temp wrapper class (content) so you can confirm what got scanned
+      - name: DEBUG – Print temp wrapper classes
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "==== temp_scanner_files listing ===="
+          ls -lah temp_scanner_files || true
+          echo "==== Print all temp .cls wrappers (with line numbers) ===="
+          shopt -s nullglob
+          for f in temp_scanner_files/*.cls; do
+            echo ""
+            echo "--------------------------------------------------"
+            echo "TEMP WRAPPER: $f"
+            echo "--------------------------------------------------"
+            nl -ba "$f" | sed -n '1,220p'
+          done
+          echo ""
+          echo "==== Grep for System.debug in temp wrappers ===="
+          grep -RIn --line-number "System\.debug" temp_scanner_files || echo "❌ No System.debug found in temp wrappers"
+      # ------------------------------------------------------------
+      # 3) Build lookup map (basename|tempLine=actualLine)
+      # ------------------------------------------------------------
+      - name: Build Actual Line Lookup
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > actual_line_lookup.env
+          if [[ -s line_number_mapping.txt ]]; then
+            awk -F',' '
+              {
+                fullpath=$1
+                tempLine=$2
+                actualLine=$3
+                n=split(fullpath, arr, "/")
+                file=arr[n]
+                print file "|" tempLine "=" actualLine
+              }
+            ' line_number_mapping.txt > actual_line_lookup.env
+          fi
+          echo "=== ACTUAL LINE LOOKUP (first 50) ==="
+          head -n 50 actual_line_lookup.env || true
+      # ------------------------------------------------------------
+      # 4) Build files_to_scan.txt
+      # ------------------------------------------------------------
+      - name: Build files_to_scan.txt from temp files
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > files_to_scan.txt
+          if [[ -f changed_cls_lwc_files.txt && -s changed_cls_lwc_files.txt ]]; then
+            while read -r f; do
+              [[ -n "$f" && -f "$f" ]] && echo "$f"
+            done < changed_cls_lwc_files.txt > files_to_scan.txt
+          fi
+          echo "====== files_to_scan.txt ======"
+          if [[ -s files_to_scan.txt ]]; then
+            cat files_to_scan.txt
+          else
+            echo "No files to scan."
+          fi
+      # ------------------------------------------------------------
+      # 5) Run Code Analyzer v5 on delta temp files and build CSV
+      # ------------------------------------------------------------
+      - name: Run SFDX Scanner (Code Analyzer v5) + add ActualLine
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          # ✅ 1) Define Python CSV Parser (with Engine Error Filtering)
+          export PYTHON_SCRIPT=$(cat << 'PYEOF'
+          import csv, sys, os
+          actual_map = {}
+          with open('actual_line_lookup.env', 'r') as f:
+              for string in f:
+                  if '=' in string:
+                      k, v = string.strip().split('=', 1)
+                      actual_map[k] = v
+          try:
+              with open('tmp.csv', 'r', encoding='utf-8-sig') as f:
+                  dict_reader = csv.DictReader(f)
+                  for row in dict_reader:
+                      line_key = next((k for k in row.keys() if k and k.lower().strip() in ['startline', 'line']), None)
+                      rule_key = next((k for k in row.keys() if k and k.lower().strip() in ['rule', 'ruleid']), None)
+                      sev_key = next((k for k in row.keys() if k and k.lower().strip() in ['severity']), None)
+                      msg_key = next((k for k in row.keys() if k and k.lower().strip() in ['message', 'description']), None)
+                      
+                      line = str(row.get(line_key, '0')).strip() if line_key else '0'
+                      rule = str(row.get(rule_key, 'UnknownRule')).strip() if rule_key else 'UnknownRule'
+                      sev = str(row.get(sev_key, '0')).strip() if sev_key else '0'
+                      msg = str(row.get(msg_key, '')).strip() if msg_key else ''
+                      
+                      # 🚀 IGNORING ENGINE BOOT ERRORS
+                      if rule in ('UninstantiableEngineError'):
+                          continue
+                          
+                      actual_line = line
+                      is_legacy = False
+                      
+                      if sys.argv[4] == '1':
+                          key = f'{sys.argv[5]}|{line}'
+                          if key in actual_map:
+                              actual_line = actual_map[key]
+                          else:
+                              is_legacy = True
+                              
+                      if is_legacy and rule not in ('UnknownRule', 'Parsing error'):
+                          continue
+                          
+                      msg_escaped = msg.replace('"', '""')
+                      print(f'"{rule}","{row.get("engine", "pmd")}","{sev}",,"{sys.argv[1]}",{line},0,{line},0,"{msg_escaped}",,"{sys.argv[2]}","{sys.argv[2]}",{actual_line},"{sys.argv[3]}"')
+          except Exception as e:
+              print(f'Error parsing CSV: {e}', file=sys.stderr)
+          PYEOF
+          )
+
+          # Load lookup into memory
+          if [[ ! -f actual_line_lookup.env ]]; then
+            touch actual_line_lookup.env
+          fi
+          
+          # Final header (NO NYA)
+          echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
+          
+          if [[ ! -s files_to_scan.txt ]]; then
+            echo "✅ Nothing to scan. Empty report created."
+            exit 0
+          fi
+          
+          while read -r file; do
+            [[ -z "$file" ]] && continue
+            
+            # ✅ 2) STRICT ISOLATION: Only scan Apex classes in this step
+            if [[ "$file" != *.cls ]]; then
+              continue
+            fi
+            
+            echo "🔍 Scanning $file"
+            rm -f tmp.csv
+            
+            sf code-analyzer run \
+              --workspace "$file" \
+              --rule-selector ApexCRUDViolation \
+              --rule-selector ApexBadCrypto \
+              --rule-selector ApexDangerousMethods \
+              --rule-selector ApexInsecureEndpoint \
+              --rule-selector ApexOpenRedirect \
+              --rule-selector ApexSharingViolations \
+              --rule-selector ApexSOQLInjection \
+              --rule-selector ApexSuggestUsingNamedCred \
+              --rule-selector ApexXSSFromEscapeFalse \
+              --rule-selector ApexXSSFromURLParam \
+              --rule-selector AvoidDebugStatements \
+              --rule-selector AvoidNonRestrictiveQueries \
+              --rule-selector EagerlyLoadedDescribeSObjectResult \
+              --rule-selector OperationWithHighCostInLoop \
+              --rule-selector OperationWithLimitsInLoop \
+              --rule-selector ApexCSRF \
+              --rule-selector AvoidDirectAccessTriggerMap \
+              --rule-selector AvoidHardcodingId \
+              --rule-selector EmptyCatchBlock \
+              --rule-selector UnusedLocalVariable \
+              --rule-selector QueueableWithoutFinalizer \
+              --rule-selector IfElseStmtsMustUseBraces \
+              --rule-selector ForLoopsMustUseBraces \
+              --rule-selector AvoidDeeplyNestedIfStmts \
+              --rule-selector DebugsShouldUseLoggingLevel \
+              --rule-selector ApexUnitTestShouldNotUseSeeAllDataTrue \
+              --rule-selector EmptyStatementBlock \
+              --rule-selector EmptyTryOrFinallyBlock \
+              --rule-selector CognitiveComplexity \
+              --rule-selector TooManyFields \
+              --rule-selector ExcessiveParameterList \
+              --rule-selector ExcessiveClassLength \
+              --rule-selector NcssConstructorCount \
+              --rule-selector NcssMethodCount \
+              --rule-selector NcssTypeCount \
+              --rule-selector ExcessivePublicCount \
+              --rule-selector CyclomaticComplexity \
+              --rule-selector StdCyclomaticComplexity \
+              --rule-selector ApexUnitTestClassShouldHaveAsserts \
+              --rule-selector VfCsrf \
+              --rule-selector VfUnescapeEl \
+              --rule-selector AvoidNonExistentAnnotations \
+              --rule-selector AvoidStatefulDatabaseResult \
+              --rule-selector EmptyIfStmt \
+              --rule-selector InaccessibleAuraEnabledGetter \
+              --rule-selector OverrideBothEqualsAndHashcode \
+              --rule-selector TestMethodsMustBeInTestClasses \
+              --rule-selector MethodWithSameNameAsEnclosingClass \
+              --rule-selector AvoidGlobalModifier \
+              --rule-selector ApexAssertionsShouldIncludeMessage \
+              --rule-selector ApexUnitTestClassShouldHaveRunAs \
+              --rule-selector ApexUnitTestMethodShouldHaveIsTestAnnotation \
+              --rule-selector AvoidLogicinTrigger \
+              --rule-selector WhileLoopsMustUseBraces \
+              --rule-selector EmptyWhileStmt \
+              --rule-selector ClassNamingConventions \
+              --rule-selector FieldNamingConventions \
+              --rule-selector FieldDeclarationsShouldBeAtStart \
+              --rule-selector LocalVariableNamingConventions \
+              --rule-selector MethodNamingConventions \
+              --rule-selector IfStmtsMustUseBraces \
+              --rule-selector UnusedMethod \
+              --rule-selector ApexDoc \
+              --output-file tmp.csv \
+              --config-file code-analyzer.yml \
+            || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
+            
+            # ✅ 3) Python parser strips out engine boot failures
+            if [[ -f tmp.csv && -s tmp.csv ]]; then
+              isTemp=0
+              [[ "$file" == temp_scanner_files/* ]] && isTemp=1
+              tempBase="$(basename "$file")"
+              
+              python3 -c "import textwrap, os; exec(textwrap.dedent(os.environ['PYTHON_SCRIPT']))" \
+                "$file" "${COMMIT_AUTHOR}" "${TARGET_BRANCH}" "$isTemp" "$tempBase" >> scanner-report.csv
+            fi
+            
+          done < files_to_scan.txt
+          
+          echo "✅ Final Scanner Report (first 50 lines):"
+          head -n 50 scanner-report.csv
+      # ------------------------------------------------------------
+      # ✅ 6) Generate LWC-only ESLint report (lwc-scanner-report.csv)
+      #      WITH sf code-analyzer and Python-powered Delta Filtering
+      # ------------------------------------------------------------
+      - name: Generate LWC-only ESLint v10 report (lwc-scanner-report.csv)
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          # ✅ 1) Generate a legacy .eslintrc.json to bypass SFCA's Flat Config restriction
+          cat << 'EOF' > .eslintrc.json
+          {
+            "parserOptions": {
+              "ecmaVersion": 2023,
+              "sourceType": "module"
+            },
+            "env": {
+              "browser": true,
+              "node": true,
+              "es2022": true
+            },
+            "plugins": ["@lwc/lwc", "@salesforce/aura", "@salesforce/lightning"],
+            "rules": {
+              "no-console": "error",
+              "no-debugger": "error",
+              "no-unused-vars": "warn",
+              "no-undef": "error",
+              "eqeqeq": ["error", "always"],
+              "curly": "error",
+              "semi": ["error", "always"],
+              "@lwc/lwc/no-async-await-in-wire": "error",
+              "@lwc/lwc/no-deprecated": "warn",
+              "@lwc/lwc/no-inner-html": "error",
+              "@lwc/lwc/no-dupe-class-members": "error"
+            }
+          }
+          EOF
+
+          # ✅ 2) Point the SFCA config to the newly generated legacy file
+          cat << 'EOF' > custom-eslint-config.yml
+          engines:
+            eslint:
+              eslint_config_file: .eslintrc.json
+              disable_javascript_base_config: true
+          EOF
+
+          # ✅ 3) Define the Python CSV Parser with Dynamic Header Matching
+          export PYTHON_SCRIPT=$(cat << 'PYEOF'
+          import csv, sys, os
+          
+          actual_map = {}
+          with open('actual_line_lookup.env', 'r') as f:
+              for string in f:
+                  if '=' in string:
+                      k, v = string.strip().split('=', 1)
+                      actual_map[k] = v
+          
+          try:
+              with open('tmp_lwc.csv', 'r', encoding='utf-8-sig') as f:
+                  dict_reader = csv.DictReader(f)
+                  for row in dict_reader:
+                      # Dynamically locate the correct column headers
+                      line_key = next((k for k in row.keys() if k and k.lower().strip() in ['startline', 'line']), None)
+                      rule_key = next((k for k in row.keys() if k and k.lower().strip() in ['rule', 'ruleid']), None)
+                      sev_key = next((k for k in row.keys() if k and k.lower().strip() in ['severity']), None)
+                      msg_key = next((k for k in row.keys() if k and k.lower().strip() in ['message', 'description']), None)
+                      
+                      line = str(row.get(line_key, '0')).strip() if line_key else '0'
+                      rule = str(row.get(rule_key, 'UnknownRule')).strip() if rule_key else 'UnknownRule'
+                      sev = str(row.get(sev_key, '0')).strip() if sev_key else '0'
+                      msg = str(row.get(msg_key, '')).strip() if msg_key else ''
+                      
+                      actual_line = line
+                      is_legacy = False
+                      
+                      # Filter logic based on the mapped line numbers
+                      if sys.argv[4] == '1':
+                          key = f'{sys.argv[5]}|{line}'
+                          if key in actual_map:
+                              actual_line = actual_map[key]
+                          else:
+                              is_legacy = True
+                              
+                      if is_legacy and rule not in ('UnknownRule', 'Parsing error'):
+                          continue
+                          
+                      msg_escaped = msg.replace('"', '""')
+                      print(f'"{rule}",eslint,"{sev}",,"{sys.argv[1]}",{line},0,{line},0,"{msg_escaped}",,"{sys.argv[2]}","{sys.argv[2]}",{actual_line},"{sys.argv[3]}"')
+          except Exception as e:
+              print(f'Error parsing CSV: {e}', file=sys.stderr)
+          PYEOF
+          )
+
+          # Ensure lookup file exists
+          if [[ ! -f actual_line_lookup.env ]]; then
+            touch actual_line_lookup.env
+          fi
+
+          echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
+
+          if [[ ! -s files_to_scan.txt ]]; then
+            echo "✅ Nothing to scan for LWC. Empty lwc report created."
+            exit 0
+          fi
+
+          while read -r file; do
+            [[ -z "$file" ]] && continue
+
+            if [[ "$file" != *.js && "$file" != *.html ]]; then
+              continue
+            fi
+
+            if [[ "$file" == *eslint.config.js || "$file" == *.eslintrc.json ]]; then
+              continue
+            fi
+
+            echo "🟦 SF Code Analyzer scanning (LWC report): $file"
+            rm -f tmp_lwc.csv
+
+            # ✅ 4) Run SFCA targeting the eslint engine
+            sf code-analyzer run \
+              --workspace "$file" \
+              --rule-selector eslint \
+              --config-file custom-eslint-config.yml \
+              --output-file tmp_lwc.csv \
+            || echo "⚠️ Code analyzer failed for $file (continuing to build report)"
+
+            # ✅ 5) Execute the Python Parser to append real violations
+            if [[ -f tmp_lwc.csv && -s tmp_lwc.csv ]]; then
+              isTemp=0
+              [[ "$file" == temp_scanner_files/* ]] && isTemp=1
+              tempBase="$(basename "$file")"
+
+              python3 -c "import textwrap, os; exec(textwrap.dedent(os.environ['PYTHON_SCRIPT']))" \
+                "$file" "${COMMIT_AUTHOR}" "${TARGET_BRANCH}" "$isTemp" "$tempBase" >> lwc-scanner-report.csv
+            fi
+
+          done < files_to_scan.txt
+
+          echo "✅ LWC-only report (first 50 lines):"
+          head -n 50 lwc-scanner-report.csv
+
+          lwc_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
+
+          if [ "$lwc_count" -gt 0 ]; then
+            echo "LWC_HAS_VIOLATIONS=true" >> $GITHUB_ENV
+            echo "✅ LWC violations found: $lwc_count"
+          else
+            echo "LWC_HAS_VIOLATIONS=false" >> $GITHUB_ENV
+            echo "❌ No LWC violations found"
+          fi
+
+      - name: Authenticate with Salesforce
+        id: sf-auth
+        run: |
+          response=$(curl -X POST "https://test.salesforce.com/services/oauth2/token" \
+            -d "grant_type=password" \
+            -d "client_id=${{ secrets.SF_CLIENT_ID }}" \
+            -d "client_secret=${{ secrets.SF_CLIENT_SECRET }}" \
+            -d "username=${{ secrets.SF_USERNAME }}" \
+            -d "password=${{ secrets.SF_PASSWORD }}${{ secrets.SF_SECURITY_TOKEN }}" )
+          SF_ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
+          if [ -z "$SF_ACCESS_TOKEN" ]; then
+            echo "Salesforce authentication failed."
+            exit 1
+          fi
+          echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> $GITHUB_ENV
+          echo "Successfully authenticated with Salesforce."
+      - name: Upload Scanner Report to Salesforce
+        if: success()
+        run: |
+          violation_count=$(tail -n +2 scanner-report.csv | wc -l)
+          if [ "$violation_count" -eq 0 ]; then
+            echo "No violations found. Skipping Salesforce upload."
+            exit 0
+          fi
+          echo "Uploading scanner report to Salesforce..."
+          response=$(curl -X POST "${{ vars.SF_DOMAIN_URL }}/services/data/v61.0/sobjects/ContentVersion" \
+            -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+            -H "Content-Type: multipart/form-data" \
+            -F "entity_content={\"Title\": \"${{ env.FILE_TITLE }}\", \"PathOnClient\": \"scanner-report.csv\"};type=application/json" \
+            -F "VersionData=@scanner-report.csv;type=text/csv")
+          echo "Salesforce API Response: $response"
+          contentVersionId=$(echo "$response" | jq -r 'if type=="array" then .[0].id else .id end' 2>/dev/null || echo "null")
+          if [[ "$contentVersionId" == "null" || -z "$contentVersionId" ]]; then
+            echo "Error: Failed to extract ContentVersion ID from response."
+            echo "Full API Response: $response"
+            exit 1
+          fi
+          echo "Successfully uploaded scanner report to Salesforce."
+      # ✅ NEW upload for LWC report
+      - name: Upload LWC Scanner Report to Salesforce
+        if: success() && env.LWC_HAS_VIOLATIONS == 'true'
+        run: |
+          if [[ -f lwc-scanner-report.csv ]]; then
+            echo "LWC report found."
+          else
+            echo "No LWC report (no LWC violations). Creating temporary empty file for gate logic."
+            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
+          fi
+
+          violation_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
+          if [ "$violation_count" -eq 0 ]; then
+            echo "No LWC violations found. Skipping Salesforce upload."
+            exit 0
+          fi
+
+          echo "Uploading LWC scanner report to Salesforce..."
+          curl -X POST "${{ vars.SF_DOMAIN_URL }}/services/data/v61.0/sobjects/ContentVersion" \
+            -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+            -H "Content-Type: multipart/form-data" \
+            -F "entity_content={\"Title\": \"LWC_${{ env.FILE_TITLE }}\", \"PathOnClient\": \"lwc-scanner-report.csv\"};type=application/json" \
+            -F "VersionData=@lwc-scanner-report.csv;type=text/csv"
+
+      - name: Debug - List Files Before Upload
+        if: always()
+        run: |
+          echo "Listing files before uploading scanner report:"
+          ls -lah
+
+
+      # ✅ Existing gate remains (uses scanner-report.csv)
+      # ✅ FINAL FIXED GATE (correct file + severity counting)
+      - name: HARD FAIL Block PR on Violations + Severity buckets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f scanner-report.csv ]]; then
+            echo "❌ scanner-report.csv not found"
+            exit 1
+          fi
+
+          if [[ ! -f lwc-scanner-report.csv ]]; then
+            echo "No LWC report found. Creating empty placeholder."
+            echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
+          fi
+
+          echo "🔍 Evaluating scanner-report.csv and lwc-scanner-report.csv"
+
+          # --------------------------------------------------
+          # 1️⃣ Severity 1-2 (BLOCKING) – FIXED LOGIC
+          # --------------------------------------------------
+          sev_1_2_apex=$(awk -F',' '
+            NR>1 {
+              sev=$3
+              gsub(/"/,"",sev)
+              if (sev ~ /^[0-9]+$/) {
+                s = sev + 0
+                if (s==1 || s==2) c++
+              }
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          sev_1_2_lwc=$(awk -F',' '
+            NR>1 {
+              sev=$3
+              gsub(/"/,"",sev)
+              if (sev ~ /^[0-9]+$/) {
+                s = sev + 0
+                if (s==1 || s==2) c++
+              }
+            }
+            END { print c+0 }
+          ' lwc-scanner-report.csv)
+
+          sev_1_2_total=$((sev_1_2_apex + sev_1_2_lwc))
+
+          # --------------------------------------------------
+          # 2️⃣ Severity 3-5
+          # --------------------------------------------------
+          sev_3_5_apex=$(awk -F',' '
+            NR>1 {
+              sev=$3
+              gsub(/"/,"",sev)
+              if (sev ~ /^[0-9]+$/) {
+                s = sev + 0
+                if (s>=3 && s<=5) c++
+              }
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          sev_3_5_lwc=$(awk -F',' '
+            NR>1 {
+              sev=$3
+              gsub(/"/,"",sev)
+              if (sev ~ /^[0-9]+$/) {
+                s = sev + 0
+                if (s>=3 && s<=5) c++
+              }
+            }
+            END { print c+0 }
+          ' lwc-scanner-report.csv)
+
+          sev_3_5_total=$((sev_3_5_apex + sev_3_5_lwc))
+
+          # --------------------------------------------------
+          # 3️⃣ Apex Count (.cls)
+          # --------------------------------------------------
+          apex_total=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.cls$/) c++
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          # --------------------------------------------------
+          # 4️⃣ JS / HTML Count (both reports)
+          # --------------------------------------------------
+          js_main=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.js$/) c++
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          js_lwc=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.js$/) c++
+            }
+            END { print c+0 }
+          ' lwc-scanner-report.csv)
+
+          html_main=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.html$/) c++
+            }
+            END { print c+0 }
+          ' scanner-report.csv)
+
+          html_lwc=$(awk -F',' '
+            NR>1 {
+              file=$5
+              gsub(/"/,"",file)
+              if (file ~ /\.html$/) c++
+            }
+            END { print c+0 }
+          ' lwc-scanner-report.csv)
+
+          js_total=$((js_main + js_lwc))
+          html_total=$((html_main + html_lwc))
+          lwc_total=$((js_total + html_total))
+
+          # --------------------------------------------------
+          # 5️⃣ SUMMARY
+          # --------------------------------------------------
+          echo "================ SUMMARY ================"
+          echo "Apex Violations (.cls)         : $apex_total"
+          echo "JS Violations (.js)            : $js_total"
+          echo "HTML Violations (.html)        : $html_total"
+          echo "Total LWC Violations           : $lwc_total"
+          echo "-----------------------------------------"
+          echo "Severity 1-2 Violations        : $sev_1_2_total"
+          echo "Severity 3-5 Violations        : $sev_3_5_total"
+          echo "========================================="
+
+          # --------------------------------------------------
+          # 6️⃣ HARD BLOCK
+          # --------------------------------------------------
+          if [[ "$sev_1_2_total" -gt 0 ]]; then
+            echo ""
+            echo "🚫 HARD GATE FAILED – Found severity 1-2 violations"
+            echo ""
+            echo "------ Apex Violations ------"
+            sed -n '1,200p' scanner-report.csv || true
+            echo ""
+            echo "------ LWC Violations ------"
+            sed -n '1,200p' lwc-scanner-report.csv || true
+            exit 1
+          fi
+
+          echo "✅ HARD GATE PASSED – PR CAN MERGE"
+
+
+      - name: Commit and Push Scanner Reports to `Scanner_Reports` Branch
+        if: always()
+        shell: bash
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+
+          BRANCH_NAME="Scanner_Reports"
+          echo "✅ Target Branch: $BRANCH_NAME"
+
+          # 1️⃣ Save reports outside repo (to avoid conflicts)
+          mkdir -p /tmp/scanner_reports
+          cp scanner-report.csv /tmp/scanner_reports/scanner-report.csv
+          if [[ -f lwc-scanner-report.csv ]]; then
+            cp lwc-scanner-report.csv /tmp/scanner_reports/lwc-scanner-report.csv
+          else
+            echo "No LWC report to preserve."
+          fi
+
+          # 2️⃣ HARD CLEAN repository (removes package.json changes + temp files)
+          git reset --hard
+          git clean -fd
+
+          # 3️⃣ Configure git identity
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 4️⃣ Use PAT for authenticated push
+          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # 5️⃣ Checkout Scanner_Reports cleanly
+          git fetch origin "$BRANCH_NAME" || true
+          if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
+            git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
+          else
+            git checkout --orphan "$BRANCH_NAME"
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          # 6️⃣ Copy reports back into Artifact folder
+          mkdir -p Artifact
+          OUT_APEX="Artifact/${FILE_TITLE}"
+          OUT_LWC="Artifact/LWC_${FILE_TITLE}"
+
+          # ----------------------------------------------------
+          # Count Apex violations (exclude header)
+          # ----------------------------------------------------
+          apex_violation_count=$(tail -n +2 /tmp/scanner_reports/scanner-report.csv | wc -l)
+
+          apex_added=false
+          lwc_added=false
+
+          # ----------------------------------------------------
+          # Copy Apex report only if violations exist
+          # ----------------------------------------------------
+          if [ "$apex_violation_count" -gt 0 ]; then
+            cp /tmp/scanner_reports/scanner-report.csv "$OUT_APEX"
+            echo "✅ Apex report added to branch"
+            apex_added=true
+          else
+            echo "Skipping Apex report commit (no violations)"
+          fi
+
+          # ----------------------------------------------------
+          # Copy LWC report only if violations exist
+          # ----------------------------------------------------
+          if [ "${LWC_HAS_VIOLATIONS:-false}" = "true" ] && [ -f /tmp/scanner_reports/lwc-scanner-report.csv ]; then
+            cp /tmp/scanner_reports/lwc-scanner-report.csv "$OUT_LWC"
+            echo "✅ LWC report added to branch"
+            lwc_added=true
+          else
+            echo "Skipping LWC report commit (no violations)"
+          fi
+
+          # ----------------------------------------------------
+          # Commit only if at least one report exists
+          # ----------------------------------------------------
+          if [[ "$apex_added" == "true" || "$lwc_added" == "true" ]]; then
+            git add Artifact
+            git commit -m "Add scanner reports (PR #${{ github.event.pull_request.number }}, run ${{ github.run_id }})"
+            git push -u origin "$BRANCH_NAME"
+            echo "🚀 Reports pushed to Scanner_Reports branch"
+          else
+            echo "🎉 No violations at all. Nothing pushed to Scanner_Reports branch."
+          fi
+
