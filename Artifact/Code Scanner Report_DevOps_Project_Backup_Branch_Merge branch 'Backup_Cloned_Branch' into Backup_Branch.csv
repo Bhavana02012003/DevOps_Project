@@ -1,0 +1,10 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"ApexUnitTestClassShouldHaveRunAs","pmd","3",,"force-app/main/default/classes/DummyActionTest.cls",12,0,12,0,"Apex unit test classes should have at least one System.runAs() call",,"Bhavana02012003","Bhavana02012003",12,"Backup_Branch"
+"ApexUnitTestClassShouldHaveAsserts","pmd","2",,"force-app/main/default/classes/DummyActionTest.cls",12,0,12,0,"Apex unit tests should System.assert() or assertEquals() or assertNotEquals()",,"Bhavana02012003","Bhavana02012003",12,"Backup_Branch"
+"AvoidDebugStatements","pmd","2",,"force-app/main/default/classes/DummyActionTest.cls",14,0,14,0,"Avoid debug statements since they impact on performance",,"Bhavana02012003","Bhavana02012003",14,"Backup_Branch"
+"DebugsShouldUseLoggingLevel","pmd","4",,"force-app/main/default/classes/DummyActionTest.cls",14,0,14,0,"Calls to System.debug should specify a logging level.",,"Bhavana02012003","Bhavana02012003",14,"Backup_Branch"
+"UnusedLocalVariable","pmd","3",,"force-app/main/default/classes/DummyActionTest.cls",18,0,18,0,"Variable 'c' defined but not used",,"Bhavana02012003","Bhavana02012003",18,"Backup_Branch"
+"ApexUnitTestClassShouldHaveRunAs","pmd","3",,"force-app/main/default/classes/DummyActionTest.cls",23,0,23,0,"Apex unit test classes should have at least one System.runAs() call",,"Bhavana02012003","Bhavana02012003",23,"Backup_Branch"
+"ApexUnitTestClassShouldHaveAsserts","pmd","2",,"force-app/main/default/classes/DummyActionTest.cls",23,0,23,0,"Apex unit tests should System.assert() or assertEquals() or assertNotEquals()",,"Bhavana02012003","Bhavana02012003",23,"Backup_Branch"
+"UnusedLocalVariable","pmd","3",,"force-app/main/default/classes/DummyActionTest.cls",25,0,25,0,"Variable 'x' defined but not used",,"Bhavana02012003","Bhavana02012003",25,"Backup_Branch"
+"EmptyCatchBlock","pmd","3",,"force-app/main/default/classes/DummyActionTest.cls",26,0,26,0,"Avoid empty catch blocks",,"Bhavana02012003","Bhavana02012003",26,"Backup_Branch"
