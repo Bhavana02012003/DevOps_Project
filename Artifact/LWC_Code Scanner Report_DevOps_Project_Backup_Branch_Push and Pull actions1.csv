@@ -1,0 +1,4 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"no-console",eslint,"3",,"temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js",7,0,7,0,"Unexpected console statement.",,"Bhavana02012003","Bhavana02012003",7,"Backup_Branch"
+"line-comment-position",eslint,"4",,"temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js",7,0,7,0,"Expected comment to be above code.",,"Bhavana02012003","Bhavana02012003",7,"Backup_Branch"
+"no-inline-comments",eslint,"3",,"temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js",7,0,7,0,"Unexpected comment inline with code.",,"Bhavana02012003","Bhavana02012003",7,"Backup_Branch"
