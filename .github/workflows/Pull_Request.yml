@@ -1,6 +1,9 @@
 name: Apex PMD Scan (PRs, CSV, fail-on-violation)
 
 on:
+  push:
+    branches:
+      - '**'
   pull_request:
     branches:
       - '**'
@@ -614,9 +617,8 @@ jobs:
           cat << 'EOF' > custom-eslint-config.yml
           engines:
             eslint:
-              eslint_config_file: .eslintrc.json
-              disable_javascript_base_config: true
-              disable_lwc_base_config: true
+              eslint_config_file: null
+              auto_discover_eslint_config: false
           EOF
 
           # ✅ 3) Define the Python CSV Parser with Dynamic Header Matching

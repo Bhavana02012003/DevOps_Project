@@ -41,5 +41,6 @@
   ],
   "eslint.options": {
     "overrideConfigFile": "c:\\CVS Health\\DevOps_Project\\.eslintrc.json"
-  }
+  },
+  "xml.preferences.showSchemaDocumentationType": "none"
 }
