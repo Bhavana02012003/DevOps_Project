@@ -24,8 +24,8 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install ESLint (DO NOT MODIFY package.json)
-        run: npm install eslint --no-save --legacy-peer-deps
+      - name: Install ESLint & Babel Parser (DO NOT MODIFY package.json)
+        run: npm install eslint @babel/core @babel/eslint-parser --no-save --legacy-peer-deps
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
