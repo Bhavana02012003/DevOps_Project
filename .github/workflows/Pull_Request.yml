@@ -617,7 +617,7 @@ jobs:
           cat << 'EOF' > custom-eslint-config.yml
           engines:
             eslint:
-              eslint_config_file: null
+              eslint_config_file: eslint_config_file: ".eslintrc.json"
               auto_discover_eslint_config: false
           EOF
 
