@@ -695,13 +695,16 @@ jobs:
             rm -f tmp_lwc.csv
 
             # ✅ 4) Run SFCA targeting the eslint engine
+            # Capture both stdout and stderr to a log file to prevent it from bypassing filters
             sf code-analyzer run \
               --workspace "$file" \
               --rule-selector eslint \
               --config-file custom-eslint-config.yml \
-              --output-file tmp_lwc.csv \
-              | sed '/=== Summary/,$d' \
+              --output-file tmp_lwc.csv > sfca_lwc.log 2>&1 \
             || echo "⚠️ Code analyzer failed for $file (continuing to build report)"
+            
+            # Print the logs but strip color codes and delete everything from the original "=== Summary" downwards
+            cat sfca_lwc.log | sed -r 's/\x1B\[[0-9;]*[a-zA-Z]//g' | sed '/=== Summary/,$d' || true
 
             # ✅ 5) Execute the Python Parser to append real violations
             if [[ -f tmp_lwc.csv && -s tmp_lwc.csv ]]; then
@@ -714,9 +717,6 @@ jobs:
             fi
 
           done < files_to_scan.txt
-
-          echo "✅ LWC-only report (first 50 lines):"
-          head -n 50 lwc-scanner-report.csv
 
           lwc_count=$(tail -n +2 lwc-scanner-report.csv | awk 'NF' | wc -l | tr -d ' ')
           lwc_files=$(tail -n +2 lwc-scanner-report.csv | awk 'NF' | cut -d',' -f5 | sort -u | wc -l | tr -d ' ')
