@@ -700,7 +700,7 @@ jobs:
               --rule-selector eslint \
               --config-file custom-eslint-config.yml \
               --output-file tmp_lwc.csv \
-              | sed -e '/Found .* violation(s) across/,/Results written to:/d' \
+              | sed '/=== Summary/,$d' \
             || echo "⚠️ Code analyzer failed for $file (continuing to build report)"
 
             # ✅ 5) Execute the Python Parser to append real violations
@@ -721,13 +721,18 @@ jobs:
           lwc_count=$(tail -n +2 lwc-scanner-report.csv | awk 'NF' | wc -l | tr -d ' ')
           lwc_files=$(tail -n +2 lwc-scanner-report.csv | awk 'NF' | cut -d',' -f5 | sort -u | wc -l | tr -d ' ')
 
+          echo "=== Summary"
+          echo "found $lwc_count violations in $lwc_files files"
+          echo ""
+
+          echo "✅ LWC-only report (first 50 lines):"
+          head -n 50 lwc-scanner-report.csv
+
           if [ "$lwc_count" -gt 0 ]; then
             echo "LWC_HAS_VIOLATIONS=true" >> $GITHUB_ENV
-            echo "found $lwc_count violations in $lwc_files files"
             echo "✅ LWC violations found: $lwc_count"
           else
             echo "LWC_HAS_VIOLATIONS=false" >> $GITHUB_ENV
-            echo "found 0 violations in 0 files"
             echo "❌ No LWC violations found"
           fi
 
