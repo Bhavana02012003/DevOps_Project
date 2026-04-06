@@ -1,0 +1,6 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"no-console",eslint,"3",,"temp_scanner_files/temp_force-app_main_default_lwc_demo_demo.js",7,0,7,0,"Unexpected console statement.",,"Bhavana02012003","Bhavana02012003",7,"Backup_Cloned_Branch"
+"no-undef",eslint,"2",,"temp_scanner_files/temp_force-app_main_default_lwc_dummyEslintTester___tests___dummyEslintTester.test.js",4,0,4,0,"'describe' is not defined.",,"Bhavana02012003","Bhavana02012003",4,"Backup_Cloned_Branch"
+"no-undef",eslint,"2",,"temp_scanner_files/temp_force-app_main_default_lwc_dummyEslintTester___tests___dummyEslintTester.test.js",5,0,5,0,"'afterEach' is not defined.",,"Bhavana02012003","Bhavana02012003",5,"Backup_Cloned_Branch"
+"no-undef",eslint,"2",,"temp_scanner_files/temp_force-app_main_default_lwc_dummyEslintTester___tests___dummyEslintTester.test.js",12,0,12,0,"'it' is not defined.",,"Bhavana02012003","Bhavana02012003",12,"Backup_Cloned_Branch"
+"no-undef",eslint,"2",,"temp_scanner_files/temp_force-app_main_default_lwc_dummyEslintTester___tests___dummyEslintTester.test.js",23,0,23,0,"'expect' is not defined.",,"Bhavana02012003","Bhavana02012003",23,"Backup_Cloned_Branch"
