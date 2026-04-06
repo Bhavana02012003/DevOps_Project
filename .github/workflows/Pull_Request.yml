@@ -24,8 +24,8 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install ESLint (DO NOT MODIFY package.json)
-        run: npm install eslint --no-save --legacy-peer-deps
+      - name: Install ESLint & Babel Parser (DO NOT MODIFY package.json)
+        run: npm install eslint @babel/core @babel/eslint-parser --no-save --legacy-peer-deps
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -587,9 +587,18 @@ jobs:
           # ✅ 1) Generate a legacy .eslintrc.json to bypass SFCA's Flat Config restriction
           cat << 'EOF' > .eslintrc.json
           {
+            "parser": "@babel/eslint-parser",
             "parserOptions": {
               "ecmaVersion": 2023,
-              "sourceType": "module"
+              "sourceType": "module",
+              "requireConfigFile": false,
+              "babelOptions": {
+                "parserOpts": {
+                  "plugins": [
+                    ["decorators", { "decoratorsBeforeExport": false }]
+                  ]
+                }
+              }
             },
             "env": {
               "browser": true,
@@ -613,13 +622,14 @@ jobs:
           }
           EOF
 
-          # ✅ 2) Point the SFCA config to the newly generated legacy file
-          cat << 'EOF' > custom-eslint-config.yml
-          engines:
-            eslint:
-              eslint_config_file: null
-              auto_discover_eslint_config: false
-          EOF
+          # ✅ 2) Point the SFCA config to the newly generated legacy file and disable base configs
+          echo "engines:" > custom-eslint-config.yml
+          echo "  eslint:" >> custom-eslint-config.yml
+          echo "    eslint_config_file: '.eslintrc.json'" >> custom-eslint-config.yml
+          echo "    auto_discover_eslint_config: false" >> custom-eslint-config.yml
+          echo "    disable_javascript_base_config: true" >> custom-eslint-config.yml
+          echo "    disable_lwc_base_config: true" >> custom-eslint-config.yml
+          echo "    disable_typescript_base_config: true" >> custom-eslint-config.yml
 
           # ✅ 3) Define the Python CSV Parser with Dynamic Header Matching
           export PYTHON_SCRIPT=$(cat << 'PYEOF'
@@ -695,12 +705,16 @@ jobs:
             rm -f tmp_lwc.csv
 
             # ✅ 4) Run SFCA targeting the eslint engine
+            # Capture both stdout and stderr to a log file to prevent it from bypassing filters
             sf code-analyzer run \
               --workspace "$file" \
               --rule-selector eslint \
               --config-file custom-eslint-config.yml \
-              --output-file tmp_lwc.csv \
+              --output-file tmp_lwc.csv > sfca_lwc.log 2>&1 \
             || echo "⚠️ Code analyzer failed for $file (continuing to build report)"
+            
+            # Print the logs but strip color codes and delete everything from the original "=== Summary" downwards
+            cat sfca_lwc.log | sed -r 's/\x1B\[[0-9;]*[a-zA-Z]//g' | sed '/=== Summary/,$d' || true
 
             # ✅ 5) Execute the Python Parser to append real violations
             if [[ -f tmp_lwc.csv && -s tmp_lwc.csv ]]; then
@@ -714,10 +728,15 @@ jobs:
 
           done < files_to_scan.txt
 
+          lwc_count=$(tail -n +2 lwc-scanner-report.csv | awk 'NF' | wc -l | tr -d ' ')
+          lwc_files=$(tail -n +2 lwc-scanner-report.csv | awk 'NF' | cut -d',' -f5 | sort -u | wc -l | tr -d ' ')
+
+          echo "=== Summary"
+          echo "found $lwc_count violations in $lwc_files files"
+          echo ""
+
           echo "✅ LWC-only report (first 50 lines):"
           head -n 50 lwc-scanner-report.csv
-
-          lwc_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
 
           if [ "$lwc_count" -gt 0 ]; then
             echo "LWC_HAS_VIOLATIONS=true" >> $GITHUB_ENV
