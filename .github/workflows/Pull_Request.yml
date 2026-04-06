@@ -613,11 +613,14 @@ jobs:
           }
           EOF
 
-          # ✅ 2) Point the SFCA config to the newly generated legacy file
+          # ✅ 2) Point the SFCA config to the newly generated legacy file and disable base configs
           echo "engines:" > custom-eslint-config.yml
           echo "  eslint:" >> custom-eslint-config.yml
           echo "    eslint_config_file: '.eslintrc.json'" >> custom-eslint-config.yml
           echo "    auto_discover_eslint_config: false" >> custom-eslint-config.yml
+          echo "    disable_javascript_base_config: true" >> custom-eslint-config.yml
+          echo "    disable_lwc_base_config: true" >> custom-eslint-config.yml
+          echo "    disable_typescript_base_config: true" >> custom-eslint-config.yml
 
           # ✅ 3) Define the Python CSV Parser with Dynamic Header Matching
           export PYTHON_SCRIPT=$(cat << 'PYEOF'
