@@ -11,7 +11,7 @@ export default class DummyEslintTester extends LightningElement {
     connectedCallback() {
         /* assigning a dummy variable so we don't trigger no-empty-functions */
         let testVar = true; 
-        console.log('Componsent Loading Bro please check the voilations');
+        console.log('Componsent Loading Bro pleases check the voilations');
         if (testVar) {
             this.recordId = '001000000000000';
         }
