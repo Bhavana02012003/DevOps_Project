@@ -587,9 +587,18 @@ jobs:
           # ✅ 1) Generate a legacy .eslintrc.json to bypass SFCA's Flat Config restriction
           cat << 'EOF' > .eslintrc.json
           {
+            "parser": "@babel/eslint-parser",
             "parserOptions": {
               "ecmaVersion": 2023,
-              "sourceType": "module"
+              "sourceType": "module",
+              "requireConfigFile": false,
+              "babelOptions": {
+                "parserOpts": {
+                  "plugins": [
+                    ["decorators", { "decoratorsBeforeExport": false }]
+                  ]
+                }
+              }
             },
             "env": {
               "browser": true,
