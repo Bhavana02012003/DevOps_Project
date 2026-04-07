@@ -1,0 +1,216 @@
+pr_process:
+    # ✅ Correct way to target a self-hosted runner group
+    runs-on: 
+      group: cvs-linux-self-hosted
+    needs: apex-pmd-scan-pull
+    if: always() 
+    env:
+      TARGET_CHECK_NAME: "apex-pmd-scan-push"   # <- required check name (we match with contains)
+
+    steps:
+      - name: Authenticate with Salesforce
+        id: sf-auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          response=$(curl -sS -X POST "https://test.salesforce.com/services/oauth2/token" \
+            -d "grant_type=password" \
+            -d "client_id=${{ secrets.SF_CLIENT_ID }}" \
+            -d "client_secret=${{ secrets.SF_CLIENT_SECRET }}" \
+            -d "username=${{ secrets.SF_USERNAME }}" \
+            -d "password=${{ secrets.SF_PASSWORD }}")
+          SF_ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
+
+          if [[ -z "$SF_ACCESS_TOKEN" || "$SF_ACCESS_TOKEN" == "null" ]]; then
+            echo "Salesforce authentication failed: $response" >&2
+            exit 1
+          fi
+
+          echo "SF_ACCESS_TOKEN=$SF_ACCESS_TOKEN" >> "$GITHUB_ENV"   # ✅ real >>
+          echo "Successfully authenticated with Salesforce."
+
+      # --- Fetch checks first so status logic can use the result ---
+      - name: Fetch all check runs for the PR
+        id: fetch_checks
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_CHECK_NAME: ${{ env.TARGET_CHECK_NAME }}
+        run: |
+          set -euo pipefail
+
+          REPO="${{ github.repository }}"
+          SHA="${{ github.event.pull_request.head.sha }}"
+
+          CHECK_RUNS=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/commits/${SHA}/check-runs")
+
+          CHECK_NAMES=$(echo "$CHECK_RUNS" | jq -r '.check_runs[] | select(.status=="completed") | .name' | paste -sd "," -)
+          CHECK_STATUSES=$(echo "$CHECK_RUNS" | jq -r '.check_runs[] | select(.status=="completed") | .conclusion' | paste -sd "," -)
+
+          # Case-insensitive CONTAINS match so "... / apex-pmd-scan-push (pull_request)" matches "apex-pmd-scan-push"
+          TARGET_CONCLUSION=$(echo "$CHECK_RUNS" | jq -r --arg name "$TARGET_CHECK_NAME" '
+            .check_runs[]
+            | select(.status=="completed")
+            | select((.name | ascii_downcase) | contains(($name | ascii_downcase)))
+            | .conclusion
+          ' | head -n 1)
+
+          [[ "$TARGET_CONCLUSION" == "null" || -z "${TARGET_CONCLUSION:-}" ]] && TARGET_CONCLUSION=""
+
+          {
+            echo "CHECK_NAMES=$CHECK_NAMES"
+            echo "CHECK_STATUSES=$CHECK_STATUSES"
+            echo "TARGET_CHECK_CONCLUSION=$TARGET_CONCLUSION"
+          } >> "$GITHUB_OUTPUT"   # ✅ correct way to set step outputs
+
+      - name: Determine PR Status (guarded overlay)
+        id: pr_status_check
+        shell: bash
+        env:
+          TARGET_CHECK_NAME: ${{ env.TARGET_CHECK_NAME }}
+        run: |
+          set -euo pipefail
+
+          PR_STATUS=""
+          MERGED_BY=""
+          EVENT="${{ github.event_name }}"
+          ACTION="${{ github.event.action || '' }}"
+
+          # Base states by event/action
+          if [[ "$EVENT" == "pull_request" ]]; then
+            case "$ACTION" in
+              opened|synchronize)
+                PR_STATUS="Submitted"
+                ;;
+              reopened)
+                PR_STATUS="Reopened"
+                ;;
+              closed)
+                if [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
+                  PR_STATUS="Merged"
+                  MERGED_BY="${{ github.event.pull_request.merged_by.login }}"
+                else
+                  PR_STATUS="Rejected"
+                fi
+                ;;
+              *)
+                PR_STATUS="Submitted"
+                ;;
+            esac
+          fi
+
+          # Review overlay
+          if [[ "$EVENT" == "pull_request_review" ]]; then
+            state="${{ github.event.review.state }}"
+            if   [[ "$state" == "approved" ]]; then PR_STATUS="Approved"
+            elif [[ "$state" == "changes_requested" ]]; then PR_STATUS="Changes Requested"
+            else PR_STATUS="Reviewed"
+            fi
+          fi
+
+          # Hard-gating overlay ONLY for opened/synchronize (not for reopened/closed)
+          TARGET_CONCLUSION="${{ steps.fetch_checks.outputs.TARGET_CHECK_CONCLUSION }}"
+          APPLY_BLOCK="false"
+          if [[ "$EVENT" == "pull_request" && ( "$ACTION" == "opened" || "$ACTION" == "synchronize" ) ]]; then
+            APPLY_BLOCK="true"
+          fi
+
+          if [[ "$APPLY_BLOCK" == "true" && -n "$TARGET_CONCLUSION" ]]; then
+            case "$TARGET_CONCLUSION" in
+              failure|timed_out|cancelled|action_required)
+                PR_STATUS="Merge Blocked - ${TARGET_CHECK_NAME} Failed"
+                ;;
+            esac
+          fi
+
+          {
+            echo "PR_STATUS=$PR_STATUS"
+            echo "MERGED_BY=$MERGED_BY"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check if PR Record Exists in Salesforce
+        id: check_existing_pr
+        shell: bash
+        run: |
+          set -euo pipefail
+          PR_LINK="${{ github.event.pull_request.html_url }}"
+
+          RESPONSE=$(curl -sS -X GET \
+            "<Sandbox-URL>.sandbox.my.salesforce.com/services/data/v61.0/query/?q=SELECT+Id,PR_Status__c,PR_Reviewer__c,PR_Review_Comment__c+FROM+Pull_Request__c+WHERE+PR_Link__c='${PR_LINK}'" \
+            -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+            -H "Content-Type: application/json")
+
+          RECORD_ID=$(echo "$RESPONSE" | jq -r '.records[0].Id // empty')
+          EXISTING_REVIEWER=$(echo "$RESPONSE" | jq -r '.records[0].PR_Reviewer__c // empty')
+          EXISTING_COMMENT=$(echo "$RESPONSE" | jq -r '.records[0].PR_Review_Comment__c // empty')
+
+          if [[ -n "$RECORD_ID" ]]; then
+            echo "Existing PR Record Found: $RECORD_ID"
+          else
+            echo "No existing PR record found"
+          fi
+
+          # ✅ must append to $GITHUB_OUTPUT so next step can read these values
+          {
+            echo "EXISTING_ID=$RECORD_ID"
+            echo "EXISTING_REVIEWER=$EXISTING_REVIEWER"
+            echo "EXISTING_COMMENT=$EXISTING_COMMENT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send PR Information to Salesforce (Create or Update)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          prStatus="${{ steps.pr_status_check.outputs.PR_STATUS }}"
+          mergedBy="${{ steps.pr_status_check.outputs.MERGED_BY }}"
+          newReviewer="${{ github.event.review.user.login }}"
+          newComment="${{ github.event.review.body }}"
+          existingReviewer="${{ steps.check_existing_pr.outputs.EXISTING_REVIEWER }}"
+          existingComment="${{ steps.check_existing_pr.outputs.EXISTING_COMMENT }}"
+          recordId="${{ steps.check_existing_pr.outputs.EXISTING_ID }}"
+          prLink="${{ github.event.pull_request.html_url }}"
+
+          # Merge reviewers/comments safely
+          updatedReviewer=""
+          [[ -n "$existingReviewer" && "$existingReviewer" != "null" ]] && updatedReviewer="$existingReviewer"
+          [[ -n "$newReviewer"     && "$newReviewer"     != "null" ]] && updatedReviewer="${updatedReviewer:+$updatedReviewer }$newReviewer"
+
+          updatedComment=""
+          [[ -n "$existingComment" && "$existingComment" != "null" ]] && updatedComment="$existingComment"
+          [[ -n "$newComment"      && "$newComment"      != "null" ]] && updatedComment="${updatedComment:+$updatedComment  }$newComment"
+
+          # Prepare JSON payload
+          PAYLOAD='{
+            "PR_Title__c": "'"${{ github.event.pull_request.title }}"'",
+            "PR_Link__c": "'"$prLink"'",
+            "PR_Status__c": "'"$prStatus"'",
+            "PR_Author__c": "'"${{ github.event.pull_request.user.login }}"'",
+            "PR_Reviewer__c": "'"$updatedReviewer"'",
+            "Code_Analyzer_Check_Status__c": "'"${{ steps.fetch_checks.outputs.CHECK_STATUSES }}"'",
+            "Code_Analyzer_Check_Name__c": "'"${{ steps.fetch_checks.outputs.CHECK_NAMES }}"'",
+            "PR_Review_Comment__c": "'"$updatedComment"'"
+          }'
+
+          # If merged, add PR_Merged_By__c
+          if [[ -n "$mergedBy" ]]; then
+            PAYLOAD=$(echo "$PAYLOAD" | jq --arg mergedBy "$mergedBy" '. + { "PR_Merged_By__c": $mergedBy }')
+          fi
+
+          if [[ -n "$recordId" ]]; then
+            echo "Updating existing PR record: $recordId"
+            RESPONSE=$(curl -sS -X PATCH "<Sandbox-URL>.sandbox.my.salesforce.com/services/data/v61.0/sobjects/Pull_Request__c/$recordId" \
+              -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD")
+          else
+            echo "Creating a new PR record"
+            RESPONSE=$(curl -sS -X POST "<Sandbox-Url>.sandbox.my.salesforce.com/services/data/v61.0/sobjects/Pull_Request__c" \
+              -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD")
+          fi
+
+          echo "Response: $RESPONSE"
