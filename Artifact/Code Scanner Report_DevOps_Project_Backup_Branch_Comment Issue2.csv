@@ -1,0 +1,3 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"AvoidDebugStatements","pmd","2",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",10,0,10,0,"Avoid debug statements since they impact on performance",,"Monika16008","Monika16008",71,"Backup_Branch"
+"DebugsShouldUseLoggingLevel","pmd","4",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",10,0,10,0,"Calls to System.debug should specify a logging level.",,"Monika16008","Monika16008",71,"Backup_Branch"
