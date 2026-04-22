@@ -219,23 +219,36 @@ jobs:
                 echo "   */" >> "$temp_file"
                 echo "  public static void tempMethod() {" >> "$temp_file"
 
+                # Keep your existing mapping logic
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                # echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                # ((temp_line++))
 
                 has_real_code=false
 
-                while IFS= read -r row; do
+                # ✅ FIX: safe read loop so comments / final lines do not break the job
+                while IFS= read -r row || [[ -n "$row" ]]; do
+
+                  # Skip empty diff rows
+                  [[ -z "$row" ]] && continue
+
+                  # Ensure the diff row contains TAB separator
+                  if [[ "$row" != *$TAB* ]]; then
+                    continue
+                  fi
+
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
+
+                  # Ensure actual_line is numeric
+                  if [[ ! "$actual_line" =~ ^[0-9]+$ ]]; then
+                    continue
+                  fi
 
                   # ------------------------------
                   # SAFE MINIMAL FILTER
                   # ------------------------------
-
                   trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
                   # Skip empty lines
@@ -247,57 +260,17 @@ jobs:
                   if [[ "$trimmed" =~ ^\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
 
-                  # 🚨 NEW: Skip invalid Apex fragments (VERY IMPORTANT)
-
-                  # Skip single words (like "Testing")
-                  if [[ "$trimmed" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-                    continue
-                  fi
-
-                  # Skip orphan keywords (invalid without context)
-                  if [[ "$trimmed" =~ ^(else|catch|finally)$ ]]; then
-                    continue
-                  fi
-
-                  # Skip lines that start with dot (invalid chaining)
-                  if [[ "$trimmed" =~ ^\. ]]; then
-                    continue
-                  fi
-
-                  open_paren=$(echo "$trimmed" | grep -o '(' 2>/dev/null | wc -l)
-                  close_paren=$(echo "$trimmed" | grep -o ')' 2>/dev/null | wc -l)
-
-                  open_paren=${open_paren:-0}
-                  close_paren=${close_paren:-0}
-
-                  # 🚨 ENSURE PURE NUMBER
-                  open_paren=$(echo "$open_paren" | tr -d '[:space:]')
-                  close_paren=$(echo "$close_paren" | tr -d '[:space:]')
-
-                  if [[ ! "$open_paren" =~ ^[0-9]+$ ]]; then open_paren=0; fi
-                  if [[ ! "$close_paren" =~ ^[0-9]+$ ]]; then close_paren=0; fi
-
-                  if (( open_paren != close_paren )); then
-                    continue
-                  fi
-
-
                   # ------------------------------
                   # BRACE TRACKING LOGIC
                   # ------------------------------
-
                   open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l)
                   close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l)
-
-                  open_count=${open_count:-0}
-                  close_count=${close_count:-0}
 
                   open_count=$(echo "$open_count" | tr -d '[:space:]')
                   close_count=$(echo "$close_count" | tr -d '[:space:]')
 
-                  if [[ ! "$open_count" =~ ^[0-9]+$ ]]; then open_count=0; fi
-                  if [[ ! "$close_count" =~ ^[0-9]+$ ]]; then close_count=0; fi
-
+                  [[ "$open_count" =~ ^[0-9]+$ ]] || open_count=0
+                  [[ "$close_count" =~ ^[0-9]+$ ]] || close_count=0
 
                   delta=$((open_count - close_count))
 
@@ -312,6 +285,8 @@ jobs:
 
                   # Write to temp file
                   printf "    %s\n" "$content" >> "$temp_file"
+
+                  # ✅ KEEP line number mapping logic
                   echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                   ((temp_line++))
 
@@ -326,7 +301,6 @@ jobs:
                 # ------------------------------
                 # AUTO-CLOSE UNBALANCED BRACES
                 # ------------------------------
-
                 while (( brace_balance > 0 )); do
                   echo "    }" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
