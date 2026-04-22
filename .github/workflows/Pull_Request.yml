@@ -247,6 +247,31 @@ jobs:
                   if [[ "$trimmed" =~ ^\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
 
+                  # 🚨 NEW: Skip invalid Apex fragments (VERY IMPORTANT)
+
+                  # Skip single words (like "Testing")
+                  if [[ "$trimmed" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                    continue
+                  fi
+
+                  # Skip orphan keywords (invalid without context)
+                  if [[ "$trimmed" =~ ^(else|catch|finally)$ ]]; then
+                    continue
+                  fi
+
+                  # Skip lines that start with dot (invalid chaining)
+                  if [[ "$trimmed" =~ ^\. ]]; then
+                    continue
+                  fi
+
+                  # Skip lines that contain unmatched parentheses (common diff issue)
+                  open_paren=$(echo "$trimmed" | grep -o '(' | wc -l)
+                  close_paren=$(echo "$trimmed" | grep -o ')' | wc -l)
+
+                  if (( open_paren != close_paren )); then
+                    continue
+                  fi
+
                   # ------------------------------
                   # BRACE TRACKING LOGIC
                   # ------------------------------
