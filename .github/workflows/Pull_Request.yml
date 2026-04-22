@@ -240,7 +240,10 @@ jobs:
                   # FINAL SAFE FILTER (STRICT APEX ONLY)
                   # ------------------------------
 
-                  # Trim line
+                  # ------------------------------
+                  # FINAL SAFE FILTER (NO SYNTAX ERRORS)
+                  # ------------------------------
+
                   trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
                   # Skip empty
@@ -252,14 +255,8 @@ jobs:
                   if [[ "$trimmed" =~ ^\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
 
-                  # 🚨 CRITICAL: Allow ONLY lines that look like Apex code
-
-                  if ! [[ "$trimmed" =~ [\(\)\{\};=\.] ]]; then
-                    # This removes:
-                    # Testing
-                    # Testing Comment
-                    # Testing Comment Issue1
-                    # Any plain text
+                  # 🚨 SAFE APEX LINE CHECK
+                  if ! echo "$trimmed" | grep -Eq '[(){}=.]'; then
                     continue
                   fi
 
