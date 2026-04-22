@@ -264,9 +264,18 @@ jobs:
                     continue
                   fi
 
-                  # ✅ SAFE parentheses check (FIXED)
-                  open_paren=$(echo "$trimmed" | grep -o '(' 2>/dev/null | wc -l || echo 0)
-                  close_paren=$(echo "$trimmed" | grep -o ')' 2>/dev/null | wc -l || echo 0)
+                  open_paren=$(echo "$trimmed" | grep -o '(' 2>/dev/null | wc -l)
+                  close_paren=$(echo "$trimmed" | grep -o ')' 2>/dev/null | wc -l)
+
+                  open_paren=${open_paren:-0}
+                  close_paren=${close_paren:-0}
+
+                  # 🚨 ENSURE PURE NUMBER
+                  open_paren=$(echo "$open_paren" | tr -d '[:space:]')
+                  close_paren=$(echo "$close_paren" | tr -d '[:space:]')
+
+                  if [[ ! "$open_paren" =~ ^[0-9]+$ ]]; then open_paren=0; fi
+                  if [[ ! "$close_paren" =~ ^[0-9]+$ ]]; then close_paren=0; fi
 
                   if (( open_paren != close_paren )); then
                     continue
@@ -277,8 +286,17 @@ jobs:
                   # BRACE TRACKING LOGIC
                   # ------------------------------
 
-                  open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l || echo 0)
-                  close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l || echo 0)
+                  open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l)
+                  close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l)
+
+                  open_count=${open_count:-0}
+                  close_count=${close_count:-0}
+
+                  open_count=$(echo "$open_count" | tr -d '[:space:]')
+                  close_count=$(echo "$close_count" | tr -d '[:space:]')
+
+                  if [[ ! "$open_count" =~ ^[0-9]+$ ]]; then open_count=0; fi
+                  if [[ ! "$close_count" =~ ^[0-9]+$ ]]; then close_count=0; fi
 
 
                   delta=$((open_count - close_count))
