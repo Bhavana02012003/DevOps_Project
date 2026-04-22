@@ -264,20 +264,22 @@ jobs:
                     continue
                   fi
 
-                  # Skip lines that contain unmatched parentheses (common diff issue)
-                  open_paren=$(echo "$trimmed" | grep -o '(' | wc -l)
-                  close_paren=$(echo "$trimmed" | grep -o ')' | wc -l)
+                  # ✅ SAFE parentheses check (FIXED)
+                  open_paren=$(echo "$trimmed" | grep -o '(' 2>/dev/null | wc -l || echo 0)
+                  close_paren=$(echo "$trimmed" | grep -o ')' 2>/dev/null | wc -l || echo 0)
 
                   if (( open_paren != close_paren )); then
                     continue
                   fi
 
+
                   # ------------------------------
                   # BRACE TRACKING LOGIC
                   # ------------------------------
 
-                  open_count=$(echo "$content" | grep -o '{' | wc -l || true)
-                  close_count=$(echo "$content" | grep -o '}' | wc -l || true)
+                  open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l || echo 0)
+                  close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l || echo 0)
+
 
                   delta=$((open_count - close_count))
 
