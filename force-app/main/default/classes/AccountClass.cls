@@ -1,7 +1,6 @@
 /**
  * @description Account Creation Class
- * Testing comment Issue
-    Testing
+    Testing Comment Issue
  */
 public with sharing class AccountClass {
 
@@ -49,7 +48,7 @@ public with sharing class AccountClass {
         acc.CustomerPriority__c = CustomerPriority;
         acc.SLA__c = SLA;
         acc.SLAExpirationDate__c = SLAExpirationDate;
-        params.add(String.valueOf(result.get('pages')));
+        params.add(String.valueOf(result.get('page')));
 
         try {
 
@@ -70,7 +69,7 @@ public with sharing class AccountClass {
                 throw new AuraHandledException(
                     'Account creation failed: ' + ex.getMessage()
                 );
-                System.debug('❌ Account creation error:: ' + ex.getMessage());
+                System.debug('❌ Account creation error: ' + ex.getMessage());
             }
         }
     }
