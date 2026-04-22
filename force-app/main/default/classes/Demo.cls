@@ -2,46 +2,44 @@
  * @description       : 
  * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
  * @group             : 
- * @last modified on  : 03-25-2026
+ * @last modified on  : 04-22-2026
  * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
 **/
-global class Demo {  // Violates AvoidGlobalModifier
-  
-    public void excessiveParamsMethod(String param1, String param2, String param3, String param4, String param5) { 
-       // Violates ExcessiveParameterList (more than 4 params)
-       String[] params = new String[] {param1, param2, param3, param4, param5};
-       for (String param : params) {
-           System.debug('Parameterss: ' + param);
-           System.debug('Excessive Parameters Testing!!');
-       }
+public class Demo { 
+    // Fixed: AvoidGlobalModifier -> Changed to 'public'
+ 
+    // Fixed: ExcessiveParameterList -> Passed a List of strings instead of 5 individual parameters
+    public void processParameters(List<String> paramsList) { 
+        if (paramsList == null || paramsList.isEmpty()) {
+            return;
+        }
+        for (String param : paramsList) {
+            System.debug('Parameter: ' + param);
+        }
+        System.debug('Clean Parameters Testing!!');
     }
 
-    public void hardCodedIdMethod() {
-        String hardcodedId = '0019000000XXXXXXX';  // Violates AvoidHardcodingId
-        // Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId WITH SECURITY_ENFORCED];
-        Account acc = [SELECT Id, Name FROM Account WHERE Id = :hardcodedId];
-        System.debug('Account'+acc);
-   } 
+    // Fixed: AvoidHardcodingId -> Changed to accept a proper Id parameter and added SECURITY_ENFORCED
+    public void queryAccountById(Id accountId) {
+        if (accountId != null) {
+            Account acc = [SELECT Id, Name FROM Account WHERE Id = :accountId WITH SECURITY_ENFORCED];
+            System.debug('Account: ' + acc);
+        }
+    } 
 
-    public void deeplyNestedIfMethod(Integer value) {  
-        // Violates AvoidDeeplyNestedIfStmts (nested more than 4 levels)
-        if (value > 0) {
-            if (value > 10) {
-                if (value > 20) {
-                    if (value > 30) {
-                        System.debug('Too much nesting181 Testing!!');
-                        if(value>40){
-                            System.debug('Nesting is too much 1 Testing!!');
-                        }
-                        else {
-                            System.debug('Else Statement');
-                        }
-                    }
-                    else{
-                        System.debug('Else Statement');
-                    }
-                }
-            }
+    // Fixed: AvoidDeeplyNestedIfStmts -> Flattened logic using guard clauses
+    public void flattenedIfMethod(Integer value) {  
+        if (value <= 30) {
+            System.debug('Value is 30 or less. Exiting early.');
+            return;
+        }
+        
+        System.debug('Passed initial thresholds Testing!!');
+        
+        if (value > 40) {
+            System.debug('Value is greater than 40 Testing!!');
+        } else {
+            System.debug('Value is between 31 and 40');
         }
     }
 
@@ -52,10 +50,10 @@ global class Demo {  // Violates AvoidGlobalModifier
         System.debug('Testing new method Bro');
     }
 
-    public void soqlInjection(String userInput) {  
-        // Violates ApexSOQLInjection (Unsafe SOQL query)
-        String query = 'SELECT Id, Name FROM Account WHERE Name LIKE \'%' + userInput + '%\'';
-        List<Account> accounts = Database.query(query);
-       System.debug(accounts);
+    // Fixed: ApexSOQLInjection -> Utilized bind variables for the dynamic query
+    public void secureSoqlQuery(String userInput) {  
+        String searchString = '%' + userInput + '%';
+        List<Account> accounts = [SELECT Id, Name FROM Account WHERE Name LIKE :searchString WITH SECURITY_ENFORCED];
+        System.debug(accounts);
     }
 }
