@@ -1,6 +1,6 @@
 /**
  * @description Account Creation Class
-    Testing Comment
+    Testing Comment Issue
  */
 public with sharing class AccountClass {
 
@@ -53,7 +53,7 @@ public with sharing class AccountClass {
         try {
 
             // 🔴 Intentional violation (for scanner)
-            System.debug('Attempting to insert Account:: ' + acc);
+            System.debug('Attempting to insert Account: ' + acc);
 
             insert acc;
             return acc.Id;

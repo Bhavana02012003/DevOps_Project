@@ -242,16 +242,24 @@ jobs:
                   if [[ -z "$trimmed" ]]; then continue; fi
 
                   # Skip comment-only lines
-                  # Skip comment-only lines
+                  # ------------------------------
+                  # COMMENT + INVALID TEXT FILTER (FINAL FIX)
+                  # ------------------------------
+
+                  # Skip empty lines
+                  if [[ -z "$trimmed" ]]; then continue; fi
+
+                  # Skip comment lines
                   if [[ "$trimmed" =~ ^// ]]; then continue; fi
                   if [[ "$trimmed" =~ ^/\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
 
-                  # 🚨 NEW FIX: skip invalid standalone words (IMPORTANT)
-                  if [[ "$trimmed" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                  # 🚨 CRITICAL FIX: Skip plain English / descriptions
+                  # Example: "Testing", "Testing Comment", "Account creation logic"
+                  if [[ "$trimmed" =~ ^[A-Za-z[:space:]]+$ ]]; then
                     continue
-                  fi       
+                  fi  
 
                   # ------------------------------
                   # BRACE TRACKING LOGIC
