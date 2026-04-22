@@ -219,58 +219,46 @@ jobs:
                 echo "   */" >> "$temp_file"
                 echo "  public static void tempMethod() {" >> "$temp_file"
 
-                # Keep your existing mapping logic
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                # echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                # ((temp_line++))
 
                 has_real_code=false
 
-                # ✅ FIX: safe read loop so comments / final lines do not break the job
-                while IFS= read -r row || [[ -n "$row" ]]; do
-
-                  # Skip empty diff rows
-                  [[ -z "$row" ]] && continue
-
-                  # Ensure the diff row contains TAB separator
-                  if [[ "$row" != *$TAB* ]]; then
-                    continue
-                  fi
-
+                while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
-
-                  # Ensure actual_line is numeric
-                  if [[ ! "$actual_line" =~ ^[0-9]+$ ]]; then
-                    continue
-                  fi
 
                   # ------------------------------
                   # SAFE MINIMAL FILTER
                   # ------------------------------
+
                   trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
                   # Skip empty lines
                   if [[ -z "$trimmed" ]]; then continue; fi
 
                   # Skip comment-only lines
+                  # Skip comment-only lines
                   if [[ "$trimmed" =~ ^// ]]; then continue; fi
                   if [[ "$trimmed" =~ ^/\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\* ]]; then continue; fi
                   if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
 
+                  # 🚨 NEW FIX: skip invalid standalone words (IMPORTANT)
+                  if [[ "$trimmed" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                    continue
+                  fi       
+
                   # ------------------------------
                   # BRACE TRACKING LOGIC
                   # ------------------------------
-                  open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l)
-                  close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l)
 
-                  open_count=$(echo "$open_count" | tr -d '[:space:]')
-                  close_count=$(echo "$close_count" | tr -d '[:space:]')
-
-                  [[ "$open_count" =~ ^[0-9]+$ ]] || open_count=0
-                  [[ "$close_count" =~ ^[0-9]+$ ]] || close_count=0
+                  open_count=$(echo "$content" | grep -o '{' | wc -l || true)
+                  close_count=$(echo "$content" | grep -o '}' | wc -l || true)
 
                   delta=$((open_count - close_count))
 
@@ -285,8 +273,6 @@ jobs:
 
                   # Write to temp file
                   printf "    %s\n" "$content" >> "$temp_file"
-
-                  # ✅ KEEP line number mapping logic
                   echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                   ((temp_line++))
 
@@ -301,6 +287,7 @@ jobs:
                 # ------------------------------
                 # AUTO-CLOSE UNBALANCED BRACES
                 # ------------------------------
+
                 while (( brace_balance > 0 )); do
                   echo "    }" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
