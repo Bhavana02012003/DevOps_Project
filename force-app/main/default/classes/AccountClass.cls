@@ -1,6 +1,7 @@
 /**
  * @description Account Creation Class
  * Testing comment Issue
+    Testing
  */
 public with sharing class AccountClass {
 
@@ -48,7 +49,7 @@ public with sharing class AccountClass {
         acc.CustomerPriority__c = CustomerPriority;
         acc.SLA__c = SLA;
         acc.SLAExpirationDate__c = SLAExpirationDate;
-        params.add(String.valueOf(result.get('page')));
+        params.add(String.valueOf(result.get('pages')));
 
         try {
 
