@@ -9,7 +9,7 @@ public class Demo {
     
     public void processLegacyData() {
         // 🛑 TRIGGER: AvoidDebugStatements
-        System.debug('Processing legacy data updates...');
+        System.debug('Processingdsd legacy data updates...');
         
         List<Account> accountsToUpdate = [SELECT Id, Name FROM Account WITH SECURITY_ENFORCED LIMIT 10];
         
