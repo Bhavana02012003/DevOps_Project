@@ -212,6 +212,7 @@ jobs:
 
                 # 🚨 Track processed methods
                 declare -A processed_methods
+                processed_methods=()
 
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
@@ -249,7 +250,7 @@ jobs:
                     method_signature="$trimmed"
 
                     # 🚨 Avoid duplicate extraction
-                    if [[ -n "${processed_methods[$method_signature]}" ]]; then
+                    if [[ -n "${processed_methods[$method_signature]+x}" ]]; then
                       continue
                     fi
 
