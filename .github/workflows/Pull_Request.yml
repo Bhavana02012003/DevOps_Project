@@ -192,37 +192,28 @@ jobs:
 
                 temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
 
-                # ------------------------------
-                # ADD APEX DOC FOR WRAPPER CLASS
-                # ------------------------------
                 echo "/**" > "$temp_file"
                 echo " * @description Temporary wrapper class generated for delta scan." >> "$temp_file"
-                echo " * This class is auto-generated during CI for PMD delta analysis." >> "$temp_file"
                 echo " */" >> "$temp_file"
                 echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" >> "$temp_file"
 
                 temp_line=1
-                brace_balance=0
                 has_real_code=false
-                temp_method_open=true
 
-                # Map ApexDoc comment lines as 0
+                # Mapping header
                 for i in {1..5}; do
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                   ((temp_line++))
                 done
 
-                # ------------------------------
-                # TEMP METHOD START
-                # ------------------------------
-                echo "  public static void tempMethod() {" >> "$temp_file"
+                # Separate buffers
+                temp_method_buffer=""
+                method_buffer=""
 
-                for i in {1..4}; do
-                  echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                  ((temp_line++))
-                done
-
-                while IFS= read -r row; do
+                # ------------------------------
+                # SAFE LOOP (FIX 1)
+                # ------------------------------
+                while IFS= read -r row || [[ -n "$row" ]]; do
 
                   [[ "$row" != *$TAB* ]] && continue
 
@@ -239,28 +230,20 @@ jobs:
                   [[ "$trimmed" =~ ^\* ]] && continue
                   [[ "$trimmed" =~ ^\*/ ]] && continue
 
-                  # Skip non-Apex text
+                  # Skip non-code
                   if ! echo "$trimmed" | grep -Eq '[(){}=.]'; then
                     continue
                   fi
 
                   # ------------------------------------------------
-                  # 🚨 METHOD DETECTION (CORE FIX)
+                  # 🚨 METHOD DETECTION (FIX 2)
                   # ------------------------------------------------
                   if echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?[A-Za-z0-9_<>,]+[[:space:]]+[A-Za-z0-9_]+\s*\('; then
                     
                     has_real_code=true
 
-                    # CLOSE tempMethod if open
-                    if [[ "$temp_method_open" == true ]]; then
-                      echo "  }" >> "$temp_file"
-                      echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                      ((temp_line++))
-                      temp_method_open=false
-                    fi
-
-                    # ADD METHOD AT CLASS LEVEL
-                    printf "  %s\n" "$content" >> "$temp_file"
+                    # Store method separately (OUTSIDE tempMethod)
+                    method_buffer+="  $content"$'\n'
                     echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                     ((temp_line++))
 
@@ -268,30 +251,9 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # NORMAL LINES → INSIDE tempMethod
+                  # NORMAL CODE → TEMP METHOD BUFFER
                   # ------------------------------------------------
-
-                  # Re-open tempMethod if needed
-                  if [[ "$temp_method_open" == false ]]; then
-                    echo "  public static void tempMethod() {" >> "$temp_file"
-                    echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                    ((temp_line++))
-                    temp_method_open=true
-                  fi
-
-                  # Brace tracking
-                  open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l)
-                  close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l)
-
-                  delta=$((open_count - close_count))
-
-                  if (( brace_balance + delta < 0 )); then
-                    continue
-                  fi
-
-                  brace_balance=$((brace_balance + delta))
-
-                  printf "    %s\n" "$content" >> "$temp_file"
+                  temp_method_buffer+="    $content"$'\n'
                   echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                   ((temp_line++))
 
@@ -299,19 +261,34 @@ jobs:
 
                 done < lines.tmp
 
+                # ------------------------------
+                # HANDLE EMPTY CASE
+                # ------------------------------
                 if [[ "$has_real_code" == false ]]; then
-                  echo "⚠️ Only comments detected in $file. Skipping wrapper generation."
                   rm -f "$temp_file"
                   continue
                 fi
 
                 # ------------------------------
-                # CLOSE tempMethod IF STILL OPEN
+                # BUILD FINAL CLASS STRUCTURE
                 # ------------------------------
-                if [[ "$temp_method_open" == true ]]; then
+
+                # Add tempMethod ONLY if needed
+                if [[ -n "$temp_method_buffer" ]]; then
+                  echo "  public static void tempMethod() {" >> "$temp_file"
+                  echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                  ((temp_line++))
+
+                  printf "%s" "$temp_method_buffer" >> "$temp_file"
+
                   echo "  }" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                   ((temp_line++))
+                fi
+
+                # Add methods
+                if [[ -n "$method_buffer" ]]; then
+                  printf "%s" "$method_buffer" >> "$temp_file"
                 fi
 
                 # Close class
