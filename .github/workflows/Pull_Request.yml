@@ -192,12 +192,16 @@ jobs:
 
                 temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
 
+                # ------------------------------
+                # WRAPPER CLASS
+                # ------------------------------
                 echo "/**" > "$temp_file"
                 echo " * @description Temporary wrapper class generated for delta scan." >> "$temp_file"
                 echo " */" >> "$temp_file"
                 echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" >> "$temp_file"
 
                 temp_line=1
+                brace_balance=0
                 has_real_code=false
 
                 # Mapping header
@@ -206,12 +210,17 @@ jobs:
                   ((temp_line++))
                 done
 
-                # Separate buffers
+                # ------------------------------
+                # BUFFERS
+                # ------------------------------
                 temp_method_buffer=""
                 method_buffer=""
 
+                inside_method=false
+                method_brace_count=0
+
                 # ------------------------------
-                # SAFE LOOP (FIX 1)
+                # SAFE LOOP
                 # ------------------------------
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
@@ -230,29 +239,56 @@ jobs:
                   [[ "$trimmed" =~ ^\* ]] && continue
                   [[ "$trimmed" =~ ^\*/ ]] && continue
 
-                  # Skip non-code
+                  # Skip non-Apex
                   if ! echo "$trimmed" | grep -Eq '[(){}=.]'; then
                     continue
                   fi
 
                   # ------------------------------------------------
-                  # 🚨 METHOD DETECTION (FIX 2)
+                  # METHOD START DETECTION
                   # ------------------------------------------------
-                  if echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?[A-Za-z0-9_<>,]+[[:space:]]+[A-Za-z0-9_]+\s*\('; then
+                  if [[ "$inside_method" == false ]] && echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
                     
-                    has_real_code=true
+                    inside_method=true
+                    method_brace_count=0
+                  fi
 
-                    # Store method separately (OUTSIDE tempMethod)
+                  # ------------------------------------------------
+                  # CAPTURE FULL METHOD
+                  # ------------------------------------------------
+                  if [[ "$inside_method" == true ]]; then
+
                     method_buffer+="  $content"$'\n'
                     echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                     ((temp_line++))
 
+                    open_count=$(echo "$content" | grep -o '{' | wc -l)
+                    close_count=$(echo "$content" | grep -o '}' | wc -l)
+
+                    method_brace_count=$((method_brace_count + open_count - close_count))
+
+                    if (( method_brace_count == 0 )); then
+                      inside_method=false
+                    fi
+
+                    has_real_code=true
                     continue
                   fi
 
                   # ------------------------------------------------
-                  # NORMAL CODE → TEMP METHOD BUFFER
+                  # NORMAL LINES → TEMP METHOD
                   # ------------------------------------------------
+                  open_count=$(echo "$content" | grep -o '{' | wc -l)
+                  close_count=$(echo "$content" | grep -o '}' | wc -l)
+
+                  delta=$((open_count - close_count))
+
+                  if (( brace_balance + delta < 0 )); then
+                    continue
+                  fi
+
+                  brace_balance=$((brace_balance + delta))
+
                   temp_method_buffer+="    $content"$'\n'
                   echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                   ((temp_line++))
@@ -261,19 +297,14 @@ jobs:
 
                 done < lines.tmp
 
-                # ------------------------------
-                # HANDLE EMPTY CASE
-                # ------------------------------
                 if [[ "$has_real_code" == false ]]; then
                   rm -f "$temp_file"
                   continue
                 fi
 
                 # ------------------------------
-                # BUILD FINAL CLASS STRUCTURE
+                # BUILD tempMethod
                 # ------------------------------
-
-                # Add tempMethod ONLY if needed
                 if [[ -n "$temp_method_buffer" ]]; then
                   echo "  public static void tempMethod() {" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
@@ -286,7 +317,9 @@ jobs:
                   ((temp_line++))
                 fi
 
-                # Add methods
+                # ------------------------------
+                # ADD METHODS
+                # ------------------------------
                 if [[ -n "$method_buffer" ]]; then
                   printf "%s" "$method_buffer" >> "$temp_file"
                 fi
