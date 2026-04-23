@@ -8,15 +8,21 @@
 public class Demo1 {
 
     // 🛑 TRIGGER: ExcessiveParameterList (5 parameters)
-    public void executeNewProcess(String paramA, String paramB, String paramC, String paramD, String paramE) {
+    public void dummyTestProcess() {
         
-        // 🛑 TRIGGER: OperationWithLimitsInLoop (DML inside a loop)
-        for (Integer i = 0; i < 5; i++) {
-            Contact newContact = new Contact(
-                LastName = 'Test Contact ' + i,
-                Description = paramA
-            );
-            insert newContact; 
+        // This variable is declared but never actually used
+        String unusedDummyVar = 'Just taking up space'; 
+        
+        try {
+            // Querying with a hardcoded 15/18 character ID is a security/best-practice violation
+            Account dummyAcc = [SELECT Id, Name FROM Account WHERE Id = '001000000000000AAA' WITH SECURITY_ENFORCED];
+            
+            // 🛑 TRIGGER: DebugsShouldUseLoggingLevel
+            System.debug('Found account: ' + dummyAcc.Name);
+            
+        } catch (Exception e) {
+            // 🛑 TRIGGER: EmptyCatchBlock (Silently swallowing the exception)
+            }
         }
         
         // 🛑 TRIGGER: ApexSOQLInjection (Using unprotected dynamic SOQL string)
