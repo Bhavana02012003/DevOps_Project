@@ -146,15 +146,17 @@ jobs:
             # ✅ Add the REAL, UNTOUCHED file to the scan list
             echo "$file" >> changed_cls_lwc_files.txt
 
-            # ✅ Extract ONLY the modified line numbers to feed your Python filter downstream
+            # ✅ Extract ONLY the modified line numbers (FIXED REGEX)
             git diff -U0 "$RANGE" -- "$file" | awk -v f="$file" '
               /^@@/ {
-                sub(/^.*\+/, "", $0)
-                sub(/,.*/, "", $0)
-                newLine = $0 + 0
+                str = $0
+                sub(/^.*\+/, "", str)   # Remove everything up to the +
+                sub(/,.*/, "", str)     # Handle comma formats (e.g., 10,5)
+                sub(/ .*/, "", str)     # Handle space formats (e.g., 10 @@)
+                newLine = str + 0
                 next
               }
-              /^\+/ && !/^+++/ {
+              /^\+/ && !/^\+\+\+/ {
                 # Format required by your Step 3: FullFilePath,ActualLine,ActualLine
                 print f "," newLine "," newLine
                 newLine++
