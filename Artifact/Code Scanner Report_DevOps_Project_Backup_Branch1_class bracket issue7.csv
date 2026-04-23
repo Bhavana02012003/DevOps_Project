@@ -1,0 +1,7 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"ApexSharingViolations","pmd","2",,"force-app/main/default/classes/Demo.cls",8,0,8,0,"Apex classes should declare a sharing model if DML or SOQL/SOSL is used",,"Shyamk-16028","Shyamk-16028",8,"Backup_Branch1"
+"ExcessiveParameterList","pmd","3",,"force-app/main/default/classes/Demo.cls",14,0,14,0,"Avoid long parameter lists.",,"Shyamk-16028","Shyamk-16028",14,"Backup_Branch1"
+"ApexDoc","pmd","5",,"force-app/main/default/classes/Demo.cls",14,0,14,0,"Missing ApexDoc comment",,"Shyamk-16028","Shyamk-16028",14,"Backup_Branch1"
+"AvoidDebugStatements","pmd","2",,"force-app/main/default/classes/Demo.cls",17,0,17,0,"Avoid debug statements since they impact on performance",,"Shyamk-16028","Shyamk-16028",17,"Backup_Branch1"
+"DebugsShouldUseLoggingLevel","pmd","4",,"force-app/main/default/classes/Demo.cls",17,0,17,0,"Calls to System.debug should specify a logging level.",,"Shyamk-16028","Shyamk-16028",17,"Backup_Branch1"
+"ApexDoc","pmd","5",,"force-app/main/default/classes/Demo.cls",42,0,42,0,"Missing ApexDoc comment",,"Shyamk-16028","Shyamk-16028",42,"Backup_Branch1"
