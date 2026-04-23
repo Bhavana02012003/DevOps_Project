@@ -210,8 +210,7 @@ jobs:
                 method_buffer=""
                 annotation_buffer=""
 
-                inside_method=false
-                method_start_line=0
+                skip_method_lines=false   # 🚨 CRITICAL FLAG
 
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
@@ -242,27 +241,25 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # 🚨 METHOD DETECTED → EXTRACT FULL METHOD FROM FILE
+                  # 🚨 METHOD DETECTED → EXTRACT FULL METHOD
                   # ------------------------------------------------
-                  if echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
+                  if [[ "$skip_method_lines" == false ]] && echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
                     
                     has_real_code=true
+                    skip_method_lines=true   # 🚨 STOP further delta processing
 
                     # Attach annotations
                     method_buffer+="  $annotation_buffer"
                     annotation_buffer=""
 
-                    # 🔥 READ FULL METHOD FROM ORIGINAL FILE
                     brace_count=0
                     started="false"
 
                     while IFS= read -r line; do
 
-                      trimmed_line="$(echo "$line" | sed 's/^[[:space:]]*//')"
-
-                      if [[ "$started" == false ]]; then
+                      if [[ "$started" == "false" ]]; then
                         if [[ "$line" == *"$content"* ]]; then
-                          started=true
+                          started="true"
                         else
                           continue
                         fi
@@ -281,6 +278,13 @@ jobs:
 
                     done < "$file"
 
+                    continue
+                  fi
+
+                  # ------------------------------------------------
+                  # 🚨 SKIP leftover method lines
+                  # ------------------------------------------------
+                  if [[ "$skip_method_lines" == true ]]; then
                     continue
                   fi
 
@@ -324,7 +328,7 @@ jobs:
                   ((temp_line++))
                 fi
 
-                # Add full methods
+                # Add full method
                 if [[ -n "$method_buffer" ]]; then
                   printf "%s" "$method_buffer" >> "$temp_file"
                 fi
