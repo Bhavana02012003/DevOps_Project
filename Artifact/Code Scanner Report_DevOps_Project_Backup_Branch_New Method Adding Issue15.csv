@@ -1,0 +1,10 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"ApexDoc","pmd","5",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",5,0,5,0,"Missing ApexDoc comment",,"Bhavana02012003","Bhavana02012003",0,"Backup_Branch"
+"AvoidDebugStatements","pmd","2",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",6,0,6,0,"Avoid debug statements since they impact on performance",,"Bhavana02012003","Bhavana02012003",72,"Backup_Branch"
+"DebugsShouldUseLoggingLevel","pmd","4",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",6,0,6,0,"Calls to System.debug should specify a logging level.",,"Bhavana02012003","Bhavana02012003",72,"Backup_Branch"
+"UnusedLocalVariable","pmd","3",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",7,0,7,0,"Variable 'searchKey' defined but not used",,"Bhavana02012003","Bhavana02012003",98,"Backup_Branch"
+"EmptyTryOrFinallyBlock","pmd","4",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",8,0,8,0,"Avoid empty try or finally blocks",,"Bhavana02012003","Bhavana02012003",100,"Backup_Branch"
+"EmptyStatementBlock","pmd","4",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",8,0,8,0,"Avoid empty block statements.",,"Bhavana02012003","Bhavana02012003",100,"Backup_Branch"
+"AvoidDebugStatements","pmd","2",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",10,0,10,0,"Avoid debug statements since they impact on performance",,"Bhavana02012003","Bhavana02012003",110,"Backup_Branch"
+"DebugsShouldUseLoggingLevel","pmd","4",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",10,0,10,0,"Calls to System.debug should specify a logging level.",,"Bhavana02012003","Bhavana02012003",110,"Backup_Branch"
+"ApexDoc","pmd","5",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",15,0,15,0,"Missing ApexDoc comment",,"Bhavana02012003","Bhavana02012003",0,"Backup_Branch"
