@@ -16,7 +16,7 @@ global class Demo { // 🛑 TRIGGER: AvoidGlobalModifier
     public void triggerParseError() {
         // 🚨 FATAL SYNTAX ERROR: WITH SECURITY_ENFORCED is after LIMIT.
         // This crashes the AST parser. PMD will stop reading here!
-        List<Account> crashList = [SELECT Id, Name FROM Account LIMIT 100 WITH SECURITY_ENFORCED];
+        List<Account> crashList = [SELECT Id, Name FROM Account WITH SECURITY_ENFORCED LIMIT 100];
     }
 
     // ----------------------------------------------------------------------
