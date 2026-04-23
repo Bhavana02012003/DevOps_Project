@@ -64,7 +64,7 @@ public with sharing class AccountClass {
                 throw new AuraHandledException(
                     'Duplicate account name detected.'
                 );
-                System.debug('❌ Duplicate account name:: ' + Name);
+                System.debug('❌ Duplicate account name: ' + Name);
             } else {
                 throw new AuraHandledException(
                     'Account creation failed: ' + ex.getMessage()
@@ -73,6 +73,11 @@ public with sharing class AccountClass {
             }
         }
     }
+    /**
+       *@description Fetches an existing Account record by its ID.
+        @param accountId The ID of the Account to retrieve
+        @return Account record
+     */
     @AuraEnabled(cacheable=true)
     public static Account getAccountById(Id accountId) {
         try {
@@ -88,6 +93,12 @@ public with sharing class AccountClass {
             throw new AuraHandledException('Error retrieving account: ' + ex.getMessage());
         }
     }
+	/**
+     * @description Searches for Accounts by Name.
+     * @param searchTerm The text to search for in the Account Name
+     * @return List of matching Account records
+     */
+    @AuraEnabled(cacheable=true)
     public static List<Account> searchAccounts(String searchTerm) {
         // Return an empty list early if the search term is empty or null
         if (String.isBlank(searchTerm)) {
