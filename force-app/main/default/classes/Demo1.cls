@@ -18,7 +18,7 @@ public class Demo1 {
             Account dummyAcc = [SELECT Id, Name FROM Account WHERE Id = '001000000000000AAA' WITH SECURITY_ENFORCED];
             
             // 🛑 TRIGGER: DebugsShouldUseLoggingLevel
-            System.debug('Found accossunt: ' + dummyAcc.Name);
+            System.debug('Found accddossunt: ' + dummyAcc.Name);
             
         } catch (Exception e) {
             // 🛑 TRIGGER: EmptyCatchBlock (Silently swallowing the exception)
