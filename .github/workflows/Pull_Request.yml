@@ -203,85 +203,99 @@ jobs:
 
                 temp_line=1
                 brace_balance=0
+                has_real_code=false
+                temp_method_open=true
 
-                # Map ApexDoc comment lines as 0 (non-original)
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
+                # Map ApexDoc comment lines as 0
+                for i in {1..5}; do
+                  echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                  ((temp_line++))
+                done
 
                 # ------------------------------
-                # ADD APEX DOC FOR TEMP METHOD
+                # TEMP METHOD START
                 # ------------------------------
-                echo "  /**" >> "$temp_file"
-                echo "   * @description Temporary method generated for delta scan." >> "$temp_file"
-                echo "   */" >> "$temp_file"
                 echo "  public static void tempMethod() {" >> "$temp_file"
 
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                # echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                # ((temp_line++))
-
-                has_real_code=false
+                for i in {1..4}; do
+                  echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                  ((temp_line++))
+                done
 
                 while IFS= read -r row; do
+
+                  [[ "$row" != *$TAB* ]] && continue
+
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
 
-                  # ------------------------------
-                  # SAFE MINIMAL FILTER
-                  # ------------------------------
-
-                  # ------------------------------
-                  # FINAL SAFE FILTER (STRICT APEX ONLY)
-                  # ------------------------------
-
-                  # ------------------------------
-                  # FINAL SAFE FILTER (NO SYNTAX ERRORS)
-                  # ------------------------------
-
                   trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
-                  # Skip empty
-                  if [[ -z "$trimmed" ]]; then continue; fi
+                  [[ -z "$trimmed" ]] && continue
 
-                  # Skip comment lines
-                  if [[ "$trimmed" =~ ^// ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^/\* ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^\* ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
+                  # Skip comments
+                  [[ "$trimmed" =~ ^// ]] && continue
+                  [[ "$trimmed" =~ ^/\* ]] && continue
+                  [[ "$trimmed" =~ ^\* ]] && continue
+                  [[ "$trimmed" =~ ^\*/ ]] && continue
 
-                  # 🚨 SAFE APEX LINE CHECK
+                  # Skip non-Apex text
                   if ! echo "$trimmed" | grep -Eq '[(){}=.]'; then
                     continue
                   fi
 
-                  # ------------------------------
-                  # BRACE TRACKING LOGIC
-                  # ------------------------------
+                  # ------------------------------------------------
+                  # 🚨 METHOD DETECTION (CORE FIX)
+                  # ------------------------------------------------
+                  if echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?[A-Za-z0-9_<>,]+[[:space:]]+[A-Za-z0-9_]+\s*\('; then
+                    
+                    has_real_code=true
 
-                  open_count=$(echo "$content" | grep -o '{' | wc -l || true)
-                  close_count=$(echo "$content" | grep -o '}' | wc -l || true)
+                    # CLOSE tempMethod if open
+                    if [[ "$temp_method_open" == true ]]; then
+                      echo "  }" >> "$temp_file"
+                      echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                      ((temp_line++))
+                      temp_method_open=false
+                    fi
+
+                    # ADD METHOD AT CLASS LEVEL
+                    printf "  %s\n" "$content" >> "$temp_file"
+                    echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
+                    ((temp_line++))
+
+                    continue
+                  fi
+
+                  # ------------------------------------------------
+                  # NORMAL LINES → INSIDE tempMethod
+                  # ------------------------------------------------
+
+                  # Re-open tempMethod if needed
+                  if [[ "$temp_method_open" == false ]]; then
+                    echo "  public static void tempMethod() {" >> "$temp_file"
+                    echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
+                    ((temp_line++))
+                    temp_method_open=true
+                  fi
+
+                  # Brace tracking
+                  open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l)
+                  close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l)
 
                   delta=$((open_count - close_count))
 
-                  # Prevent negative brace balance (orphan closing brace)
                   if (( brace_balance + delta < 0 )); then
                     continue
                   fi
 
                   brace_balance=$((brace_balance + delta))
 
-                  has_real_code=true
-
-                  # Write to temp file
                   printf "    %s\n" "$content" >> "$temp_file"
                   echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                   ((temp_line++))
+
+                  has_real_code=true
 
                 done < lines.tmp
 
@@ -292,20 +306,13 @@ jobs:
                 fi
 
                 # ------------------------------
-                # AUTO-CLOSE UNBALANCED BRACES
+                # CLOSE tempMethod IF STILL OPEN
                 # ------------------------------
-
-                while (( brace_balance > 0 )); do
-                  echo "    }" >> "$temp_file"
+                if [[ "$temp_method_open" == true ]]; then
+                  echo "  }" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                   ((temp_line++))
-                  brace_balance=$((brace_balance - 1))
-                done
-
-                # Close tempMethod
-                echo "  }" >> "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
+                fi
 
                 # Close class
                 echo "}" >> "$temp_file"
