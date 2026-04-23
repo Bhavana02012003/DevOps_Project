@@ -73,42 +73,4 @@ public with sharing class AccountClass {
             }
         }
     }
-    @AuraEnabled(cacheable=true)
-    public static Account getAccountById(Id accountId) {
-        try {
-            return [
-                SELECT Id, Name, Phone, Type, Rating, BillingCity, BillingState, CustomerPriority__c
-                FROM Account
-                WHERE Id = :accountId
-                WITH SECURITY_ENFORCED
-                LIMIT 1
-            ];
-        } catch (Exception ex) {
-            System.debug('❌ Error retrieving account: ' + ex.getMessage());
-            throw new AuraHandledException('Error retrieving account: ' + ex.getMessage());
-        }
-    }
-    public static List<Account> searchAccounts(String searchTerm) {
-        // Return an empty list early if the search term is empty or null
-        if (String.isBlank(searchTerm)) {
-            return new List<Account>();
-        }
-
-        // Append wildcards for the SOQL LIKE operator
-        String searchKey = '%' + searchTerm + '%';
-
-        try {
-            return [
-                SELECT Id, Name, Phone, Type, Industry, BillingCity
-                FROM Account
-                WHERE Name LIKE :searchKey
-                WITH SECURITY_ENFORCED
-                ORDER BY Name ASC
-                LIMIT 10
-            ];
-        } catch (Exception ex) {
-            System.debug('❌ Error searching accounts: ' + ex.getMessage());
-            throw new AuraHandledException('Error searching accounts: ' + ex.getMessage());
-        }
-    }
 }
