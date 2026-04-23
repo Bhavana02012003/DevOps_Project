@@ -8,21 +8,21 @@
 public class Demo {
     
     public void triggerParseError() {
-        // 🛑 TRIGGER: AvoidDebugStatements (PMD won't see this yet!)
-        System.debug('Preparing to run the fatally broken SOQL query...');
+        // 🛑 TRIGGER: AvoidDebugStatements (PMD will catch this now!)
+        System.debug('Preparing to run the valid SOQL query...');
         
-        // 🛑 THE FATAL SYNTAX ERROR: WITH SECURITY_ENFORCED is in the wrong place.
-        // This will cause the PMD AST Parser to crash and return 0 violations.
-        List<Contact> badQueryList = [SELECT Id, Name, Email FROM Contact LIMIT 50 WITH SECURITY_ENFORCED];
+        // ✅ THE FIX: WITH SECURITY_ENFORCED is now before LIMIT.
+        // PMD will successfully parse this and move on to find the other violations.
+        List<Contact> badQueryList = [SELECT Id, Name, Email FROM Contact WITH SECURITY_ENFORCED LIMIT 50];
         
-        // 🛑 TRIGGER: EmptyIfStmt (PMD won't see this yet!)
+        // 🛑 TRIGGER: EmptyIfStmt (PMD will catch this now!)
         if (badQueryList.size() > 0) {
             // Doing absolutely nothing here
         }
     }
     
     public void standardViolations(Integer a, Integer b) {
-        // 🛑 TRIGGER: IfStmtsMustUseBraces (PMD won't see this yet!)
+        // 🛑 TRIGGER: IfStmtsMustUseBraces (PMD will catch this now!)
         if (a > b) System.debug('A is greater than B');
     }
 }
