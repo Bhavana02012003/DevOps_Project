@@ -1,0 +1,2 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"UnusedLocalVariable","pmd","3",,"force-app/main/default/classes/Demo.cls",19,0,19,0,"Variable 'crashList' defined but not used",,"Shyamk-16028","Shyamk-16028",19,"Backup_Branch1"
