@@ -192,9 +192,6 @@ jobs:
 
                 temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
 
-                # ------------------------------
-                # WRAPPER CLASS
-                # ------------------------------
                 echo "/**" > "$temp_file"
                 echo " * @description Temporary wrapper class generated for delta scan." >> "$temp_file"
                 echo " */" >> "$temp_file"
@@ -210,18 +207,12 @@ jobs:
                   ((temp_line++))
                 done
 
-                # ------------------------------
-                # BUFFERS
-                # ------------------------------
                 temp_method_buffer=""
                 method_buffer=""
 
                 inside_method=false
                 method_brace_count=0
 
-                # ------------------------------
-                # SAFE LOOP
-                # ------------------------------
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
                   [[ "$row" != *$TAB* ]] && continue
@@ -239,15 +230,15 @@ jobs:
                   [[ "$trimmed" =~ ^\* ]] && continue
                   [[ "$trimmed" =~ ^\*/ ]] && continue
 
-                  # Skip non-Apex
+                  # Skip non-code
                   if ! echo "$trimmed" | grep -Eq '[(){}=.]'; then
                     continue
                   fi
 
                   # ------------------------------------------------
-                  # METHOD START DETECTION
+                  # 🚨 STRICT METHOD DETECTION (FIXED)
                   # ------------------------------------------------
-                  if [[ "$inside_method" == false ]] && echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
+                  if [[ "$inside_method" == false ]] && echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?[A-Za-z0-9_<>,]+[[:space:]]+[A-Za-z0-9_]+\s*\('; then
                     
                     inside_method=true
                     method_brace_count=0
@@ -262,8 +253,9 @@ jobs:
                     echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                     ((temp_line++))
 
-                    open_count=$(echo "$content" | grep -o '{' | wc -l)
-                    close_count=$(echo "$content" | grep -o '}' | wc -l)
+                    # ✅ SAFE GREP (NO CRASH)
+                    open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l)
+                    close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l)
 
                     method_brace_count=$((method_brace_count + open_count - close_count))
 
@@ -276,10 +268,10 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # NORMAL LINES → TEMP METHOD
+                  # NORMAL LINES
                   # ------------------------------------------------
-                  open_count=$(echo "$content" | grep -o '{' | wc -l)
-                  close_count=$(echo "$content" | grep -o '}' | wc -l)
+                  open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l)
+                  close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l)
 
                   delta=$((open_count - close_count))
 
@@ -302,9 +294,7 @@ jobs:
                   continue
                 fi
 
-                # ------------------------------
-                # BUILD tempMethod
-                # ------------------------------
+                # Build tempMethod
                 if [[ -n "$temp_method_buffer" ]]; then
                   echo "  public static void tempMethod() {" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
@@ -317,9 +307,7 @@ jobs:
                   ((temp_line++))
                 fi
 
-                # ------------------------------
-                # ADD METHODS
-                # ------------------------------
+                # Add methods
                 if [[ -n "$method_buffer" ]]; then
                   printf "%s" "$method_buffer" >> "$temp_file"
                 fi
