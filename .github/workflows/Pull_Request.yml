@@ -213,8 +213,7 @@ jobs:
                 declare -A processed_methods
                 processed_methods=()
 
-                skip_block=false
-                skip_brace=0
+                current_method=""   # 🚨 TRACK ACTIVE METHOD
 
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
@@ -245,11 +244,14 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # 🚨 METHOD DETECTED
+                  # 🚨 METHOD DETECTION
                   # ------------------------------------------------
                   if echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
 
                     method_signature="$trimmed"
+
+                    # 🚨 Reset skip (new method)
+                    current_method="$method_signature"
 
                     if [[ -n "${processed_methods[$method_signature]+x}" ]]; then
                       continue
@@ -262,11 +264,7 @@ jobs:
                     method_buffer+="  $annotation_buffer"
                     annotation_buffer=""
 
-                    # 🚨 START SKIP MODE
-                    skip_block=true
-                    skip_brace=0
-
-                    # Extract full method
+                    # 🔥 Extract FULL method from file
                     brace_count=0
                     started="false"
 
@@ -297,24 +295,14 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # 🚨 SKIP DELTA LINES OF METHOD
+                  # 🚨 SKIP ALL LINES BELONGING TO A METHOD
                   # ------------------------------------------------
-                  if [[ "$skip_block" == true ]]; then
-
-                    open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
-                    close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
-
-                    skip_brace=$((skip_brace + open_count - close_count))
-
-                    if (( skip_brace <= 0 )); then
-                      skip_block=false
-                    fi
-
+                  if [[ -n "$current_method" ]]; then
                     continue
                   fi
 
                   # ------------------------------------------------
-                  # NORMAL DELTA LINES
+                  # NORMAL DELTA LINES (SAFE)
                   # ------------------------------------------------
                   open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
                   close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
