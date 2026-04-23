@@ -209,13 +209,11 @@ jobs:
 
                 temp_method_buffer=""
                 method_buffer=""
+                annotation_buffer=""
 
                 inside_method=false
                 method_brace_count=0
 
-                # ------------------------------
-                # SAFE LOOP
-                # ------------------------------
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
                   [[ "$row" != *$TAB* ]] && continue
@@ -227,35 +225,51 @@ jobs:
 
                   [[ -z "$trimmed" ]] && continue
 
-                  # Skip comments
+                  # ---------------------------------------
+                  # SKIP COMMENTS
+                  # ---------------------------------------
                   [[ "$trimmed" =~ ^// ]] && continue
                   [[ "$trimmed" =~ ^/\* ]] && continue
                   [[ "$trimmed" =~ ^\* ]] && continue
                   [[ "$trimmed" =~ ^\*/ ]] && continue
+
+                  # ---------------------------------------
+                  # 🚨 HANDLE ANNOTATIONS (KEY FIX)
+                  # ---------------------------------------
+                  if [[ "$trimmed" =~ ^@ ]]; then
+                    annotation_buffer+="  $content"$'\n'
+                    echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
+                    ((temp_line++))
+                    continue
+                  fi
 
                   # Skip non-code
                   if ! echo "$trimmed" | grep -Eq '[(){}=.]'; then
                     continue
                   fi
 
-                  # ------------------------------------------------
-                  # METHOD DETECTION (STRICT)
-                  # ------------------------------------------------
-                  if [[ "$inside_method" == false ]] && echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?[A-Za-z0-9_<>,]+[[:space:]]+[A-Za-z0-9_]+\s*\('; then
+                  # ---------------------------------------
+                  # METHOD DETECTION
+                  # ---------------------------------------
+                  if [[ "$inside_method" == false ]] && echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
                     
                     inside_method=true
                     method_brace_count=0
+
+                    # Attach annotations BEFORE method
+                    method_buffer+="$annotation_buffer"
+                    annotation_buffer=""
                   fi
 
-                  # ------------------------------------------------
-                  # SAFE BRACE COUNT (NO GREP)
-                  # ------------------------------------------------
+                  # ---------------------------------------
+                  # SAFE BRACE COUNT
+                  # ---------------------------------------
                   open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
                   close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
 
-                  # ------------------------------------------------
+                  # ---------------------------------------
                   # CAPTURE METHOD
-                  # ------------------------------------------------
+                  # ---------------------------------------
                   if [[ "$inside_method" == true ]]; then
 
                     method_buffer+="  $content"$'\n'
@@ -272,9 +286,9 @@ jobs:
                     continue
                   fi
 
-                  # ------------------------------------------------
-                  # NORMAL LINES
-                  # ------------------------------------------------
+                  # ---------------------------------------
+                  # NORMAL LINES → tempMethod
+                  # ---------------------------------------
                   delta=$((open_count - close_count))
 
                   if (( brace_balance + delta < 0 )); then
@@ -309,7 +323,7 @@ jobs:
                   ((temp_line++))
                 fi
 
-                # Add methods
+                # Add methods (WITH annotations correctly placed)
                 if [[ -n "$method_buffer" ]]; then
                   printf "%s" "$method_buffer" >> "$temp_file"
                 fi
