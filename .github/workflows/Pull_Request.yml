@@ -213,6 +213,9 @@ jobs:
                 inside_method=false
                 method_brace_count=0
 
+                # ------------------------------
+                # SAFE LOOP
+                # ------------------------------
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
                   [[ "$row" != *$TAB* ]] && continue
@@ -236,7 +239,7 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # 🚨 STRICT METHOD DETECTION (FIXED)
+                  # METHOD DETECTION (STRICT)
                   # ------------------------------------------------
                   if [[ "$inside_method" == false ]] && echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?[A-Za-z0-9_<>,]+[[:space:]]+[A-Za-z0-9_]+\s*\('; then
                     
@@ -245,17 +248,19 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # CAPTURE FULL METHOD
+                  # SAFE BRACE COUNT (NO GREP)
+                  # ------------------------------------------------
+                  open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
+                  close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
+
+                  # ------------------------------------------------
+                  # CAPTURE METHOD
                   # ------------------------------------------------
                   if [[ "$inside_method" == true ]]; then
 
                     method_buffer+="  $content"$'\n'
                     echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
                     ((temp_line++))
-
-                    # ✅ SAFE GREP (NO CRASH)
-                    open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l)
-                    close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l)
 
                     method_brace_count=$((method_brace_count + open_count - close_count))
 
@@ -270,9 +275,6 @@ jobs:
                   # ------------------------------------------------
                   # NORMAL LINES
                   # ------------------------------------------------
-                  open_count=$(echo "$content" | grep -o '{' 2>/dev/null | wc -l)
-                  close_count=$(echo "$content" | grep -o '}' 2>/dev/null | wc -l)
-
                   delta=$((open_count - close_count))
 
                   if (( brace_balance + delta < 0 )); then
