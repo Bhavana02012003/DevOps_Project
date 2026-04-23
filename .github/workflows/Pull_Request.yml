@@ -201,7 +201,6 @@ jobs:
                 brace_balance=0
                 has_real_code=false
 
-                # Mapping header
                 for i in {1..5}; do
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                   ((temp_line++))
@@ -212,7 +211,7 @@ jobs:
                 annotation_buffer=""
 
                 inside_method=false
-                method_brace_count=0
+                method_start_line=0
 
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
@@ -225,21 +224,15 @@ jobs:
 
                   [[ -z "$trimmed" ]] && continue
 
-                  # ---------------------------------------
-                  # SKIP COMMENTS
-                  # ---------------------------------------
+                  # Skip comments
                   [[ "$trimmed" =~ ^// ]] && continue
                   [[ "$trimmed" =~ ^/\* ]] && continue
                   [[ "$trimmed" =~ ^\* ]] && continue
                   [[ "$trimmed" =~ ^\*/ ]] && continue
 
-                  # ---------------------------------------
-                  # 🚨 HANDLE ANNOTATIONS (KEY FIX)
-                  # ---------------------------------------
+                  # Handle annotations
                   if [[ "$trimmed" =~ ^@ ]]; then
-                    annotation_buffer+="  $content"$'\n'
-                    echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
-                    ((temp_line++))
+                    annotation_buffer+="$content"$'\n'
                     continue
                   fi
 
@@ -248,47 +241,55 @@ jobs:
                     continue
                   fi
 
-                  # ---------------------------------------
-                  # METHOD DETECTION
-                  # ---------------------------------------
-                  if [[ "$inside_method" == false ]] && echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
+                  # ------------------------------------------------
+                  # 🚨 METHOD DETECTED → EXTRACT FULL METHOD FROM FILE
+                  # ------------------------------------------------
+                  if echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
                     
-                    inside_method=true
-                    method_brace_count=0
-
-                    # Attach annotations BEFORE method
-                    method_buffer+="$annotation_buffer"
-                    annotation_buffer=""
-                  fi
-
-                  # ---------------------------------------
-                  # SAFE BRACE COUNT
-                  # ---------------------------------------
-                  open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
-                  close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
-
-                  # ---------------------------------------
-                  # CAPTURE METHOD
-                  # ---------------------------------------
-                  if [[ "$inside_method" == true ]]; then
-
-                    method_buffer+="  $content"$'\n'
-                    echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
-                    ((temp_line++))
-
-                    method_brace_count=$((method_brace_count + open_count - close_count))
-
-                    if (( method_brace_count == 0 )); then
-                      inside_method=false
-                    fi
-
                     has_real_code=true
+
+                    # Attach annotations
+                    method_buffer+="  $annotation_buffer"
+                    annotation_buffer=""
+
+                    # 🔥 READ FULL METHOD FROM ORIGINAL FILE
+                    brace_count=0
+                    started=false
+
+                    while IFS= read -r line; do
+
+                      trimmed_line="$(echo "$line" | sed 's/^[[:space:]]*//')"
+
+                      if [[ "$started" == false ]]; then
+                        if [[ "$line" == *"$content"* ]]; then
+                          started=true
+                        else
+                          continue
+                        fi
+                      fi
+
+                      method_buffer+="  $line"$'\n'
+
+                      open_count=$(awk -v a="$line" 'BEGIN{print gsub(/{/,"",a)}')
+                      close_count=$(awk -v a="$line" 'BEGIN{print gsub(/}/,"",a)}')
+
+                      brace_count=$((brace_count + open_count - close_count))
+
+                      if (( brace_count == 0 && started == true )); then
+                        break
+                      fi
+
+                    done < "$file"
+
                     continue
                   fi
 
-                  # ---------------------------------------
-                  # NORMAL LINES → tempMethod
-                  # ---------------------------------------
+                  # ------------------------------------------------
+                  # NORMAL DELTA LINES
+                  # ------------------------------------------------
+                  open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
+                  close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
+
                   delta=$((open_count - close_count))
 
                   if (( brace_balance + delta < 0 )); then
@@ -323,7 +324,7 @@ jobs:
                   ((temp_line++))
                 fi
 
-                # Add methods (WITH annotations correctly placed)
+                # Add full methods
                 if [[ -n "$method_buffer" ]]; then
                   printf "%s" "$method_buffer" >> "$temp_file"
                 fi
