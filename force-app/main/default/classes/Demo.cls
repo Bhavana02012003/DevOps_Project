@@ -2,58 +2,46 @@
  * @description       : 
  * @author            : ChangeMeIn@UserSettingsUnder.SFDoc
  * @group             : 
- * @last modified on  : 04-22-2026
+ * @last modified on  : 04-23-2026
  * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
 **/
 public class Demo { 
-    // Fixed: AvoidGlobalModifier -> Changed to 'public'
- 
-    // Fixed: ExcessiveParameterList -> Passed a List of strings instead of 5 individual parameters
-    public void processParameters(List<String> paramsList) { 
-        if (paramsList == null || paramsList.isEmpty()) {
-            return;
-        }
-        for (String param : paramsList) {
-            System.debug('Parameter: ' + param);
-        }
-        System.debug('Clean Parameters Testing!!');
-    }
-
-    // Fixed: AvoidHardcodingId -> Changed to accept a proper Id parameter and added SECURITY_ENFORCED
-    public void queryAccountById(Id accountId) {
-        if (accountId != null) {
-            Account acc = [SELECT Id, Name FROM Account WHERE Id = :accountId WITH SECURITY_ENFORCED];
-            System.debug('Account: ' + acc);
-        }
-    } 
-
-    // Fixed: AvoidDeeplyNestedIfStmts -> Flattened logic using guard clauses
-    public void flattenedIfMethod(Integer value) {  
-        if (value <= 30) {
-            System.debug('Value is 30 or less. Exiting early.');
+    
+    // Completely new method handling Opportunities
+    public void processOpportunities(List<Opportunity> oppList) {
+        if (oppList == null || oppList.isEmpty()) {
             return;
         }
         
-        System.debug('Passed initial thresholds Testing!!');
+        List<Opportunity> oppsToUpdate = new List<Opportunity>();
+        for (Opportunity opp : oppList) {
+            if (opp.StageName == 'Prospecting') {
+                opp.Description = 'Newly processed prospect.';
+                oppsToUpdate.add(opp);
+            }
+        }
         
-        if (value > 40) {
-            System.debug('Value is greater than 40 Testing!!');
-        } else {
-            System.debug('Value is between 31 and 40');
+        if (!oppsToUpdate.isEmpty()) {
+            // SECURITY NOTE: In a real scenario, check CRUD/FLS before updating.
+            update oppsToUpdate;
         }
     }
-
-    public void sampleTestMethod(Integer num) { 
-        if (num > 5) {
-            System.debug('Num is greater than 5');
-        }
-        System.debug('Testing new method Bro');
+    
+    // Intentional minor PMD violation: AvoidDebugStatements (to test if the scanner catches it on a new line)
+    public String generateGreeting(String name) {
+        System.debug('Generating greeting for: ' + name); 
+        
+        // Intentional minor PMD violation: IfStmtsMustUseBraces
+        if (String.isBlank(name)) return 'Hello, Guest!';
+        
+        return 'Hello, ' + name + '!';
     }
-
-    // Fixed: ApexSOQLInjection -> Utilized bind variables for the dynamic query
-    public void secureSoqlQuery(String userInput) {  
-        String searchString = '%' + userInput + '%';
-        List<Account> accounts = [SELECT Id, Name FROM Account WHERE Name LIKE :searchString WITH SECURITY_ENFORCED];
-        System.debug(accounts);
+    
+    // A clean, recursive math method just to round out the class
+    public Integer calculateFactorial(Integer n) {
+        if (n <= 1) {
+            return 1;
+        }
+        return n * calculateFactorial(n - 1);
     }
 }

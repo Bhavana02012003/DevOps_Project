@@ -110,16 +110,14 @@ jobs:
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
       # ------------------------------------------------------------
-      # 2) Get delta added lines & create temp files
-      #    ✅ WITH mapping: line_number_mapping.txt (tempLine -> actualLine)
+      # 2) Identify changed files and map delta lines for the filter
       # ------------------------------------------------------------
-      - name: Get changed lines and create temporary files (delta, with Apex wrapper; WITH mapping)
+      - name: Prepare full files for scan & map delta lines
         shell: bash
         id: get-changes
         run: |
           set -euo pipefail
 
-          mkdir -p temp_scanner_files
           : > changed_cls_lwc_files.txt
           : > line_number_mapping.txt
 
@@ -128,13 +126,11 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.base_ref }}" ]]; then
             RANGE="origin/${{ github.base_ref }}...${{ github.sha }}"
             echo "Using PR diff: $RANGE"
-            git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
           else
             RANGE="HEAD~1..HEAD"
             echo "Using fallback diff: $RANGE"
           fi
 
-          # ✅ IMPORTANT: Get file status (A, M, D)
           git diff --name-status "$RANGE" -- '*.cls' '*.js' '*.html' > changed_status.txt || true
 
           if [[ ! -s changed_status.txt ]]; then
@@ -143,235 +139,34 @@ jobs:
             exit 0
           fi
 
-          TAB=$(printf '\t')
-
           while read -r status file; do
-
             [[ -f "$file" ]] || { echo "Skipping deleted file: $file"; continue; }
-
             echo "Processing file: $file (Status: $status)"
 
-            sanitized="${file//\//_}"
+            # ✅ Add the REAL, UNTOUCHED file to the scan list
+            echo "$file" >> changed_cls_lwc_files.txt
 
-            # =====================================================
-            # ✅ IF NEW APEX CLASS → SCAN FULL FILE DIRECTLY
-            # =====================================================
-            if [[ "$status" == "A" && "$file" == *.cls ]]; then
-              echo "🆕 New Apex class detected. Scanning full file directly."
-              echo "$file" >> changed_cls_lwc_files.txt
-              continue
-            fi
-
-            # =====================================================
-            # 🔁 FOR MODIFIED FILES → USE EXISTING DELTA LOGIC
-            # =====================================================
-
-            git diff -U0 "$RANGE" -- "$file" | awk '
+            # ✅ Extract ONLY the modified line numbers to feed your Python filter downstream
+            git diff -U0 "$RANGE" -- "$file" | awk -v f="$file" '
               /^@@/ {
-                line = $0
-                sub(/^.*\+/, "", line)
-                sub(/,.*/, "", line)
-                newLine = line + 0
+                sub(/^.*\+/, "", $0)
+                sub(/,.*/, "", $0)
+                newLine = $0 + 0
                 next
               }
-              /^diff / || /^index / || /^--- / || /^\+\+\+ / { next }
-              /^\+/ {
-                print newLine "\t" substr($0,2)
+              /^\+/ && !/^+++/ {
+                # Format required by your Step 3: FullFilePath,ActualLine,ActualLine
+                print f "," newLine "," newLine
                 newLine++
-                next
               }
-            ' > lines.tmp || true
-
-            if [[ ! -s lines.tmp ]]; then
-              echo "No added lines found for $file (possibly only deletions). Skipping..."
-              continue
-            fi
-
-            case "$file" in
-            *.cls)
-
-                temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
-
-                # ------------------------------
-                # ADD APEX DOC FOR WRAPPER CLASS
-                # ------------------------------
-                echo "/**" > "$temp_file"
-                echo " * @description Temporary wrapper class generated for delta scan." >> "$temp_file"
-                echo " * This class is auto-generated during CI for PMD delta analysis." >> "$temp_file"
-                echo " */" >> "$temp_file"
-                echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" >> "$temp_file"
-
-                temp_line=1
-                brace_balance=0
-
-                # Map ApexDoc comment lines as 0 (non-original)
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-
-                # ------------------------------
-                # ADD APEX DOC FOR TEMP METHOD
-                # ------------------------------
-                echo "  /**" >> "$temp_file"
-                echo "   * @description Temporary method generated for delta scan." >> "$temp_file"
-                echo "   */" >> "$temp_file"
-                echo "  public static void tempMethod() {" >> "$temp_file"
-
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt; ((temp_line++))
-                # echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                # ((temp_line++))
-
-                has_real_code=false
-
-                while IFS= read -r row; do
-                  actual_line="${row%%$TAB*}"
-                  content="${row#*"$TAB"}"
-
-                  # ------------------------------
-                  # SAFE MINIMAL FILTER
-                  # ------------------------------
-
-                  trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-
-                  # Skip empty lines
-                  if [[ -z "$trimmed" ]]; then continue; fi
-
-                  # Skip comment-only lines
-                  if [[ "$trimmed" =~ ^// ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^/\* ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^\* ]]; then continue; fi
-                  if [[ "$trimmed" =~ ^\*/ ]]; then continue; fi
-
-                  # ------------------------------
-                  # BRACE TRACKING LOGIC
-                  # ------------------------------
-
-                  open_count=$(echo "$content" | grep -o '{' | wc -l || true)
-                  close_count=$(echo "$content" | grep -o '}' | wc -l || true)
-
-                  delta=$((open_count - close_count))
-
-                  # Prevent negative brace balance (orphan closing brace)
-                  if (( brace_balance + delta < 0 )); then
-                    continue
-                  fi
-
-                  brace_balance=$((brace_balance + delta))
-
-                  has_real_code=true
-
-                  # Write to temp file
-                  printf "    %s\n" "$content" >> "$temp_file"
-                  echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
-                  ((temp_line++))
-
-                done < lines.tmp
-
-                if [[ "$has_real_code" == false ]]; then
-                  echo "⚠️ Only comments detected in $file. Skipping wrapper generation."
-                  rm -f "$temp_file"
-                  continue
-                fi
-
-                # ------------------------------
-                # AUTO-CLOSE UNBALANCED BRACES
-                # ------------------------------
-
-                while (( brace_balance > 0 )); do
-                  echo "    }" >> "$temp_file"
-                  echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                  ((temp_line++))
-                  brace_balance=$((brace_balance - 1))
-                done
-
-                # Close tempMethod
-                echo "  }" >> "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                ((temp_line++))
-
-                # Close class
-                echo "}" >> "$temp_file"
-                echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-
-                echo "$temp_file" >> changed_cls_lwc_files.txt
-                echo "Created temp file: $temp_file"
-                ;;
-              *.js)
-                temp_file="temp_scanner_files/temp_${sanitized%.js}.js"
-                
-                # ✅ COPY THE FULL FILE INSTEAD OF CHOPPING IT
-                cp "$file" "$temp_file"
-
-                # ✅ MAP ONLY THE CHANGED LINES TO PREVENT LEGACY ERRORS
-                while IFS= read -r row; do
-                  actual_line="${row%%$TAB*}"
-                  content="${row#*"$TAB"}"
-                  
-                  if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
-                    echo "$temp_file,$actual_line,$actual_line" >> line_number_mapping.txt
-                  fi
-                done < lines.tmp
-
-                echo "$temp_file" >> changed_cls_lwc_files.txt
-                echo "Copied full file: $temp_file for ESLint analysis"
-                ;;
-                
-              *.html)
-                temp_file="temp_scanner_files/temp_${sanitized%.html}.html"
-                
-                # ✅ COPY THE FULL FILE INSTEAD OF CHOPPING IT
-                cp "$file" "$temp_file"
-
-                # ✅ MAP ONLY THE CHANGED LINES
-                while IFS= read -r row; do
-                  actual_line="${row%%$TAB*}"
-                  content="${row#*"$TAB"}"
-                  
-                  if [[ -n "$(echo "$content" | sed 's/[[:space:]]//g')" ]]; then
-                    echo "$temp_file,$actual_line,$actual_line" >> line_number_mapping.txt
-                  fi
-                done < lines.tmp
-
-                echo "$temp_file" >> changed_cls_lwc_files.txt
-                echo "Copied full file: $temp_file for ESLint analysis"
-                ;;
-
-            esac
+            ' >> line_number_mapping.txt || true
 
           done < changed_status.txt
-          echo "====== Generated files list ======"
-          if [[ -s changed_cls_lwc_files.txt ]]; then
-            cat changed_cls_lwc_files.txt
-          else
-            echo "No temp files created. Exiting."
-            exit 0
-          fi
+
+          echo "====== Generated files list to scan (Full Files) ======"
+          cat changed_cls_lwc_files.txt || true
           echo "====== line_number_mapping.txt (first 50) ======"
           head -n 50 line_number_mapping.txt || true
-      # ✅ NEW: Print temp wrapper class (content) so you can confirm what got scanned
-      - name: DEBUG – Print temp wrapper classes
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "==== temp_scanner_files listing ===="
-          ls -lah temp_scanner_files || true
-          echo "==== Print all temp .cls wrappers (with line numbers) ===="
-          shopt -s nullglob
-          for f in temp_scanner_files/*.cls; do
-            echo ""
-            echo "--------------------------------------------------"
-            echo "TEMP WRAPPER: $f"
-            echo "--------------------------------------------------"
-            nl -ba "$f" | sed -n '1,220p'
-          done
-          echo ""
-          echo "==== Grep for System.debug in temp wrappers ===="
-          grep -RIn --line-number "System\.debug" temp_scanner_files || echo "❌ No System.debug found in temp wrappers"
       # ------------------------------------------------------------
       # 3) Build lookup map (basename|tempLine=actualLine)
       # ------------------------------------------------------------
@@ -564,7 +359,7 @@ jobs:
             # ✅ 3) Python parser strips out engine boot failures
             if [[ -f tmp.csv && -s tmp.csv ]]; then
               isTemp=0
-              [[ "$file" == temp_scanner_files/* ]] && isTemp=1
+              isTemp=1 # Force Python delta filter mode for full file scan
               tempBase="$(basename "$file")"
               
               python3 -c "import textwrap, os; exec(textwrap.dedent(os.environ['PYTHON_SCRIPT']))" \
@@ -719,7 +514,7 @@ jobs:
             # ✅ 5) Execute the Python Parser to append real violations
             if [[ -f tmp_lwc.csv && -s tmp_lwc.csv ]]; then
               isTemp=0
-              [[ "$file" == temp_scanner_files/* ]] && isTemp=1
+              isTemp=1 # Force Python delta filter mode for full file scan
               tempBase="$(basename "$file")"
 
               python3 -c "import textwrap, os; exec(textwrap.dedent(os.environ['PYTHON_SCRIPT']))" \
