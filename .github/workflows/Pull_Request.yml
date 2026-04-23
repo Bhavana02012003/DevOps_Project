@@ -355,8 +355,8 @@ jobs:
               --rule-selector UnusedMethod \
               --rule-selector ApexDoc \
               --output-file tmp.csv \
-              --config-file code-analyzer.yml \
-            || echo "⚠️ Code Analyzer failed for $file (continuing to build report)"
+              --config-file code-analyzer.yml > sfca_apex_scan.log 2>&1 \
+            || echo "⚠️ Code Analyzer caught an engine/syntax issue for $file (suppressed from logs)."
             
             # ✅ 3) Python parser strips out engine boot failures
             if [[ -f tmp.csv && -s tmp.csv ]]; then

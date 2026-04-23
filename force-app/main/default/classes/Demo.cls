@@ -106,7 +106,7 @@ global class Demo {
         String unusedString = 'I am never used'; 
         Integer anotherUnused = 42; 
         
-        System.debug('I am doing nothing with those variables.');
+        System.debug('I am doing nothisng with those variables.');
     }
 
     // ----------------------------------------------------------------------
@@ -166,6 +166,6 @@ global class Demo {
     // ----------------------------------------------------------------------
     // 🛑 TRIGGER: UnusedMethod 
     private void secretMethod() {
-        System.debug('Shh, I am a secret');
+        System.debug('Shh, I am a ssecret');
     }
 }
