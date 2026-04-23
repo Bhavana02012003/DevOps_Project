@@ -210,7 +210,8 @@ jobs:
                 method_buffer=""
                 annotation_buffer=""
 
-                skip_method_lines=false   # 🚨 CRITICAL FLAG
+                # 🚨 Track processed methods
+                declare -A processed_methods
 
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
@@ -241,12 +242,19 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # 🚨 METHOD DETECTED → EXTRACT FULL METHOD
+                  # 🚨 METHOD DETECTION (MULTI SUPPORT)
                   # ------------------------------------------------
-                  if [[ "$skip_method_lines" == false ]] && echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
-                    
+                  if echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
+
+                    method_signature="$trimmed"
+
+                    # 🚨 Avoid duplicate extraction
+                    if [[ -n "${processed_methods[$method_signature]}" ]]; then
+                      continue
+                    fi
+
+                    processed_methods[$method_signature]=1
                     has_real_code=true
-                    skip_method_lines=true   # 🚨 STOP further delta processing
 
                     # Attach annotations
                     method_buffer+="  $annotation_buffer"
@@ -282,14 +290,7 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # 🚨 SKIP leftover method lines
-                  # ------------------------------------------------
-                  if [[ "$skip_method_lines" == true ]]; then
-                    continue
-                  fi
-
-                  # ------------------------------------------------
-                  # NORMAL DELTA LINES
+                  # NORMAL DELTA LINES (SAFE)
                   # ------------------------------------------------
                   open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
                   close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
@@ -328,7 +329,7 @@ jobs:
                   ((temp_line++))
                 fi
 
-                # Add full method
+                # Add all extracted methods
                 if [[ -n "$method_buffer" ]]; then
                   printf "%s" "$method_buffer" >> "$temp_file"
                 fi
