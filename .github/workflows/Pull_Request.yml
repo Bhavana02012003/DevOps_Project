@@ -254,7 +254,7 @@ jobs:
 
                     # 🔥 READ FULL METHOD FROM ORIGINAL FILE
                     brace_count=0
-                    started=false
+                    started="false"
 
                     while IFS= read -r line; do
 
@@ -275,7 +275,7 @@ jobs:
 
                       brace_count=$((brace_count + open_count - close_count))
 
-                      if (( brace_count == 0 && started == true )); then
+                      if [[ $brace_count -eq 0 && "$started" == "true" ]]; then
                         break
                       fi
 
