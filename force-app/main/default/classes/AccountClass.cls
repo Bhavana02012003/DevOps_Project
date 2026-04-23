@@ -73,4 +73,19 @@ public with sharing class AccountClass {
             }
         }
     }
+    @AuraEnabled(cacheable=true)
+    public static Account getAccountById(Id accountId) {
+        try {
+            return [
+                SELECT Id, Name, Phone, Type, Rating, BillingCity, BillingState, CustomerPriority__c
+                FROM Account
+                WHERE Id = :accountId
+                WITH SECURITY_ENFORCED
+                LIMIT 1
+            ];
+        } catch (Exception ex) {
+            System.debug('❌ Error retrieving account: ' + ex.getMessage());
+            throw new AuraHandledException('Error retrieving account: ' + ex.getMessage());
+        }
+    }
 }
