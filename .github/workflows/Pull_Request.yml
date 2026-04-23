@@ -201,6 +201,9 @@ jobs:
                 brace_balance=0
                 has_real_code=false
 
+                # --------------------------------
+                # Mapping for wrapper header
+                # --------------------------------
                 for i in {1..5}; do
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
                   ((temp_line++))
@@ -213,7 +216,8 @@ jobs:
                 declare -A processed_methods
                 processed_methods=()
 
-                current_method=""   # 🚨 TRACK ACTIVE METHOD
+                current_method=""
+                in_comment_block=false   # 🚨 FINAL FIX
 
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
@@ -226,19 +230,36 @@ jobs:
 
                   [[ -z "$trimmed" ]] && continue
 
-                  # Skip comments
-                  [[ "$trimmed" =~ ^// ]] && continue
-                  [[ "$trimmed" =~ ^/\* ]] && continue
-                  [[ "$trimmed" =~ ^\* ]] && continue
-                  [[ "$trimmed" =~ ^\*/ ]] && continue
+                  # ------------------------------------------------
+                  # 🚨 FULL COMMENT BLOCK HANDLING (CRITICAL FIX)
+                  # ------------------------------------------------
 
-                  # Handle annotations
+                  # Start of comment block
+                  if [[ "$trimmed" == *"/*"* ]]; then
+                    in_comment_block=true
+                  fi
+
+                  # If inside comment block → skip everything
+                  if [[ "$in_comment_block" == true ]]; then
+                    # End of comment block
+                    if [[ "$trimmed" == *"*/"* ]]; then
+                      in_comment_block=false
+                    fi
+                    continue
+                  fi
+
+                  # Skip single-line comments
+                  [[ "$trimmed" =~ ^// ]] && continue
+
+                  # ------------------------------------------------
+                  # ANNOTATIONS
+                  # ------------------------------------------------
                   if [[ "$trimmed" =~ ^@ ]]; then
                     annotation_buffer+="$content"$'\n'
                     continue
                   fi
 
-                  # Skip non-code
+                  # Skip non-code lines
                   if ! echo "$trimmed" | grep -Eq '[(){}=.]'; then
                     continue
                   fi
@@ -250,7 +271,6 @@ jobs:
 
                     method_signature="$trimmed"
 
-                    # 🚨 Reset skip (new method)
                     current_method="$method_signature"
 
                     if [[ -n "${processed_methods[$method_signature]+x}" ]]; then
@@ -264,7 +284,9 @@ jobs:
                     method_buffer+="  $annotation_buffer"
                     annotation_buffer=""
 
-                    # 🔥 Extract FULL method from file
+                    # --------------------------------
+                    # Extract FULL method from file
+                    # --------------------------------
                     brace_count=0
                     started="false"
 
@@ -295,7 +317,7 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # 🚨 SKIP ALL LINES BELONGING TO A METHOD
+                  # 🚨 SKIP METHOD INTERNAL LINES
                   # ------------------------------------------------
                   if [[ -n "$current_method" ]]; then
                     continue
@@ -328,7 +350,9 @@ jobs:
                   continue
                 fi
 
+                # --------------------------------
                 # Build tempMethod
+                # --------------------------------
                 if [[ -n "$temp_method_buffer" ]]; then
                   echo "  public static void tempMethod() {" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
@@ -341,12 +365,16 @@ jobs:
                   ((temp_line++))
                 fi
 
+                # --------------------------------
                 # Add extracted methods
+                # --------------------------------
                 if [[ -n "$method_buffer" ]]; then
                   printf "%s" "$method_buffer" >> "$temp_file"
                 fi
 
+                # --------------------------------
                 # Close class
+                # --------------------------------
                 echo "}" >> "$temp_file"
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
 
