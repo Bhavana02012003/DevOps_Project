@@ -201,9 +201,12 @@ jobs:
                 brace_balance=0
                 has_real_code=false
 
+                # SAFE increment function
+                inc() { eval "$1=\$((\${$1:-0} + 1))"; }
+
                 for i in {1..5}; do
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                  ((temp_line++))
+                  inc temp_line
                 done
 
                 temp_method_buffer=""
@@ -211,7 +214,8 @@ jobs:
                 annotation_buffer=""
 
                 declare -A processed_methods
-                processed_methods=()
+                unset processed_methods
+                declare -A processed_methods
 
                 extracted_ranges=""
                 in_comment_block=false
@@ -229,38 +233,29 @@ jobs:
 
                   [[ -z "$trimmed" ]] && continue
 
-                  # -------------------------------
-                  # COMMENT BLOCK HANDLING
-                  # -------------------------------
+                  # COMMENT HANDLING
                   if [[ "$trimmed" == *"/*"* ]]; then
                     in_comment_block=true
                   fi
 
                   if [[ "$in_comment_block" == true ]]; then
-                    if [[ "$trimmed" == *"*/"* ]]; then
-                      in_comment_block=false
-                    fi
+                    [[ "$trimmed" == *"*/"* ]] && in_comment_block=false
                     continue
                   fi
 
                   [[ "$trimmed" =~ ^// ]] && continue
 
-                  # -------------------------------
-                  # ANNOTATIONS
-                  # -------------------------------
+                  # ANNOTATION
                   if [[ "$trimmed" =~ ^@ ]]; then
                     annotation_buffer+="$content"$'\n'
                     continue
                   fi
 
-                  # Skip non-code
                   if ! echo "$trimmed" | grep -Eq '[(){}=.]'; then
                     continue
                   fi
 
-                  # -------------------------------
                   # METHOD DETECTION
-                  # -------------------------------
                   if echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
 
                     method_signature="$trimmed"
@@ -276,26 +271,19 @@ jobs:
                     annotation_buffer=""
 
                     brace_count=0
-                    started="false"
-                    method_start_line=0
-                    method_end_line=0
+                    started=false
                     file_line_no=0
 
                     while IFS= read -r line || [[ -n "$line" ]]; do
-                      ((file_line_no++))
+                      inc file_line_no
 
-                      if [[ "$started" == "false" ]]; then
-                        if [[ "$line" == *"$content"* ]]; then
-                          started="true"
-                          method_start_line=$file_line_no
-                        else
-                          continue
-                        fi
+                      if [[ "$started" == false ]]; then
+                        [[ "$line" == *"$content"* ]] && started=true || continue
                       fi
 
                       method_buffer+="  $line"$'\n'
 
-                      # Keep debug detection reliable inside tempMethod
+                      # DEBUG DETECTION
                       if echo "$line" | grep -q "System\.debug"; then
                         temp_method_buffer+="    $line"$'\n'
                       fi
@@ -305,45 +293,16 @@ jobs:
 
                       brace_count=$((brace_count + open_count - close_count))
 
-                      if [[ $brace_count -eq 0 && "$started" == "true" ]]; then
-                        method_end_line=$file_line_no
+                      if [[ $brace_count -eq 0 && "$started" == true ]]; then
                         break
                       fi
 
                     done < "$file"
 
-                    if [[ "$method_start_line" -gt 0 && "$method_end_line" -ge "$method_start_line" ]]; then
-                      extracted_ranges+="${method_start_line}:${method_end_line}"$'\n'
-                    fi
-
                     continue
                   fi
 
-                  # -------------------------------
-                  # SKIP DELTA LINES THAT BELONG TO EXTRACTED FULL METHODS
-                  # -------------------------------
-                  skip_this_line=false
-
-                  while IFS= read -r range; do
-                    [[ -z "$range" ]] && continue
-
-                    range_start="${range%%:*}"
-                    range_end="${range##*:}"
-
-                    if [[ "$actual_line" -ge "$range_start" && "$actual_line" -le "$range_end" ]]; then
-                      skip_this_line=true
-                      break
-                    fi
-                  done <<< "$extracted_ranges"
-
-                  if [[ "$skip_this_line" == true ]]; then
-                    continue
-                  fi
-
-                  # -------------------------------
-                  # SAFE ORPHAN BLOCK HANDLING
-                  # -------------------------------
-                  # Fix standalone else/catch by adding required parent block first
+                  # SAFE ORPHAN FIX
                   if echo "$trimmed" | grep -Eq '^else\b'; then
                     temp_method_buffer+="    if (true) {"$'\n'
                     temp_method_buffer+="    }"$'\n'
@@ -354,9 +313,6 @@ jobs:
                     temp_method_buffer+="    }"$'\n'
                   fi
 
-                  # -------------------------------
-                  # NORMAL DELTA LINE WITH SAFE BRACE COUNT
-                  # -------------------------------
                   open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
                   close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
 
@@ -370,7 +326,7 @@ jobs:
 
                   temp_method_buffer+="    $content"$'\n'
                   echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
-                  ((temp_line++))
+                  inc temp_line
 
                   has_real_code=true
 
@@ -381,41 +337,29 @@ jobs:
                   continue
                 fi
 
-                # -------------------------------
-                # AUTO CLOSE OPEN BLOCKS
-                # -------------------------------
                 while (( brace_balance > 0 )); do
                   temp_method_buffer+="    }"$'\n'
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                  ((temp_line++))
+                  inc temp_line
                   ((brace_balance--))
                 done
 
-                # -------------------------------
-                # Build tempMethod
-                # -------------------------------
                 if [[ -n "$temp_method_buffer" ]]; then
                   echo "  public static void tempMethod() {" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                  ((temp_line++))
+                  inc temp_line
 
                   printf "%s" "$temp_method_buffer" >> "$temp_file"
 
                   echo "  }" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                  ((temp_line++))
+                  inc temp_line
                 fi
 
-                # -------------------------------
-                # Add extracted methods
-                # -------------------------------
                 if [[ -n "$method_buffer" ]]; then
                   printf "%s" "$method_buffer" >> "$temp_file"
                 fi
 
-                # -------------------------------
-                # Close class
-                # -------------------------------
                 echo "}" >> "$temp_file"
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
 
