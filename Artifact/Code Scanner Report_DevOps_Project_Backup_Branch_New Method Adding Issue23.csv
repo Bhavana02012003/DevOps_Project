@@ -1,0 +1,2 @@
+rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch
+"ApexDoc","pmd","5",,"temp_scanner_files/temp_force-app_main_default_classes_AccountClass.cls",6,0,6,0,"Missing ApexDoc comment",,"Bhavana02012003","Bhavana02012003",0,"Backup_Branch"
