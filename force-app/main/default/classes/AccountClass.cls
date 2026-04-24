@@ -73,36 +73,4 @@ public with sharing class AccountClass {
             }
         }
     }
-    /**
-     * @description Fetches a list of the most recently created Accounts.
-     * Use Case: Populate a "Recent Accounts" table in a Lightning Component.
-     */
-    @AuraEnabled(cacheable=true)
-    public static List<Account> getRecentAccounts(Integer limitSize) {
-        try {
-            return [
-                SELECT Id, Name, Phone, Type, Rating, CreatedDate 
-                FROM Account 
-                WITH SECURITY_ENFORCED 
-                ORDER BY CreatedDate DESC 
-                LIMIT :limitSize
-            ];
-        } catch (Exception e) {
-            throw new AuraHandledException('Error fetching accounts: ' + e.getMessage());
-        }
-    }
-
-    /**
-     * @description Updates the description of a specific Account.
-     * Use Case: Quick-update functionality from a custom UI.
-     */
-    @AuraEnabled
-    public static void updateAccountDescription(Id accountId, String description) {
-        try {
-            Account acc = new Account(Id = accountId, Description = description);
-            update acc;
-        } catch (Exception e) {
-            throw new AuraHandledException('Update failed: ' + e.getMessage());
-        }
-    }
 }
