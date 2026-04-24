@@ -217,7 +217,7 @@ jobs:
                 processed_methods=()
 
                 current_method=""
-                in_comment_block=false   # 🚨 FINAL FIX
+                in_comment_block=false
 
                 while IFS= read -r row || [[ -n "$row" ]]; do
 
@@ -230,47 +230,41 @@ jobs:
 
                   [[ -z "$trimmed" ]] && continue
 
-                  # ------------------------------------------------
-                  # 🚨 FULL COMMENT BLOCK HANDLING (CRITICAL FIX)
-                  # ------------------------------------------------
-
-                  # Start of comment block
+                  # -------------------------------
+                  # COMMENT BLOCK HANDLING
+                  # -------------------------------
                   if [[ "$trimmed" == *"/*"* ]]; then
                     in_comment_block=true
                   fi
 
-                  # If inside comment block → skip everything
                   if [[ "$in_comment_block" == true ]]; then
-                    # End of comment block
                     if [[ "$trimmed" == *"*/"* ]]; then
                       in_comment_block=false
                     fi
                     continue
                   fi
 
-                  # Skip single-line comments
                   [[ "$trimmed" =~ ^// ]] && continue
 
-                  # ------------------------------------------------
+                  # -------------------------------
                   # ANNOTATIONS
-                  # ------------------------------------------------
+                  # -------------------------------
                   if [[ "$trimmed" =~ ^@ ]]; then
                     annotation_buffer+="$content"$'\n'
                     continue
                   fi
 
-                  # Skip non-code lines
+                  # Skip non-code
                   if ! echo "$trimmed" | grep -Eq '[(){}=.]'; then
                     continue
                   fi
 
-                  # ------------------------------------------------
-                  # 🚨 METHOD DETECTION
-                  # ------------------------------------------------
+                  # -------------------------------
+                  # METHOD DETECTION
+                  # -------------------------------
                   if echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
 
                     method_signature="$trimmed"
-
                     current_method="$method_signature"
 
                     if [[ -n "${processed_methods[$method_signature]+x}" ]]; then
@@ -280,13 +274,9 @@ jobs:
                     processed_methods[$method_signature]=1
                     has_real_code=true
 
-                    # Attach annotations
                     method_buffer+="  $annotation_buffer"
                     annotation_buffer=""
 
-                    # --------------------------------
-                    # Extract FULL method from file
-                    # --------------------------------
                     brace_count=0
                     started="false"
 
@@ -302,7 +292,7 @@ jobs:
 
                       method_buffer+="  $line"$'\n'
 
-                      # 🚨 ADD THIS BLOCK (IMPORTANT FIX)
+                      # keep debug detection
                       if echo "$line" | grep -q "System\.debug"; then
                         temp_method_buffer+="    $line"$'\n'
                       fi
@@ -321,39 +311,18 @@ jobs:
                     continue
                   fi
 
-                  # ------------------------------------------------
-                  # 🚨 SKIP METHOD INTERNAL LINES
-                  # ------------------------------------------------
+                  # -------------------------------
+                  # SKIP METHOD INTERNAL DELTA
+                  # -------------------------------
                   if [[ -n "$current_method" ]]; then
                     continue
                   fi
 
-                  # ------------------------------------------------
-                  # 🚨 SMART BLOCK HANDLING (FINAL FIX)
-                  # ------------------------------------------------
-
-                  if echo "$trimmed" | grep -Eq '^(if|for|while|try|catch|else)\b'; then
-
-                    # If block is incomplete → convert to safe statement
-                    if ! echo "$trimmed" | grep -q '{.*}'; then
-                      temp_method_buffer+="    // Skipped unsafe block: $content"$'\n'
-                      continue
-                    fi
-
-                    # If it has { but no closing → auto-close
-                    if echo "$trimmed" | grep -q '{' && ! echo "$trimmed" | grep -q '}'; then
-                      temp_method_buffer+="    $content"$'\n'
-                      temp_method_buffer+="    }"$'\n'
-                      continue
-                    fi
-                  fi
-
-                  # ------------------------------------------------
-                  # NORMAL DELTA LINES (SAFE)
-                  # ------------------------------------------------
-
-                  open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
-                  close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
+                  # -------------------------------
+                  # AUTO BLOCK BALANCING (FINAL FIX)
+                  # -------------------------------
+                  open_count=$(echo "$content" | grep -o '{' | wc -l | tr -d ' ')
+                  close_count=$(echo "$content" | grep -o '}' | wc -l | tr -d ' ')
 
                   delta=$((open_count - close_count))
 
@@ -375,6 +344,14 @@ jobs:
                   rm -f "$temp_file"
                   continue
                 fi
+
+                # --------------------------------
+                # AUTO CLOSE OPEN BLOCKS
+                # --------------------------------
+                while (( brace_balance > 0 )); do
+                  temp_method_buffer+="    }"$'\n'
+                  ((brace_balance--))
+                done
 
                 # --------------------------------
                 # Build tempMethod
