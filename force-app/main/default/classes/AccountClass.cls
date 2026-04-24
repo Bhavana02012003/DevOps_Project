@@ -106,7 +106,7 @@ public with sharing class AccountClass {
             update acc;
             System.debug('✅ Update successful for Account ID: ' + accountId);
         } catch (Exception e) {
-            System.debug('❌ Update failed for Account ID ' + accountId + '. Error: ' + e.getMessage());
+            System.debug('❌ Update failed for Account ID ' + accountId + '. Error:: ' + e.getMessage());
             throw new AuraHandledException('Update failed: ' + e.getMessage());
         }
     }
