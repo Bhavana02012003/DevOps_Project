@@ -302,6 +302,11 @@ jobs:
 
                       method_buffer+="  $line"$'\n'
 
+                      # 🚨 ADD THIS BLOCK (IMPORTANT FIX)
+                      if echo "$line" | grep -q "System\.debug"; then
+                        temp_method_buffer+="    $line"$'\n'
+                      fi
+
                       open_count=$(awk -v a="$line" 'BEGIN{print gsub(/{/,"",a)}')
                       close_count=$(awk -v a="$line" 'BEGIN{print gsub(/}/,"",a)}')
 
