@@ -64,36 +64,13 @@ public with sharing class AccountClass {
                 throw new AuraHandledException(
                     'Duplicate account name detected.'
                 );
-                System.debug('❌ Duplicate account name: ' + Name);
+                System.debug('❌ Duplicate account name:: ' + Name);
             } else {
                 throw new AuraHandledException(
                     'Account creation failed: ' + ex.getMessage()
                 );
                 System.debug('❌ Account creation error: ' + ex.getMessage());
             }
-        }
-    }
-    @AuraEnabled(cacheable=true)
-    public static List<Account> getRecentAccounts(Integer limitSize) {
-        try {
-            return [
-                SELECT Id, Name, Phone, Type, Rating, CreatedDate 
-                FROM Account 
-                WITH SECURITY_ENFORCED 
-                ORDER BY CreatedDate DESC 
-                LIMIT :limitSize
-            ];
-        } catch (Exception e) {
-            throw new AuraHandledException('Error fetching accounts: ' + e.getMessage());
-        }
-    }
-    @AuraEnabled
-    public static void updateAccountDescription(Id accountId, String description) {
-        try {
-            Account acc = new Account(Id = accountId, Description = description);
-            update acc;
-        } catch (Exception e) {
-            throw new AuraHandledException('Update failed: ' + e.getMessage());
         }
     }
 }
