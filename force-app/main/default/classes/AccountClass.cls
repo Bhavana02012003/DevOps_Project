@@ -73,41 +73,4 @@ public with sharing class AccountClass {
             }
         }
     }
-    /**
-     * @description Fetches a list of the most recently created Accounts.
-     */
-    @AuraEnabled(cacheable=true)
-    public static List<Account> getRecentAccounts(Integer limitSize) {
-        System.debug('🔍 Fetching recent accounts with limit: ' + limitSize);
-        try {
-            List<Account> accountList = [
-                SELECT Id, Name, Phone, Type, Rating, CreatedDate 
-                FROM Account 
-                WITH SECURITY_ENFORCED 
-                ORDER BY CreatedDate DESC 
-                LIMIT :limitSize
-            ];
-            System.debug('📊 Successfully retrieved ' + accountList.size() + ' accounts.');
-            return accountList;
-        } catch (Exception e) {
-            System.debug('❌ Error in getRecentAccounts: ' + e.getMessage());
-            throw new AuraHandledException('Error fetching accounts: ' + e.getMessage());
-        }
-    }
-
-    /**
-     * @description Updates the description of a specific Account.
-     */
-    @AuraEnabled
-    public static void updateAccountDescription(Id accountId, String description) {
-        System.debug('🛠 Updating Description for Account ID: ' + accountId);
-        try {
-            Account acc = new Account(Id = accountId, Description = description);
-            update acc;
-            System.debug('✅ Update successful for Account ID: ' + accountId);
-        } catch (Exception e) {
-            System.debug('❌ Update failed for Account ID ' + accountId + '. Error:: ' + e.getMessage());
-            throw new AuraHandledException('Update failed: ' + e.getMessage());
-        }
-    }
 }
