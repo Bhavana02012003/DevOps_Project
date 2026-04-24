@@ -329,8 +329,19 @@ jobs:
                   fi
 
                   # ------------------------------------------------
+                  # 🚨 BLOCK SAFETY FILTER (FINAL FIX)
+                  # ------------------------------------------------
+
+                  if echo "$trimmed" | grep -Eq '^(if|for|while|try|catch|else)\b'; then
+                    if ! echo "$trimmed" | grep -q '{.*}'; then
+                      continue
+                    fi
+                  fi
+
+                  # ------------------------------------------------
                   # NORMAL DELTA LINES (SAFE)
                   # ------------------------------------------------
+
                   open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
                   close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
 
