@@ -329,11 +329,21 @@ jobs:
                   fi
 
                   # ------------------------------------------------
-                  # 🚨 BLOCK SAFETY FILTER (FINAL FIX)
+                  # 🚨 SMART BLOCK HANDLING (FINAL FIX)
                   # ------------------------------------------------
 
                   if echo "$trimmed" | grep -Eq '^(if|for|while|try|catch|else)\b'; then
+
+                    # If block is incomplete → convert to safe statement
                     if ! echo "$trimmed" | grep -q '{.*}'; then
+                      temp_method_buffer+="    // Skipped unsafe block: $content"$'\n'
+                      continue
+                    fi
+
+                    # If it has { but no closing → auto-close
+                    if echo "$trimmed" | grep -q '{' && ! echo "$trimmed" | grep -q '}'; then
+                      temp_method_buffer+="    $content"$'\n'
+                      temp_method_buffer+="    }"$'\n'
                       continue
                     fi
                   fi
