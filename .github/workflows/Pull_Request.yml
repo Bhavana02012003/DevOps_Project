@@ -118,13 +118,10 @@ jobs:
         id: get-changes
         run: |
           set -euo pipefail
-
           mkdir -p temp_scanner_files
           : > changed_cls_lwc_files.txt
           : > line_number_mapping.txt
-
           echo "Checking for changed .cls, .js, .html files..."
-
           if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.base_ref }}" ]]; then
             RANGE="origin/${{ github.base_ref }}...${{ github.sha }}"
             echo "Using PR diff: $RANGE"
@@ -133,26 +130,18 @@ jobs:
             RANGE="HEAD~1..HEAD"
             echo "Using fallback diff: $RANGE"
           fi
-
           # ✅ IMPORTANT: Get file status (A, M, D)
           git diff --name-status "$RANGE" -- '*.cls' '*.js' '*.html' > changed_status.txt || true
-
           if [[ ! -s changed_status.txt ]]; then
             echo "No .cls/.js/.html files detected."
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > scanner-report.csv
             exit 0
           fi
-
           TAB=$(printf '\t')
-
           while read -r status file; do
-
             [[ -f "$file" ]] || { echo "Skipping deleted file: $file"; continue; }
-
             echo "Processing file: $file (Status: $status)"
-
             sanitized="${file//\//_}"
-
             # =====================================================
             # ✅ IF NEW APEX CLASS → SCAN FULL FILE DIRECTLY
             # =====================================================
@@ -161,11 +150,9 @@ jobs:
               echo "$file" >> changed_cls_lwc_files.txt
               continue
             fi
-
             # =====================================================
             # 🔁 FOR MODIFIED FILES → USE EXISTING DELTA LOGIC
             # =====================================================
-
             git diff -U0 "$RANGE" -- "$file" | awk '
               /^@@/ {
                 line = $0
@@ -181,188 +168,157 @@ jobs:
                 next
               }
             ' > lines.tmp || true
-
             if [[ ! -s lines.tmp ]]; then
               echo "No added lines found for $file (possibly only deletions). Skipping..."
               continue
             fi
-
             case "$file" in
             *.cls)
-
                 temp_file="temp_scanner_files/temp_${sanitized%.cls}.cls"
-
                 echo "/**" > "$temp_file"
                 echo " * @description Temporary wrapper class generated for delta scan." >> "$temp_file"
                 echo " */" >> "$temp_file"
                 echo "public with sharing class TempWrapper_${sanitized//[^A-Za-z0-9_]/_} {" >> "$temp_file"
-
                 temp_line=1
                 brace_balance=0
                 has_real_code=false
-
-                # SAFE increment function
-                inc() { eval "$1=\$((\${$1:-0} + 1))"; }
-
+                # --------------------------------
+                # Mapping for wrapper header
+                # --------------------------------
                 for i in {1..5}; do
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                  inc temp_line
+                  ((temp_line++))
                 done
-
                 temp_method_buffer=""
                 method_buffer=""
                 annotation_buffer=""
-
                 declare -A processed_methods
-                unset processed_methods
-                declare -A processed_methods
-
-                extracted_ranges=""
-                in_comment_block=false
-
+                processed_methods=()
+                current_method=""
+                in_comment_block=false   # 🚨 FINAL FIX
                 while IFS= read -r row || [[ -n "$row" ]]; do
-
                   [[ "$row" != *$TAB* ]] && continue
-
                   actual_line="${row%%$TAB*}"
                   content="${row#*"$TAB"}"
-
-                  [[ ! "$actual_line" =~ ^[0-9]+$ ]] && continue
-
                   trimmed="$(echo "$content" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-
                   [[ -z "$trimmed" ]] && continue
-
-                  # COMMENT HANDLING
+                  # ------------------------------------------------
+                  # 🚨 FULL COMMENT BLOCK HANDLING (CRITICAL FIX)
+                  # ------------------------------------------------
+                  # Start of comment block
                   if [[ "$trimmed" == *"/*"* ]]; then
                     in_comment_block=true
                   fi
-
+                  # If inside comment block → skip everything
                   if [[ "$in_comment_block" == true ]]; then
-                    [[ "$trimmed" == *"*/"* ]] && in_comment_block=false
+                    # End of comment block
+                    if [[ "$trimmed" == *"*/"* ]]; then
+                      in_comment_block=false
+                    fi
                     continue
                   fi
-
+                  # Skip single-line comments
                   [[ "$trimmed" =~ ^// ]] && continue
-
-                  # ANNOTATION
+                  # ------------------------------------------------
+                  # ANNOTATIONS
+                  # ------------------------------------------------
                   if [[ "$trimmed" =~ ^@ ]]; then
                     annotation_buffer+="$content"$'\n'
                     continue
                   fi
-
+                  # Skip non-code lines
                   if ! echo "$trimmed" | grep -Eq '[(){}=.]'; then
                     continue
                   fi
-
-                  # METHOD DETECTION
+                  # ------------------------------------------------
+                  # 🚨 METHOD DETECTION
+                  # ------------------------------------------------
                   if echo "$trimmed" | grep -Eq '^(public|private|protected|global)[[:space:]]+(static[[:space:]]+)?'; then
-
                     method_signature="$trimmed"
-
+                    current_method="$method_signature"
                     if [[ -n "${processed_methods[$method_signature]+x}" ]]; then
                       continue
                     fi
-
                     processed_methods[$method_signature]=1
                     has_real_code=true
-
+                    # Attach annotations
                     method_buffer+="  $annotation_buffer"
                     annotation_buffer=""
-
+                    # --------------------------------
+                    # Extract FULL method from file
+                    # --------------------------------
                     brace_count=0
-                    started=false
-                    file_line_no=0
-
-                    while IFS= read -r line || [[ -n "$line" ]]; do
-                      inc file_line_no
-
-                      if [[ "$started" == false ]]; then
-                        [[ "$line" == *"$content"* ]] && started=true || continue
+                    started="false"
+                    while IFS= read -r line; do
+                      if [[ "$started" == "false" ]]; then
+                        if [[ "$line" == *"$content"* ]]; then
+                          started="true"
+                        else
+                          continue
+                        fi
                       fi
-
                       method_buffer+="  $line"$'\n'
-
-                      # DEBUG DETECTION
+                      # 🚨 ADD THIS BLOCK (IMPORTANT FIX)
                       if echo "$line" | grep -q "System\.debug"; then
                         temp_method_buffer+="    $line"$'\n'
                       fi
-
                       open_count=$(awk -v a="$line" 'BEGIN{print gsub(/{/,"",a)}')
                       close_count=$(awk -v a="$line" 'BEGIN{print gsub(/}/,"",a)}')
-
                       brace_count=$((brace_count + open_count - close_count))
-
-                      if [[ $brace_count -eq 0 && "$started" == true ]]; then
+                      if [[ $brace_count -eq 0 && "$started" == "true" ]]; then
                         break
                       fi
-
                     done < "$file"
-
                     continue
                   fi
-
-                  # SAFE ORPHAN FIX
-                  if echo "$trimmed" | grep -Eq '^else\b'; then
-                    temp_method_buffer+="    if (true) {"$'\n'
-                    temp_method_buffer+="    }"$'\n'
+                  # ------------------------------------------------
+                  # 🚨 SKIP METHOD INTERNAL LINES
+                  # ------------------------------------------------
+                  if [[ -n "$current_method" ]]; then
+                    continue
                   fi
-
-                  if echo "$trimmed" | grep -Eq '^catch[[:space:]]*\('; then
-                    temp_method_buffer+="    try {"$'\n'
-                    temp_method_buffer+="    }"$'\n'
-                  fi
-
+                  # ------------------------------------------------
+                  # NORMAL DELTA LINES (SAFE)
+                  # ------------------------------------------------
                   open_count=$(awk -v a="$content" 'BEGIN{print gsub(/{/,"",a)}')
                   close_count=$(awk -v a="$content" 'BEGIN{print gsub(/}/,"",a)}')
-
                   delta=$((open_count - close_count))
-
                   if (( brace_balance + delta < 0 )); then
                     continue
                   fi
-
                   brace_balance=$((brace_balance + delta))
-
                   temp_method_buffer+="    $content"$'\n'
                   echo "$temp_file,$temp_line,$actual_line" >> line_number_mapping.txt
-                  inc temp_line
-
+                  ((temp_line++))
                   has_real_code=true
-
                 done < lines.tmp
-
                 if [[ "$has_real_code" == false ]]; then
                   rm -f "$temp_file"
                   continue
                 fi
-
-                while (( brace_balance > 0 )); do
-                  temp_method_buffer+="    }"$'\n'
-                  echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                  inc temp_line
-                  ((brace_balance--))
-                done
-
+                # --------------------------------
+                # Build tempMethod
+                # --------------------------------
                 if [[ -n "$temp_method_buffer" ]]; then
                   echo "  public static void tempMethod() {" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                  inc temp_line
-
+                  ((temp_line++))
                   printf "%s" "$temp_method_buffer" >> "$temp_file"
-
                   echo "  }" >> "$temp_file"
                   echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-                  inc temp_line
+                  ((temp_line++))
                 fi
-
+                # --------------------------------
+                # Add extracted methods
+                # --------------------------------
                 if [[ -n "$method_buffer" ]]; then
                   printf "%s" "$method_buffer" >> "$temp_file"
                 fi
-
+                # --------------------------------
+                # Close class
+                # --------------------------------
                 echo "}" >> "$temp_file"
                 echo "$temp_file,$temp_line,0" >> line_number_mapping.txt
-
                 echo "$temp_file" >> changed_cls_lwc_files.txt
                 echo "Created temp file: $temp_file"
                 ;;
@@ -371,7 +327,6 @@ jobs:
                 
                 # ✅ COPY THE FULL FILE INSTEAD OF CHOPPING IT
                 cp "$file" "$temp_file"
-
                 # ✅ MAP ONLY THE CHANGED LINES TO PREVENT LEGACY ERRORS
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
@@ -381,7 +336,6 @@ jobs:
                     echo "$temp_file,$actual_line,$actual_line" >> line_number_mapping.txt
                   fi
                 done < lines.tmp
-
                 echo "$temp_file" >> changed_cls_lwc_files.txt
                 echo "Copied full file: $temp_file for ESLint analysis"
                 ;;
@@ -391,7 +345,6 @@ jobs:
                 
                 # ✅ COPY THE FULL FILE INSTEAD OF CHOPPING IT
                 cp "$file" "$temp_file"
-
                 # ✅ MAP ONLY THE CHANGED LINES
                 while IFS= read -r row; do
                   actual_line="${row%%$TAB*}"
@@ -401,13 +354,10 @@ jobs:
                     echo "$temp_file,$actual_line,$actual_line" >> line_number_mapping.txt
                   fi
                 done < lines.tmp
-
                 echo "$temp_file" >> changed_cls_lwc_files.txt
                 echo "Copied full file: $temp_file for ESLint analysis"
                 ;;
-
             esac
-
           done < changed_status.txt
           echo "====== Generated files list ======"
           if [[ -s changed_cls_lwc_files.txt ]]; then
@@ -532,7 +482,6 @@ jobs:
               print(f'Error parsing CSV: {e}', file=sys.stderr)
           PYEOF
           )
-
           # Load lookup into memory
           if [[ ! -f actual_line_lookup.env ]]; then
             touch actual_line_lookup.env
@@ -686,7 +635,6 @@ jobs:
             }
           }
           EOF
-
           # ✅ 2) Point the SFCA config to the newly generated legacy file and disable base configs
           echo "engines:" > custom-eslint-config.yml
           echo "  eslint:" >> custom-eslint-config.yml
@@ -695,7 +643,6 @@ jobs:
           echo "    disable_javascript_base_config: true" >> custom-eslint-config.yml
           echo "    disable_lwc_base_config: true" >> custom-eslint-config.yml
           echo "    disable_typescript_base_config: true" >> custom-eslint-config.yml
-
           # ✅ 3) Define the Python CSV Parser with Dynamic Header Matching
           export PYTHON_SCRIPT=$(cat << 'PYEOF'
           import csv, sys, os
@@ -742,33 +689,25 @@ jobs:
               print(f'Error parsing CSV: {e}', file=sys.stderr)
           PYEOF
           )
-
           # Ensure lookup file exists
           if [[ ! -f actual_line_lookup.env ]]; then
             touch actual_line_lookup.env
           fi
-
           echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
-
           if [[ ! -s files_to_scan.txt ]]; then
             echo "✅ Nothing to scan for LWC. Empty lwc report created."
             exit 0
           fi
-
           while read -r file; do
             [[ -z "$file" ]] && continue
-
             if [[ "$file" != *.js && "$file" != *.html ]]; then
               continue
             fi
-
             if [[ "$file" == *eslint.config.js || "$file" == *.eslintrc.json ]]; then
               continue
             fi
-
             echo "🟦 SF Code Analyzer scanning (LWC report): $file"
             rm -f tmp_lwc.csv
-
             # ✅ 4) Run SFCA targeting the eslint engine
             # Capture both stdout and stderr to a log file to prevent it from bypassing filters
             sf code-analyzer run \
@@ -780,29 +719,22 @@ jobs:
             
             # Print the logs but strip color codes and delete everything from the original "=== Summary" downwards
             cat sfca_lwc.log | sed -r 's/\x1B\[[0-9;]*[a-zA-Z]//g' | sed '/=== Summary/,$d' || true
-
             # ✅ 5) Execute the Python Parser to append real violations
             if [[ -f tmp_lwc.csv && -s tmp_lwc.csv ]]; then
               isTemp=0
               [[ "$file" == temp_scanner_files/* ]] && isTemp=1
               tempBase="$(basename "$file")"
-
               python3 -c "import textwrap, os; exec(textwrap.dedent(os.environ['PYTHON_SCRIPT']))" \
                 "$file" "${COMMIT_AUTHOR}" "${TARGET_BRANCH}" "$isTemp" "$tempBase" >> lwc-scanner-report.csv
             fi
-
           done < files_to_scan.txt
-
           lwc_count=$(tail -n +2 lwc-scanner-report.csv | awk 'NF' | wc -l | tr -d ' ')
           lwc_files=$(tail -n +2 lwc-scanner-report.csv | awk 'NF' | cut -d',' -f5 | sort -u | wc -l | tr -d ' ')
-
           echo "=== Summary"
           echo "found $lwc_count violations in $lwc_files files"
           echo ""
-
           echo "✅ LWC-only report (first 50 lines):"
           head -n 50 lwc-scanner-report.csv
-
           if [ "$lwc_count" -gt 0 ]; then
             echo "LWC_HAS_VIOLATIONS=true" >> $GITHUB_ENV
             echo "✅ LWC violations found: $lwc_count"
@@ -810,7 +742,6 @@ jobs:
             echo "LWC_HAS_VIOLATIONS=false" >> $GITHUB_ENV
             echo "❌ No LWC violations found"
           fi
-
       - name: Authenticate with Salesforce
         id: sf-auth
         run: |
@@ -859,46 +790,37 @@ jobs:
             echo "No LWC report (no LWC violations). Creating temporary empty file for gate logic."
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
           fi
-
           violation_count=$(tail -n +2 lwc-scanner-report.csv | wc -l)
           if [ "$violation_count" -eq 0 ]; then
             echo "No LWC violations found. Skipping Salesforce upload."
             exit 0
           fi
-
           echo "Uploading LWC scanner report to Salesforce..."
           curl -X POST "${{ vars.SF_DOMAIN_URL }}/services/data/v61.0/sobjects/ContentVersion" \
             -H "Authorization: Bearer $SF_ACCESS_TOKEN" \
             -H "Content-Type: multipart/form-data" \
             -F "entity_content={\"Title\": \"LWC_${{ env.FILE_TITLE }}\", \"PathOnClient\": \"lwc-scanner-report.csv\"};type=application/json" \
             -F "VersionData=@lwc-scanner-report.csv;type=text/csv"
-
       - name: Debug - List Files Before Upload
         if: always()
         run: |
           echo "Listing files before uploading scanner report:"
           ls -lah
-
-
       # ✅ Existing gate remains (uses scanner-report.csv)
       # ✅ FINAL FIXED GATE (correct file + severity counting)
       - name: HARD FAIL Block PR on Violations + Severity buckets
         shell: bash
         run: |
           set -euo pipefail
-
           if [[ ! -f scanner-report.csv ]]; then
             echo "❌ scanner-report.csv not found"
             exit 1
           fi
-
           if [[ ! -f lwc-scanner-report.csv ]]; then
             echo "No LWC report found. Creating empty placeholder."
             echo "rule,engine,severity,tags,file,startLine,startColumn,endLine,endColumn,message,resources,CommitAuthor,CommitAuthorFirstName,ActualLine,TargetBranch" > lwc-scanner-report.csv
           fi
-
           echo "🔍 Evaluating scanner-report.csv and lwc-scanner-report.csv"
-
           # --------------------------------------------------
           # 1️⃣ Severity 1-2 (BLOCKING) – FIXED LOGIC
           # --------------------------------------------------
@@ -913,7 +835,6 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
-
           sev_1_2_lwc=$(awk -F',' '
             NR>1 {
               sev=$3
@@ -925,9 +846,7 @@ jobs:
             }
             END { print c+0 }
           ' lwc-scanner-report.csv)
-
           sev_1_2_total=$((sev_1_2_apex + sev_1_2_lwc))
-
           # --------------------------------------------------
           # 2️⃣ Severity 3-5
           # --------------------------------------------------
@@ -942,7 +861,6 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
-
           sev_3_5_lwc=$(awk -F',' '
             NR>1 {
               sev=$3
@@ -954,9 +872,7 @@ jobs:
             }
             END { print c+0 }
           ' lwc-scanner-report.csv)
-
           sev_3_5_total=$((sev_3_5_apex + sev_3_5_lwc))
-
           # --------------------------------------------------
           # 3️⃣ Apex Count (.cls)
           # --------------------------------------------------
@@ -968,7 +884,6 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
-
           # --------------------------------------------------
           # 4️⃣ JS / HTML Count (both reports)
           # --------------------------------------------------
@@ -980,7 +895,6 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
-
           js_lwc=$(awk -F',' '
             NR>1 {
               file=$5
@@ -989,7 +903,6 @@ jobs:
             }
             END { print c+0 }
           ' lwc-scanner-report.csv)
-
           html_main=$(awk -F',' '
             NR>1 {
               file=$5
@@ -998,7 +911,6 @@ jobs:
             }
             END { print c+0 }
           ' scanner-report.csv)
-
           html_lwc=$(awk -F',' '
             NR>1 {
               file=$5
@@ -1007,11 +919,9 @@ jobs:
             }
             END { print c+0 }
           ' lwc-scanner-report.csv)
-
           js_total=$((js_main + js_lwc))
           html_total=$((html_main + html_lwc))
           lwc_total=$((js_total + html_total))
-
           # --------------------------------------------------
           # 5️⃣ SUMMARY
           # --------------------------------------------------
@@ -1024,7 +934,6 @@ jobs:
           echo "Severity 1-2 Violations        : $sev_1_2_total"
           echo "Severity 3-5 Violations        : $sev_3_5_total"
           echo "========================================="
-
           # --------------------------------------------------
           # 6️⃣ HARD BLOCK
           # --------------------------------------------------
@@ -1039,10 +948,7 @@ jobs:
             sed -n '1,200p' lwc-scanner-report.csv || true
             exit 1
           fi
-
           echo "✅ HARD GATE PASSED – PR CAN MERGE"
-
-
       - name: Commit and Push Scanner Reports to `Scanner_Reports` Branch
         if: always()
         shell: bash
@@ -1050,10 +956,8 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           set -euo pipefail
-
           BRANCH_NAME="Scanner_Reports"
           echo "✅ Target Branch: $BRANCH_NAME"
-
           # 1️⃣ Save reports outside repo (to avoid conflicts)
           mkdir -p /tmp/scanner_reports
           cp scanner-report.csv /tmp/scanner_reports/scanner-report.csv
@@ -1062,18 +966,14 @@ jobs:
           else
             echo "No LWC report to preserve."
           fi
-
           # 2️⃣ HARD CLEAN repository (removes package.json changes + temp files)
           git reset --hard
           git clean -fd
-
           # 3️⃣ Configure git identity
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           # 4️⃣ Use PAT for authenticated push
           git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${GITHUB_REPOSITORY}.git"
-
           # 5️⃣ Checkout Scanner_Reports cleanly
           git fetch origin "$BRANCH_NAME" || true
           if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
@@ -1082,20 +982,16 @@ jobs:
             git checkout --orphan "$BRANCH_NAME"
             git rm -rf . >/dev/null 2>&1 || true
           fi
-
           # 6️⃣ Copy reports back into Artifact folder
           mkdir -p Artifact
           OUT_APEX="Artifact/${FILE_TITLE}"
           OUT_LWC="Artifact/LWC_${FILE_TITLE}"
-
           # ----------------------------------------------------
           # Count Apex violations (exclude header)
           # ----------------------------------------------------
           apex_violation_count=$(tail -n +2 /tmp/scanner_reports/scanner-report.csv | wc -l)
-
           apex_added=false
           lwc_added=false
-
           # ----------------------------------------------------
           # Copy Apex report only if violations exist
           # ----------------------------------------------------
@@ -1106,7 +1002,6 @@ jobs:
           else
             echo "Skipping Apex report commit (no violations)"
           fi
-
           # ----------------------------------------------------
           # Copy LWC report only if violations exist
           # ----------------------------------------------------
@@ -1117,7 +1012,6 @@ jobs:
           else
             echo "Skipping LWC report commit (no violations)"
           fi
-
           # ----------------------------------------------------
           # Commit only if at least one report exists
           # ----------------------------------------------------
